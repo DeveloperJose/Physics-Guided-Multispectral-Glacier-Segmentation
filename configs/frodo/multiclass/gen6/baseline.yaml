@@ -1,0 +1,10 @@
+# Inherit from the Gen6 baseline for Frodo
+inherit: configs/frodo/base_gen6.yaml
+
+training_opts:
+  run_name: "gen6_multiclass_baseline"
+  dataset_name: "bibek_w512_o64_f1"
+
+loader_opts:
+  physics_channels: False
+  velocity_channels: False

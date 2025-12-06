@@ -1,0 +1,4 @@
+# Gen6 Baseline for Bilbo - Long training schedule for complex models
+training_opts:
+  epochs: 300
+  early_stopping: 100

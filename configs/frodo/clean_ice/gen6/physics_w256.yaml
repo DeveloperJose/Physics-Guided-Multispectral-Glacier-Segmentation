@@ -1,0 +1,9 @@
+# Inherit from the Gen6 baseline for Frodo
+inherit: configs/frodo/base_gen6.yaml
+
+training_opts:
+  run_name: "gen6_ci_physics_w256"
+  dataset_name: "bibek_w256_o64_f1" # Assuming a w256 version exists or will be created
+
+loader_opts:
+  physics_channels: True

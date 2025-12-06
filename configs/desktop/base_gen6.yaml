@@ -1,0 +1,4 @@
+# Gen6 Baseline for Desktop - Standard schedule for validation
+training_opts:
+  epochs: 150
+  early_stopping: 75
