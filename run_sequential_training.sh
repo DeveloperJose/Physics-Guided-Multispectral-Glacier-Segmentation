@@ -444,7 +444,7 @@ export PHYSICS_VELOCITY_PRIORITY
 ################################################################################
 
 # Step 1: Discover all configs (new hierarchical structure)
-mapfile -t ALL_CONFIGS < <(find configs/${SERVER} -name "*.yaml" -type f 2>/dev/null | sort)
+mapfile -t ALL_CONFIGS < <(find configs/${SERVER} -mindepth 3 -name "*.yaml" -type f 2>/dev/null | sort)
 
 if [ ${#ALL_CONFIGS[@]} -eq 0 ]; then
     print_error "No config files found in: configs/${SERVER}/"
