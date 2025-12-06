@@ -1,0 +1,14 @@
+# Inherit from the Gen5 baseline for debris ice
+inherit: configs/desktop/debris_ice/base_gen5.yaml
+
+# Override training options for a short litmus test
+training_opts:
+  run_name: "gen6_velocity_litmus_test"
+  dataset_name: "bibek_w512_o64_f1_velocity"
+  epochs: 20
+  early_stopping: 10
+
+# Explicitly set the dataset name to the one we just reprocessed
+loader_opts:
+  dataset_name: "bibek_w512_o64_f1_velocity"
+  velocity_channels: True

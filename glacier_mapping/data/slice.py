@@ -208,8 +208,25 @@ def get_tiff_np(
 
     if add_velocity_to_output:
         if velocity_fname.exists():
+            # Explicitly reproject velocity data to match the main TIFF's grid
+            from rasterio.warp import reproject, Resampling
+
             velocity = read_tiff(velocity_fname)
-            velocity_np = np.transpose(velocity.read(), (1, 2, 0)).astype(np.float32)
+
+            # Create a destination array with the same shape as the tiff, but with 4 bands for velocity
+            destination = np.zeros((4, tiff.height, tiff.width), dtype=np.float32)
+
+            reproject(
+                source=rasterio.band(velocity, [1, 2, 3, 4]),
+                destination=destination,
+                src_transform=velocity.transform,
+                src_crs=velocity.crs,
+                dst_transform=tiff.transform,
+                dst_crs=tiff.crs,
+                resampling=Resampling.bilinear,
+            )
+
+            velocity_np = np.transpose(destination, (1, 2, 0)).astype(np.float32)
             velocity_np = np.nan_to_num(velocity_np)  # NaN → 0
             if verbose:
                 log.debug(f"Loaded velocity data: shape={velocity_np.shape}")
