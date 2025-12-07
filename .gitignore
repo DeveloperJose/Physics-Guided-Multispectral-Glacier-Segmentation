@@ -2,17 +2,11 @@ dissertation/
 original_code/
 Python-Physics-LSTM/
 netcdf4-glacier-code/
+archive/
 AGENTS**
 CLAUDE**
+**output/
 
-**old_output*/**
-**output/**
-**outputs/**
-**run/**
-**runs/**
-**tmp/**
-**temp/**
-**debug/**
 .ruff_cache/
 .python-version
 .vscode
