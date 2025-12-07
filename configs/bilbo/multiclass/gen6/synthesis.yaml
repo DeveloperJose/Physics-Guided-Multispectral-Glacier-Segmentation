@@ -3,9 +3,13 @@ inherit: configs/bilbo/base_gen6.yaml
 
 training_opts:
   run_name: "gen6_synthesis_multiclass"
-  dataset_name: "bibek_w512_o64_f1_velocity"
+  dataset_name: "bibek_w512_o64_f1_comprehensive_phys64_s1"
 
 # The Synthesis Model: Combine Physics and Velocity
 loader_opts:
-  physics_channels: True
-  velocity_channels: True
+  landsat_channels: true
+  dem_channels: true
+  spectral_indices_channels: true
+  hsv_channels: true
+  physics_channels: true
+  velocity_channels: true

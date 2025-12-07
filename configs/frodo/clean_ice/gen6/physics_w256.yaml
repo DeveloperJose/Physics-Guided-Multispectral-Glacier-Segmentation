@@ -3,7 +3,12 @@ inherit: configs/frodo/base_gen6.yaml
 
 training_opts:
   run_name: "gen6_ci_physics_w256"
-  dataset_name: "bibek_w256_o64_f1" # Assuming a w256 version exists or will be created
+  dataset_name: "bibek_w256_o64_f1_comprehensive_phys64_s1"
 
 loader_opts:
-  physics_channels: True
+  landsat_channels: true
+  dem_channels: true
+  spectral_indices_channels: true
+  hsv_channels: true
+  physics_channels: true
+  velocity_channels: false

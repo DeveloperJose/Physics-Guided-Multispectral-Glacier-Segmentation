@@ -1,0 +1,21 @@
+# Comprehensive dataset with all channels enabled for Gen6 experiments (phys64_s1)
+# This replaces preprocess_w512.yaml and provides all possible channels
+# Use channel selection in training configs to enable/disable specific groups
+output_name: "bibek_w512_o64_f1_comprehensive_phys64_s1"
+
+# Preprocessing parameters
+window_size: [512, 512]
+overlap: 64
+filter: 0.1
+test: 0.2
+val: 0.1
+
+# Enable all possible channels for maximum flexibility
+add_velocity: true
+add_ndvi: true
+add_ndwi: true
+add_ndsi: true
+add_hsv: true
+physics_res: 64
+physics_scale: 1.0  # phys64_s1 - optimal for debris ice (Gen1 finding)
+save_skipped_visualizations: false
