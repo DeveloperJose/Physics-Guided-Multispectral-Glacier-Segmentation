@@ -1,0 +1,8 @@
+# Gen6 Bilbo (4090): Debris Ice 256px Baseline (Large Batch)
+training_opts:
+  dataset_name: bibek_w256_o64_f1_comprehensive_phys64_s1
+  run_name: dci_base_w256_gen6_bilbo
+
+loader_opts:
+  velocity_channels: false
+  physics_channels: false

@@ -1,0 +1,8 @@
+# Gen6 Frodo GPU 2: Multi-class 512px Synthesis (512px window)
+training_opts:
+  dataset_name: bibek_w512_o64_f1_comprehensive_phys64_s1
+  run_name: multi_synthesis_w512_gen6_gpu2
+
+loader_opts:
+  velocity_channels: true
+  physics_channels: true

@@ -478,11 +478,13 @@ def main():
     if run_test_eval:
         test_eval_n = training_opts.get("test_eval_n", 4) if not args.no_output else 0
         # Extract optimization parameters
-        test_eval_baseline_epoch = training_opts.get("test_eval_baseline_epoch", 15)
+        test_eval_baseline_epoch = training_opts.get("test_eval_baseline_epoch", 35)
         test_eval_aggressive_threshold = training_opts.get(
-            "test_eval_aggressive_threshold", 0.05
+            "test_eval_aggressive_threshold", 0.15
         )
-        test_eval_transition_epoch = training_opts.get("test_eval_transition_epoch", 50)
+        test_eval_transition_epoch = training_opts.get(
+            "test_eval_transition_epoch", 130
+        )
 
         callbacks.append(
             TestEvaluationCallback(

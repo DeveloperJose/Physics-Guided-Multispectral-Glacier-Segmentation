@@ -1,4 +1,0 @@
-# Gen6 Baseline for Frodo - Balanced schedule for comparative experiments
-training_opts:
-  epochs: 200
-  early_stopping: 75

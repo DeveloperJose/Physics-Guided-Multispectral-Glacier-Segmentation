@@ -32,6 +32,7 @@ PRIORITY_ORDER="dci,ci,multi" # Default priority: DCI → CI → Multi
 EXCLUDE_BASE=false
 ONLY_BASE=false
 PHYSICS_VELOCITY_PRIORITY=false # Prioritize physics+velocity configs within each task
+GPU_FILTER=""                 # Filter by GPU designation (e.g., "gpu0", "gpu1")
 
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -102,9 +103,10 @@ ${BOLD}FILTERING & PRIORITY OPTIONS:${NC}
     --priority ORDER    Task execution priority (default: dci,ci,multi)
                         Example: --priority ci,dci,multi
     --physics-velocity-priority
-                        Prioritize physics+velocity configs first within each task
+                         Prioritize physics+velocity configs first within each task
     --exclude-base      Skip all base dataset configs
     --only-base         Run only base dataset configs
+    --gpu-filter GPU    Filter configs by GPU designation (e.g., gpu0, gpu1)
 
 ${BOLD}EXAMPLES:${NC}
     # Run all configs in priority order (DCI → CI → Multi, base last)
@@ -319,6 +321,29 @@ filter_base_configs() {
     done
 }
 
+filter_gpu_configs() {
+    # Filter configs by GPU designation
+    # Arguments: gpu_filter (e.g., "gpu0", "gpu1"), config files (space-separated)
+
+    local gpu_filter="$1"
+    shift
+    local configs=("$@")
+
+    if [ -z "$gpu_filter" ]; then
+        # No filter, return all
+        printf '%s\n' "${configs[@]}"
+        return
+    fi
+
+    for config in "${configs[@]}"; do
+        local basename=$(basename "$config" .yaml)
+        # Check if config contains the GPU designation
+        if [[ "$basename" =~ ${gpu_filter} ]]; then
+            echo "$config"
+        fi
+    done
+}
+
 ################################################################################
 # Parse Arguments
 ################################################################################
@@ -374,6 +399,10 @@ while [[ $# -gt 0 ]]; do
     --physics-velocity-priority)
         PHYSICS_VELOCITY_PRIORITY=true
         shift
+        ;;
+    --gpu-filter)
+        GPU_FILTER="$2"
+        shift 2
         ;;
     --help)
         show_usage
@@ -438,13 +467,14 @@ done
 export SERVER
 export PRIORITY_ORDER
 export PHYSICS_VELOCITY_PRIORITY
+export GPU_FILTER
 
 ################################################################################
 # Find and Sort Config Files
 ################################################################################
 
 # Step 1: Discover all configs (new hierarchical structure)
-mapfile -t ALL_CONFIGS < <(find configs/${SERVER} -mindepth 3 -name "*.yaml" -type f 2>/dev/null | sort)
+mapfile -t ALL_CONFIGS < <(find configs/${SERVER} -mindepth 2 -name "*.yaml" -type f 2>/dev/null | sort)
 
 if [ ${#ALL_CONFIGS[@]} -eq 0 ]; then
     print_error "No config files found in: configs/${SERVER}/"
@@ -465,7 +495,12 @@ elif [ "$ONLY_BASE" = true ]; then
     mapfile -t FILTERED_CONFIGS < <(filter_base_configs "only" "${FILTERED_CONFIGS[@]}")
 fi
 
-# Step 4: Sort by priority
+# Step 4: Apply GPU filtering
+if [ -n "$GPU_FILTER" ]; then
+    mapfile -t FILTERED_CONFIGS < <(filter_gpu_configs "$GPU_FILTER" "${FILTERED_CONFIGS[@]}")
+fi
+
+# Step 5: Sort by priority
 mapfile -t CONFIG_FILES < <(sort_configs_by_priority "${FILTERED_CONFIGS[@]}")
 
 # Check if we have any configs after filtering

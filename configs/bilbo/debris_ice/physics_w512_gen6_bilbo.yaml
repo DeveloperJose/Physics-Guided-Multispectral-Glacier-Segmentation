@@ -1,0 +1,8 @@
+# Gen6 Bilbo (4090): Debris Ice 512px Physics (Large Batch)
+training_opts:
+  dataset_name: bibek_w512_o64_f1_comprehensive_phys64_s1
+  run_name: dci_physics_w512_gen6_bilbo
+
+loader_opts:
+  velocity_channels: false
+  physics_channels: true
