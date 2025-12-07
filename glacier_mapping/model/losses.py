@@ -19,7 +19,7 @@ class customloss(nn.Module):
         masked=True,
         theta0=3,
         theta=5,
-        foreground_classes=None,
+        foreground_indices=None,
         alpha=0.9,  # compatibility with old code
     ):
         super().__init__()
@@ -30,16 +30,18 @@ class customloss(nn.Module):
         self.theta0 = theta0
         self.theta = theta
 
-        self.foreground_classes = (
-            foreground_classes if foreground_classes is not None else [1]
+        self.foreground_indices = (
+            foreground_indices if foreground_indices is not None else [1]
         )
         self.n_sigma = 2
 
-    def forward(self, pred, target, target_int):
+    def forward(self, pred, target, target_int, velocity=None, velocity_mask=None):
         """
         pred:       (N,C,H,W) raw logits
         target:     (N,C,H,W) one-hot labels
         target_int: (N,H,W)   integer labels, 255 = ignore
+        velocity:   (N,1,H,W) velocity magnitude (optional)
+        velocity_mask: (N,1,H,W) velocity validity mask (optional)
         """
         n, c, h, w = pred.shape
         device = pred.device
@@ -83,7 +85,7 @@ class customloss(nn.Module):
                 dice_loss_scalar = dice_per_class.sum()
             else:
                 class_mask = torch.zeros_like(dice_per_class).to(device)
-                for fg_idx in self.foreground_classes:
+                for fg_idx in self.foreground_indices:
                     if 0 <= fg_idx < dice_per_class.shape[0]:
                         class_mask[fg_idx] = 1.0
                 dice_loss_scalar = (dice_per_class * class_mask).sum()
@@ -121,4 +123,23 @@ class customloss(nn.Module):
         BF1 = 2 * P * R / (P + R + 1e-7)
         boundary_loss = torch.mean(1 - BF1)
 
-        return [dice_loss_scalar, boundary_loss]
+        # Velocity Consistency Loss
+        velocity_loss = torch.tensor(0.0, device=device)
+        if velocity is not None and velocity_mask is not None:
+            # Determine Probability of Background (Non-Glacier)
+            # Binary: pred_prob is P(Foreground), so P(BG) = 1 - pred_prob
+            # Multi: pred_prob is (N,C,H,W), index 0 is BG, so P(BG) = pred_prob[:, 0:1]
+            if C_eff == 1:
+                p_bg = 1.0 - pred_prob
+            else:
+                p_bg = pred_prob[:, 0:1]
+
+            # Penalize: High Velocity AND High Probability of Background
+            # Loss = mean( P(BG) * Velocity * Mask )
+            # We assume velocity is passed in positive magnitude units (e.g. meters/year)
+            # The sigma weighting will handle the scale difference.
+            numerator = (p_bg * velocity * velocity_mask).sum()
+            denominator = velocity_mask.sum() + 1e-7
+            velocity_loss = numerator / denominator
+
+        return [dice_loss_scalar, boundary_loss, velocity_loss]

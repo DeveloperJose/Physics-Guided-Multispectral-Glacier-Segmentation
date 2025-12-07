@@ -3,11 +3,19 @@
 
 import argparse
 import pathlib
+import warnings
 from typing import Dict, Any
 
 import torch
 import yaml
 import pytorch_lightning as pl
+
+# Suppress "scheduler.step() before optimizer.step()" warning (benign in this Lightning+OneCycleLR context)
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    message=".*Detected call of `lr_scheduler.step()` before `optimizer.step()`.*",
+)
 from pytorch_lightning.callbacks import (
     ModelCheckpoint,
     LearningRateMonitor,

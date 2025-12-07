@@ -120,6 +120,13 @@ class GlacierSegmentationModule(pl.LightningModule):
         )
 
         # Initialize loss function - filter only supported args
+        # Map target_class_ids (from config) to foreground_indices (for loss)
+        if "target_class_ids" in loss_opts:
+            loss_opts["foreground_indices"] = loss_opts["target_class_ids"]
+        elif "foreground_classes" in loss_opts:
+            # Backward compatibility
+            loss_opts["foreground_indices"] = loss_opts["foreground_classes"]
+
         supported_loss_args = {
             "act",
             "smooth",
@@ -127,16 +134,51 @@ class GlacierSegmentationModule(pl.LightningModule):
             "masked",
             "theta0",
             "theta",
-            "foreground_classes",
+            "foreground_indices",
             "alpha",
         }
         loss_args = {k: v for k, v in loss_opts.items() if k in supported_loss_args}
+
+        # FIX: Ensure foreground_indices matches model output indices
+        # If binary classification (out_channels=2), the foreground is ALWAYS index 1.
+        # But config might say [2] (Debris) or [1] (Clean Ice).
+        if out_channels == 2 and "foreground_indices" in loss_args:
+            if loss_args["foreground_indices"] != [1]:
+                print(
+                    f"Binary Classification detected. Remapping foreground_indices {loss_args['foreground_indices']} to [1]"
+                )
+                loss_args["foreground_indices"] = [1]
+
         self.loss_fn = customloss(**loss_args)
 
         # Initialize learnable sigma parameters for loss weighting
+        # 3 sigmas: Dice, Boundary, Velocity
         self.sigma_list = nn.ParameterList(
-            [nn.Parameter(torch.tensor(1.0)) for _ in range(2)]
+            [nn.Parameter(torch.tensor(1.0)) for _ in range(3)]
         )
+
+        # Identify velocity channel indices for Physics Loss
+        self.velocity_idx = None
+        self.velocity_mask_idx = None
+
+        # Load band names to find indices
+        from glacier_mapping.data.data import load_band_names
+
+        band_names = load_band_names(self.processed_dir)
+
+        # Find indices in the USED channels list
+        used_band_names = band_names[self.use_channels]
+        if "velocity" in used_band_names:
+            # np.where returns tuple of arrays, take first element [0]
+            self.velocity_idx = np.where(used_band_names == "velocity")[0][0]
+
+        if "velocity_mask" in used_band_names:
+            self.velocity_mask_idx = np.where(used_band_names == "velocity_mask")[0][0]
+
+        if self.velocity_idx is not None and self.velocity_mask_idx is not None:
+            print(
+                f"Physics Loss Enabled: velocity_idx={self.velocity_idx}, velocity_mask_idx={self.velocity_mask_idx}"
+            )
 
         # Initialize metrics
         self._setup_metrics()
@@ -197,7 +239,33 @@ class GlacierSegmentationModule(pl.LightningModule):
 
         # Forward pass
         y_hat = self(x)
-        loss = self.compute_loss(y_hat, y_onehot, y_int)
+
+        # Extract Physics Data if available
+        velocity = None
+        velocity_mask = None
+
+        if self.velocity_idx is not None:
+            # Extract normalized velocity
+            vel_norm = x[:, self.velocity_idx : self.velocity_idx + 1, :, :]
+
+            # Un-normalize to get physical units (meters/year)
+            if self.normalization == "mean-std":
+                mean = self.norm_arr[0, self.velocity_idx]
+                std = self.norm_arr[1, self.velocity_idx]
+                velocity = vel_norm * std + mean
+            elif self.normalization == "min-max":
+                _min = self.norm_arr_full[2, self.velocity_idx]
+                _max = self.norm_arr_full[3, self.velocity_idx]
+                velocity = vel_norm * (_max - _min) + _min
+
+        if self.velocity_mask_idx is not None:
+            velocity_mask = x[
+                :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
+            ]
+
+        loss = self.compute_loss(
+            y_hat, y_onehot, y_int, velocity=velocity, velocity_mask=velocity_mask
+        )
 
         # Log metrics
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
@@ -218,7 +286,30 @@ class GlacierSegmentationModule(pl.LightningModule):
 
         with torch.no_grad():
             y_hat = self(x)
-            loss = self.compute_loss(y_hat, y_onehot, y_int)
+
+            # Extract Physics Data if available
+            velocity = None
+            velocity_mask = None
+
+            if self.velocity_idx is not None:
+                vel_norm = x[:, self.velocity_idx : self.velocity_idx + 1, :, :]
+                if self.normalization == "mean-std":
+                    mean = self.norm_arr[0, self.velocity_idx]
+                    std = self.norm_arr[1, self.velocity_idx]
+                    velocity = vel_norm * std + mean
+                elif self.normalization == "min-max":
+                    _min = self.norm_arr_full[2, self.velocity_idx]
+                    _max = self.norm_arr_full[3, self.velocity_idx]
+                    velocity = vel_norm * (_max - _min) + _min
+
+            if self.velocity_mask_idx is not None:
+                velocity_mask = x[
+                    :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
+                ]
+
+            loss = self.compute_loss(
+                y_hat, y_onehot, y_int, velocity=velocity, velocity_mask=velocity_mask
+            )
 
         # Log metrics
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
@@ -297,20 +388,46 @@ class GlacierSegmentationModule(pl.LightningModule):
                 )
 
     def compute_loss(
-        self, y_hat: torch.Tensor, y_onehot: torch.Tensor, y_int: torch.Tensor
+        self,
+        y_hat: torch.Tensor,
+        y_onehot: torch.Tensor,
+        y_int: torch.Tensor,
+        velocity: Optional[torch.Tensor] = None,
+        velocity_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Compute custom loss with sigma weighting."""
         # Compute custom loss (returns list of losses)
-        losses = self.loss_fn(y_hat, y_onehot, y_int)
+        losses = self.loss_fn(
+            y_hat, y_onehot, y_int, velocity=velocity, velocity_mask=velocity_mask
+        )
 
         # Apply sigma weighting like in original Framework
         total_loss = torch.zeros(1, device=y_hat.device)
-        sigma_mult = torch.ones(1, device=y_hat.device)
 
-        for _loss, sig in zip(losses, self.sigma_list):
-            weighted_loss = _loss / (len(self.sigma_list) * sig**2)
+        # Log sigmas for monitoring
+        if self.sigma_list is not None:
+            self.log("sigma_dice", self.sigma_list[0], on_step=True, on_epoch=True)
+            self.log("sigma_boundary", self.sigma_list[1], on_step=True, on_epoch=True)
+            if len(self.sigma_list) > 2:
+                self.log(
+                    "sigma_velocity", self.sigma_list[2], on_step=True, on_epoch=True
+                )
+
+        for i, (_loss, sig) in enumerate(zip(losses, self.sigma_list)):
+            # Weighting formula: 1/(2*sigma^2) * Loss + log(sigma)
+            # Or the simplified version used here: Loss / (N * sigma^2)
+
+            # Use sig**2 + epsilon to avoid division by zero
+            # Use 0.5 * log(sig**2) to ensure argument to log is positive
+
+            var = sig**2 + 1e-8
+            # Kendall et al. (2018) uses 2*sigma^2 denominator
+            weighted_loss = _loss / (2.0 * var)
             total_loss += weighted_loss
-            sigma_mult *= sig
+
+            # Regularization term: log(sigma)
+            # Equivalent to 0.5 * log(sigma^2)
+            total_loss += 0.5 * torch.log(var)
 
         return total_loss[0]
 
