@@ -24,7 +24,7 @@ import sys
 import tempfile
 import traceback
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, Tuple
 import logging
 
 import torch
@@ -37,7 +37,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from glacier_mapping.utils.config import load_config, load_server_config
 from glacier_mapping.lightning.glacier_datamodule import GlacierDataModule
 from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
-from glacier_mapping.data.data import load_band_names
 
 
 class GlacierTaskTestSuite:
@@ -55,7 +54,7 @@ class GlacierTaskTestSuite:
         logging.basicConfig(level=logging.INFO, format="%(message)s")
         self.logger = logging.getLogger(__name__)
 
-        print(f"=== GLACIER MAPPING COMPREHENSIVE TEST SUITE ===")
+        print("=== GLACIER MAPPING COMPREHENSIVE TEST SUITE ===")
         print(f"Server: {server} | Subset Size: {subset_size} | Epochs: {epochs}")
         print(f"Temp Directory: {self.temp_dir}")
         print(f"Timestamp: {self._get_timestamp()}")
@@ -282,7 +281,7 @@ class GlacierTaskTestSuite:
 
             print(f"  ✓ output_classes: {output_classes}")
             print(f"  ✓ target_class_ids: {target_class_ids}")
-            print(f"  ✓ 4-level merging successful")
+            print("  ✓ 4-level merging successful")
 
             result["tests"]["config"] = {
                 "output_classes": output_classes,
@@ -372,20 +371,46 @@ class GlacierTaskTestSuite:
             # 4. Model Integration
             print("1.4 Model Integration:")
 
-            # Create Lightning module with correct channel count
-            model_opts = config.get("model_opts", {}).copy()
-            model_opts["args"] = model_opts.get("args", {}).copy()
-            model_opts["args"]["in_channels"] = len(data_module.use_channels)
+            # Extract channel and class configuration from loader_opts to pass to the model.
+            # This ensures the model and data module use the exact same channel settings.
+            loader_opts = config.get("loader_opts", {})
+            loader_opts["processed_dir"] = str(
+                dataset_path
+            )  # Ensure model knows data path
 
+            model_init_args = {
+                key: loader_opts.get(key)
+                for key in [
+                    "landsat_channels",
+                    "dem_channels",
+                    "spectral_indices_channels",
+                    "hsv_channels",
+                    "physics_channels",
+                    "velocity_channels",
+                    "output_classes",
+                    "class_names",
+                ]
+                if key in loader_opts
+            }
+
+            # Create Lightning module
             model = GlacierSegmentationModule(
-                model_opts=model_opts,
+                model_opts=config.get("model_opts", {}),
                 loss_opts=config.get("loss_opts", {}),
                 optim_opts=config.get("optim_opts", {}),
                 metrics_opts=config.get("metrics_opts", {}),
-                loader_opts=config.get("loader_opts", {}),
+                loader_opts=loader_opts,  # Pass full loader_opts for other settings
+                **model_init_args,
             )
 
-            print(f"  ✓ Model input channels: {len(data_module.use_channels)}")
+            # Verification: Ensure channel counts match
+            if len(data_module.use_channels) != len(model.use_channels):
+                raise ValueError(
+                    f"Channel count mismatch: data module has {len(data_module.use_channels)} "
+                    f"but model has {len(model.use_channels)}. Check channel configs."
+                )
+
+            print(f"  ✓ Model input channels: {len(model.use_channels)}")
             print(f"  ✓ Model output channels: {model.model.seg_layer.out_channels}")
 
             # Test forward pass
@@ -396,10 +421,10 @@ class GlacierTaskTestSuite:
                 # Check activation
                 if logits.shape[1] == 2:
                     probs = torch.sigmoid(logits)
-                    print(f"  ✓ Activation: sigmoid (binary)")
+                    print("  ✓ Activation: sigmoid (binary)")
                 else:
                     probs = torch.softmax(logits, dim=1)
-                    print(f"  ✓ Activation: softmax (multi-class)")
+                    print("  ✓ Activation: softmax (multi-class)")
 
                 print(f"  ✓ Probability range: [{probs.min():.3f}, {probs.max():.3f}]")
 
@@ -486,7 +511,7 @@ class GlacierTaskTestSuite:
                     f"Output channel mismatch: expected {expected_output_channels}, got {actual_output_channels}"
                 )
 
-            print(f"  ✓ Config → Data → Model → Loss pipeline consistent")
+            print("  ✓ Config → Data → Model → Loss pipeline consistent")
             print(f"  ✓ {task_name} task validation completed successfully")
 
             result["tests"]["end_to_end"] = {
