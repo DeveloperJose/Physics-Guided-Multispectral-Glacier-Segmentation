@@ -1,8 +1,0 @@
-# Gen6 Frodo GPU 3: Multi-class 512px Synthesis (GPU 3 validation)
-training_opts:
-  dataset_name: bibek_w512_o64_f1_comprehensive_phys64_s1
-  run_name: multi_synthesis_w512_gen6_gpu3
-
-loader_opts:
-  velocity_channels: true
-  physics_channels: true

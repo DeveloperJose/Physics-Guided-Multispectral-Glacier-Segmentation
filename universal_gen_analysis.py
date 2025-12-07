@@ -117,13 +117,25 @@ def extract_error_logs(run_id: str) -> Dict[str, Any]:
         log_files = [
             f.path
             for f in artifacts
-            if f.path in ["stderr.txt", "stdout.txt", "logs/hydra.log"]
+            if f.path.endswith(".log") or f.path.endswith(".txt")
         ]
+
+        if not log_files:
+            for item in artifacts:
+                if item.is_dir and item.path in ["logs", "hydra"]:
+                    sub_artifacts = client.list_artifacts(run_id, item.path)
+                    log_files.extend(
+                        f"{item.path}/{f.path}"
+                        for f in sub_artifacts
+                        if f.path.endswith(".log") or f.path.endswith(".txt")
+                    )
 
         if not log_files:
             return {"error_logs_found": False, "error_details": "No log files found."}
 
-        log_file = "stderr.txt" if "stderr.txt" in log_files else log_files[0]
+        priority = ["stderr.txt", "hydra.log", "stdout.txt"]
+        log_file = next((f for f in priority if f in log_files), log_files[0])
+
         local_path = client.download_artifacts(run_id, log_file)
 
         with open(local_path, "r", encoding="utf-8") as f:
@@ -356,14 +368,33 @@ def generate_outputs(processed_runs: List[Dict[str, Any]], generation_id: str) -
     generate_markdown_summary(output_data, output_dir)
 
 
+def get_primary_iou(run: Dict[str, Any]) -> float:
+    """Get the primary IoU metric for a given run based on its task."""
+    task = run.get("configuration", {}).get("task")
+    perf = run.get("performance", {}).get("best_metrics", {})
+
+    if task == "clean_ice":
+        return perf.get("best_test_CleanIce_iou", 0)
+    elif task == "debris_ice":
+        return perf.get("best_test_DebrisIce_iou", 0)
+    elif task == "multiclass":
+        # For multiclass, we might average or prioritize one. Let's prioritize CleanIce for now.
+        return perf.get(
+            "best_test_CleanIce_iou", perf.get("best_test_DebrisIce_iou", 0)
+        )
+    return 0
+
+
 def generate_markdown_summary(data: Dict[str, Any], output_dir: Path) -> None:
-    """Generate markdown summary report."""
+    """Generate a comprehensive markdown summary report."""
     summary = data.get("summary_statistics", {})
     runs = data.get("runs", [])
     generation_id = data.get("generation", "Unknown")
 
     md = f"# {generation_id.upper()} Comprehensive Analysis Report\n\n"
     md += f"Generated: {data.get('extraction_time', 'N/A')}\n\n"
+
+    # --- Executive Summary ---
     md += "## Executive Summary\n\n"
     md += f"- **Total Runs**: {summary.get('total_runs', 0)}\n"
     md += f"- **Success Rate**: {summary.get('success_rate', 0.0):.1f}%\n"
@@ -376,15 +407,95 @@ def generate_markdown_summary(data: Dict[str, Any], output_dir: Path) -> None:
         md += f"- **Average Duration**: {timing.get('average_hours', 0):.2f} hours\n"
         md += f"- **Range**: {timing.get('min_hours', 0):.2f} - {timing.get('max_hours', 0):.2f} hours\n\n"
 
-    if "configuration_distribution" in summary:
-        md += "### Configuration Distribution\n\n"
-        for key, values in summary["configuration_distribution"].items():
-            md += f"**{key.replace('_', ' ').title()}**:\n"
-            if values:
-                for item, count in values.items():
-                    md += f"- {item}: {count}\n"
-            md += "\n"
+    # --- Top Performers ---
+    finished_runs = [r for r in runs if r.get("status") == "FINISHED"]
+    if finished_runs:
+        md += "## Top Performing Runs\n\n"
+        top_runs = sorted(finished_runs, key=get_primary_iou, reverse=True)[:5]
+        md += "| Run Name | Task | Config | Best IoU |\n"
+        md += "|----------|------|--------|----------|\n"
+        for run in top_runs:
+            iou = get_primary_iou(run)
+            md += f"| {run.get('run_name', 'N/A')} | {run.get('configuration', {}).get('task', 'N/A')} | {run.get('configuration', {}).get('config_type', 'N/A')} | {iou:.4f} |\n"
+        md += "\n"
 
+    # --- Server Performance ---
+    if "configuration_distribution" in summary:
+        md += "## Server Performance Comparison\n\n"
+        server_stats: Dict[str, Dict[str, Any]] = {}
+        for run in runs:
+            server = run.get("configuration", {}).get("server", "unknown")
+            if server not in server_stats:
+                server_stats[server] = {"total": 0, "finished": 0, "durations": []}
+            server_stats[server]["total"] += 1
+            if run["status"] == "FINISHED":
+                server_stats[server]["finished"] += 1
+                if run.get("timing", {}).get("duration_hours"):
+                    server_stats[server]["durations"].append(
+                        run["timing"]["duration_hours"]
+                    )
+
+        md += "| Server | Total Runs | Success Rate | Avg. Duration (h) |\n"
+        md += "|--------|------------|--------------|-------------------|\n"
+        for server, stats in server_stats.items():
+            rate = (
+                (stats["finished"] / stats["total"] * 100) if stats["total"] > 0 else 0
+            )
+            avg_dur = np.mean(stats["durations"]) if stats["durations"] else 0
+            md += f"| {server} | {stats['total']} | {rate:.1f}% | {avg_dur:.2f} |\n"
+        md += "\n"
+
+    # --- Task-Specific Analysis ---
+    tasks = sorted(
+        list(set(r.get("configuration", {}).get("task", "unknown") for r in runs))
+    )
+    for task in tasks:
+        if task == "unknown":
+            continue
+        md += f"## Task-Specific Analysis: {task.replace('_', ' ').title()}\n\n"
+        task_runs = [
+            r for r in finished_runs if r.get("configuration", {}).get("task") == task
+        ]
+
+        if not task_runs:
+            md += "No finished runs for this task.\n\n"
+            continue
+
+        # Config Type Summary
+        config_perf: Dict[str, Dict[str, List[float]]] = {}
+        for run in task_runs:
+            config = run.get("configuration", {}).get("config_type", "unknown")
+            if config not in config_perf:
+                config_perf[config] = {"ious": [], "losses": []}
+
+            iou = get_primary_iou(run)
+            loss = (
+                run.get("performance", {}).get("best_metrics", {}).get("best_val_loss")
+            )
+            if iou:
+                config_perf[config]["ious"].append(iou)
+            if loss:
+                config_perf[config]["losses"].append(loss)
+
+        md += "### Performance by Configuration Type\n\n"
+        md += "| Config Type | Avg. Best IoU | Avg. Best Val Loss |\n"
+        md += "|-------------|---------------|--------------------|\n"
+        for config, perf in config_perf.items():
+            avg_iou = np.mean(perf["ious"]) if perf["ious"] else 0
+            avg_loss = np.mean(perf["losses"]) if perf["losses"] else 0
+            md += f"| {config} | {avg_iou:.4f} | {avg_loss:.4f} |\n"
+        md += "\n"
+
+        # Detailed Run Table
+        md += "### Detailed Run Results\n\n"
+        md += "| Run Name | Config | Duration (h) | Epochs | Best Val Loss | Best IoU | Overfitting |\n"
+        md += "|----------|--------|--------------|--------|---------------|----------|-------------|\n"
+        for run in task_runs:
+            iou = get_primary_iou(run)
+            md += f"| {run.get('run_name')} | {run.get('configuration', {}).get('config_type')} | {run.get('timing', {}).get('duration_hours', 0):.2f} | {run.get('timing', {}).get('per_epoch_timing', {}).get('total_epochs', 0)} | {run.get('performance', {}).get('best_metrics', {}).get('best_val_loss', 0):.4f} | {iou:.4f} | {run.get('analysis', {}).get('overfitting_indicator', False)} |\n"
+        md += "\n"
+
+    # --- Failure Analysis ---
     failed_runs = [r for r in runs if r.get("status") == "FAILED"]
     if failed_runs:
         md += "## Failure Analysis\n\n"

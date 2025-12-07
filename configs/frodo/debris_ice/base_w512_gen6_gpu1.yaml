@@ -1,8 +1,0 @@
-# Gen6 Frodo GPU 1: Debris Ice 512px Baseline (512px window)
-training_opts:
-  dataset_name: bibek_w512_o64_f1_comprehensive_phys64_s1
-  run_name: dci_base_w512_gen6_gpu1
-
-loader_opts:
-  velocity_channels: false
-  physics_channels: false

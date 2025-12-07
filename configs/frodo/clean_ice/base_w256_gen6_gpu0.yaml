@@ -1,8 +1,0 @@
-# Gen6 Frodo GPU 0: Clean Ice 256px Baseline (256px window)
-training_opts:
-  dataset_name: bibek_w256_o64_f1_comprehensive_phys64_s1
-  run_name: ci_base_w256_gen6_gpu0
-
-loader_opts:
-  velocity_channels: false
-  physics_channels: false

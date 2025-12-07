@@ -1,8 +1,0 @@
-# Gen6 Bilbo (4090): Clean Ice 256px Velocity (Large Batch)
-training_opts:
-  dataset_name: bibek_w256_o64_f1_comprehensive_phys64_s1
-  run_name: ci_velocity_w256_gen6_bilbo
-
-loader_opts:
-  velocity_channels: true
-  physics_channels: false
