@@ -1,0 +1,20 @@
+# Gen7 Validation: Binary Debris (based on Gen5 dci_base_gen5)
+# Tests binary debris classification with comprehensive dataset and debris bug fix
+# Gen5 achieved debris IoU ~0.087 with this configuration
+
+training_opts:
+  dataset_name: "bibek_w256_o64_f1_comprehensive_phys64_s1"
+  run_name: "gen7_validation_debris_binary"
+  epochs: 150
+  early_stopping: 75
+  test_eval_baseline_epoch: 15
+  test_eval_aggressive_threshold: 0.05
+  test_eval_transition_epoch: 50
+
+loader_opts:
+  physics_channels: false
+  velocity_channels: false
+  # Other settings inherit from train.yaml defaults
+  
+loss_opts:
+  use_velocity_loss: false

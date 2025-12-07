@@ -1,0 +1,19 @@
+# Gen7 Validation: Baseline Multiclass (based on Gen5 multi_base_gen5)
+# Tests baseline multiclass performance with comprehensive dataset and debris bug fix
+
+training_opts:
+  dataset_name: "bibek_w256_o64_f1_comprehensive_phys64_s1"
+  run_name: "gen7_validation_base"
+  epochs: 150
+  early_stopping: 75
+  test_eval_baseline_epoch: 15
+  test_eval_aggressive_threshold: 0.05
+  test_eval_transition_epoch: 50
+
+loader_opts:
+  physics_channels: false
+  velocity_channels: false
+  # Other settings inherit from train.yaml defaults
+  
+loss_opts:
+  use_velocity_loss: false
