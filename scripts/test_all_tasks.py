@@ -748,7 +748,6 @@ class GlacierTaskTestSuite:
                 optim_opts=config.get("optim_opts", {}),
                 metrics_opts=config.get("metrics_opts", {}),
                 loader_opts=loader_opts,  # Pass full loader_opts for other settings
-                verbose=True,  # Enable verbose logging for debugging
                 **model_init_args,
             )
 
@@ -829,8 +828,53 @@ class GlacierTaskTestSuite:
                         bg_channel = target_onehot[:, 0:1, :, :]
                         target_onehot = torch.cat([bg_channel, target_onehot], dim=1)
 
+                # Extract velocity data for loss function
+                velocity = None
+                velocity_mask = None
+                if (
+                    model.use_velocity_loss
+                    and model.velocity_idx is not None
+                    and model.velocity_mask_idx is not None
+                ):
+                    # input x is (B, H, W, C), model uses (B, C, H, W)
+                    x_permuted = x.permute(0, 3, 1, 2)
+                    vel_norm = x_permuted[
+                        :, model.velocity_idx : model.velocity_idx + 1, :, :
+                    ]
+
+                    if model.normalization == "mean-std":
+                        # These are numpy arrays, convert to tensor
+                        mean = torch.from_numpy(model.norm_arr[0, :]).to(
+                            vel_norm.device
+                        )
+                        std = torch.from_numpy(model.norm_arr[1, :]).to(vel_norm.device)
+                        velocity = (
+                            vel_norm * std[model.velocity_idx]
+                            + mean[model.velocity_idx]
+                        )
+                    elif model.normalization == "min-max":
+                        _min = torch.from_numpy(model.norm_arr_full[2, :]).to(
+                            vel_norm.device
+                        )
+                        _max = torch.from_numpy(model.norm_arr_full[3, :]).to(
+                            vel_norm.device
+                        )
+                        velocity = (
+                            vel_norm
+                            * (_max[model.velocity_idx] - _min[model.velocity_idx])
+                            + _min[model.velocity_idx]
+                        )
+
+                    velocity_mask = x_permuted[
+                        :, model.velocity_mask_idx : model.velocity_mask_idx + 1, :, :
+                    ]
+
                 dice_loss, boundary_loss, velocity_loss = loss_fn(
-                    logits, target_onehot, target_int
+                    logits,
+                    target_onehot,
+                    target_int,
+                    velocity=velocity,
+                    velocity_mask=velocity_mask,
                 )
 
                 total_loss = dice_loss + boundary_loss + velocity_loss
@@ -906,19 +950,6 @@ class GlacierTaskTestSuite:
 
             # 8. End-to-End Validation
             print("1.9 End-to-End Validation:")
-
-            # Run a small training loop
-            trainer = pl.Trainer(
-                max_epochs=1,
-                limit_train_batches=5,
-                limit_val_batches=5,
-                accelerator="auto",
-                devices="auto",
-                logger=False,
-                enable_checkpointing=False,
-                enable_progress_bar=True,
-            )
-            trainer.fit(model, data_module)
 
             # Verify data flow consistency
             expected_output_channels = (

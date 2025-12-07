@@ -137,14 +137,6 @@ class customloss(nn.Module):
             else:
                 p_bg = pred_prob[:, 0:1]
 
-            # Debugging: Raise an error to inspect values
-            debug_msg = (
-                f"DEBUG: velocity min={velocity.min():.4f}, max={velocity.max():.4f}, mean={velocity.mean():.4f}, sum={velocity.sum():.4f}\n"
-                f"DEBUG: velocity_mask min={velocity_mask.min():.4f}, max={velocity_mask.max():.4f}, mean={velocity_mask.mean():.4f}, sum={velocity_mask.sum():.4f}\n"
-                f"DEBUG: p_bg min={p_bg.min():.4f}, max={p_bg.max():.4f}, mean={p_bg.mean():.4f}, sum={p_bg.sum():.4f}"
-            )
-            raise ValueError(debug_msg)
-
             # Penalize: High Velocity AND High Probability of Background
             # Loss = mean( P(BG) * Velocity * Mask )
             # We assume velocity is passed in positive magnitude units (e.g. meters/year)

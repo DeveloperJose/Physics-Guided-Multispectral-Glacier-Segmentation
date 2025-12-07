@@ -251,10 +251,6 @@ class GlacierSegmentationModule(pl.LightningModule):
         velocity = None
         velocity_mask = None
 
-        print(
-            f"DEBUG (training_step): use_velocity_loss={self.use_velocity_loss}, velocity_idx={self.velocity_idx}, velocity_mask_idx={self.velocity_mask_idx}"
-        )
-
         if (
             self.use_velocity_loss
             and self.velocity_idx is not None
@@ -276,14 +272,6 @@ class GlacierSegmentationModule(pl.LightningModule):
             velocity_mask = x[
                 :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
             ]
-            if velocity is not None:
-                print(
-                    f"DEBUG (training_step): Extracted velocity min={velocity.min():.4f}, max={velocity.max():.4f}, mean={velocity.mean():.4f}, sum={velocity.sum():.4f}"
-                )
-            if velocity_mask is not None:
-                print(
-                    f"DEBUG (training_step): Extracted velocity_mask min={velocity_mask.min():.4f}, max={velocity_mask.max():.4f}, mean={velocity_mask.mean():.4f}, sum={velocity_mask.sum():.4f}"
-                )
 
         loss = self.compute_loss(
             y_hat, y_onehot, y_int, velocity=velocity, velocity_mask=velocity_mask
@@ -313,10 +301,6 @@ class GlacierSegmentationModule(pl.LightningModule):
             velocity = None
             velocity_mask = None
 
-            print(
-                f"DEBUG (validation_step): use_velocity_loss={self.use_velocity_loss}, velocity_idx={self.velocity_idx}, velocity_mask_idx={self.velocity_mask_idx}"
-            )
-
             if (
                 self.use_velocity_loss
                 and self.velocity_idx is not None
@@ -335,14 +319,6 @@ class GlacierSegmentationModule(pl.LightningModule):
                 velocity_mask = x[
                     :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
                 ]
-                if velocity is not None:
-                    print(
-                        f"DEBUG (validation_step): Extracted velocity min={velocity.min():.4f}, max={velocity.max():.4f}, mean={velocity.mean():.4f}, sum={velocity.sum():.4f}"
-                    )
-                if velocity_mask is not None:
-                    print(
-                        f"DEBUG (validation_step): Extracted velocity_mask min={velocity_mask.min():.4f}, max={velocity_mask.max():.4f}, mean={velocity_mask.mean():.4f}, sum={velocity_mask.sum():.4f}"
-                    )
 
             loss = self.compute_loss(
                 y_hat, y_onehot, y_int, velocity=velocity, velocity_mask=velocity_mask
