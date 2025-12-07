@@ -1,3 +1,0 @@
-training_opts:
-  dataset_name: bibek_w512_o64_f02_v2
-  run_name: multi_f02

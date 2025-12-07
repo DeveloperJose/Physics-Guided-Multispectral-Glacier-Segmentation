@@ -1,6 +1,0 @@
-# Desktop Multi-class Production Gen3
-# Inherits from configs/train.yaml + configs/servers.yaml[desktop] + configs/tasks/multiclass.yaml
-
-training_opts:
-  dataset_name: bibek_w512_o64_f1_v2
-  run_name: desktop_multiclass_base_gen3

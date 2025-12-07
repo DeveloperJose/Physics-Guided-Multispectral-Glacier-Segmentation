@@ -1,3 +1,0 @@
-training_opts:
-  dataset_name: bibek_w512_o64_f20_v2
-  run_name: dci_f20
