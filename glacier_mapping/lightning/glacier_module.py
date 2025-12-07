@@ -68,6 +68,7 @@ class GlacierSegmentationModule(pl.LightningModule):
         # Model configuration
         self.model_opts = model_opts
         self.loss_opts = loss_opts
+        self.use_velocity_loss = self.loss_opts.get("use_velocity_loss", False)
         self.optim_opts = optim_opts
         self.scheduler_opts = scheduler_opts
         self.metrics_opts = metrics_opts or {
@@ -244,7 +245,11 @@ class GlacierSegmentationModule(pl.LightningModule):
         velocity = None
         velocity_mask = None
 
-        if self.velocity_idx is not None:
+        if (
+            self.use_velocity_loss
+            and self.velocity_idx is not None
+            and self.velocity_mask_idx is not None
+        ):
             # Extract normalized velocity
             vel_norm = x[:, self.velocity_idx : self.velocity_idx + 1, :, :]
 
@@ -258,7 +263,6 @@ class GlacierSegmentationModule(pl.LightningModule):
                 _max = self.norm_arr_full[3, self.velocity_idx]
                 velocity = vel_norm * (_max - _min) + _min
 
-        if self.velocity_mask_idx is not None:
             velocity_mask = x[
                 :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
             ]
@@ -291,7 +295,11 @@ class GlacierSegmentationModule(pl.LightningModule):
             velocity = None
             velocity_mask = None
 
-            if self.velocity_idx is not None:
+            if (
+                self.use_velocity_loss
+                and self.velocity_idx is not None
+                and self.velocity_mask_idx is not None
+            ):
                 vel_norm = x[:, self.velocity_idx : self.velocity_idx + 1, :, :]
                 if self.normalization == "mean-std":
                     mean = self.norm_arr[0, self.velocity_idx]
@@ -302,7 +310,6 @@ class GlacierSegmentationModule(pl.LightningModule):
                     _max = self.norm_arr_full[3, self.velocity_idx]
                     velocity = vel_norm * (_max - _min) + _min
 
-            if self.velocity_mask_idx is not None:
                 velocity_mask = x[
                     :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
                 ]

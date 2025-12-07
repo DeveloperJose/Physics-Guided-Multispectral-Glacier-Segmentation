@@ -54,6 +54,7 @@ loss_opts:
   gaussian_blur_sigma: null
   label_smoothing: 0
   use_unified: false
+  use_velocity_loss: false
 
 model_opts:
   args:

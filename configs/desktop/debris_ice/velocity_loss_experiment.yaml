@@ -14,3 +14,6 @@ loader_opts:
 
   # Disable other physics channels to isolate the effect
   physics_channels: false
+
+loss_opts:
+  use_velocity_loss: true
