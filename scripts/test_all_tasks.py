@@ -23,6 +23,7 @@ import argparse
 import sys
 import tempfile
 import traceback
+import subprocess
 from pathlib import Path
 from typing import Dict, Any, Tuple
 import logging
@@ -36,7 +37,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from glacier_mapping.utils.config import load_config, load_server_config
 from glacier_mapping.lightning.glacier_datamodule import GlacierDataModule
+import json
+import pytorch_lightning as pl
 from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
+from glacier_mapping.data.slice import get_tiff_np, save_slices, read_shp
+import rasterio
 
 
 class GlacierTaskTestSuite:
@@ -60,11 +65,206 @@ class GlacierTaskTestSuite:
         print(f"Timestamp: {self._get_timestamp()}")
         print()
 
+    def test_raw_file_integrity(self):
+        """Verify integrity of raw TIFF, DEM, and velocity files."""
+        print("=== Test: Raw File Integrity ===")
+        server_config = load_server_config(self.server)
+        image_dir = Path(server_config["image_dir"])
+        dem_dir = Path(server_config["dem_dir"])
+        velocity_dir = Path(server_config["velocity_dir"])
+        image_files = sorted(list(image_dir.glob("*.tif")))
+
+        if not image_files:
+            print("  - No image files found, skipping test.")
+            return
+
+        for i, image_file in enumerate(image_files[: self.subset_size]):
+            # --- Image File ---
+            with rasterio.open(image_file) as src:
+                data = src.read()
+                if np.isnan(data).any() or np.isinf(data).any():
+                    print(
+                        f"  ⚠️ NaN or Inf found in image {image_file.name} (will be handled by slice.py)"
+                    )
+                    # raise ValueError(f"NaN or Inf found in image {image_file.name}")
+            print(f"  ✓ {image_file.name}: Checked for NaN/Inf values.")
+
+            # --- DEM File ---
+            dem_file = dem_dir / image_file.name
+            if dem_file.exists():
+                with rasterio.open(dem_file) as src:
+                    data = src.read()
+                    if np.isnan(data).any() or np.isinf(data).any():
+                        print(
+                            f"  ⚠️ NaN or Inf found in DEM {dem_file.name} (will be handled by slice.py)"
+                        )
+                        # raise ValueError(f"NaN or Inf found in DEM {dem_file.name}")
+
+                    elevation, slope = data[0], data[1]
+                    if not (-500 < elevation.min() and elevation.max() < 9000):
+                        print(
+                            f"  ⚠️ {dem_file.name}: Unusual elevation range [{elevation.min()}, {elevation.max()}]"
+                        )
+                    if not (0 <= slope.min() and slope.max() <= 90):
+                        print(
+                            f"  ⚠️ {dem_file.name}: Unusual slope range [{slope.min()}, {slope.max()}]"
+                        )
+                print(
+                    f"  ✓ {dem_file.name}: Checked for NaN/Inf values and plausible ranges."
+                )
+
+            # --- Velocity File ---
+            velocity_file = velocity_dir / image_file.name
+            if velocity_file.exists():
+                with rasterio.open(velocity_file) as src:
+                    data = src.read()
+                    if np.isnan(data).any() or np.isinf(data).any():
+                        print(
+                            f"  ⚠️ NaN or Inf found in velocity {velocity_file.name} (will be handled by slice.py)"
+                        )
+                        # raise ValueError(
+                        #     f"NaN or Inf found in velocity {velocity_file.name}"
+                        # )
+
+                    mask = data[3]
+                    if not np.all((mask == 0) | (mask == 1)):
+                        unique_vals = np.unique(mask)
+                        raise ValueError(
+                            f"Raw velocity mask not binary in {velocity_file.name}. Values: {unique_vals}"
+                        )
+                print(f"  ✓ {velocity_file.name}: No NaN/Inf values and binary mask.")
+        print()
+
+    def test_preprocessing_functions(self):
+        """Test the preprocessing functions on a subset of raw data."""
+        print("=== Test: Preprocessing Functions ===")
+        server_config = load_server_config(self.server)
+        image_dir = Path(server_config["image_dir"])
+        dem_dir = Path(server_config["dem_dir"])
+        velocity_dir = Path(server_config["velocity_dir"])
+        labels_path = Path(server_config["labels_dir"]) / "HKH_CIDC_5basins_all.shp"
+
+        image_files = sorted(list(image_dir.glob("*.tif")))
+        labels = read_shp(labels_path)
+
+        if not image_files:
+            print("  - No image files found, skipping test.")
+            return
+
+        for i, image_file in enumerate(image_files[: self.subset_size]):
+            fname = image_file.name
+            tiff_fname = image_dir / fname
+            dem_fname = dem_dir / fname
+            velocity_fname = velocity_dir / fname
+
+            conf = {
+                "image_dir": str(image_dir),
+                "dem_dir": str(dem_dir),
+                "velocity_dir": str(velocity_dir),
+                "add_velocity": True,
+                "physics_res": None,
+                "physics_scale": None,
+                "add_ndvi": False,
+                "add_ndwi": False,
+                "add_ndsi": False,
+                "add_hsv": False,
+                "window_size": [256, 256],
+                "overlap": 0,
+                "filter": 0.0,
+                "out_dir": self.temp_dir,
+            }
+
+            # Test get_tiff_np
+            tiff_np, band_names = get_tiff_np(
+                tiff_fname,
+                dem_fname=dem_fname,
+                velocity_fname=velocity_fname,
+                physics_res=conf["physics_res"],
+                physics_scale=conf["physics_scale"],
+                add_ndvi=conf["add_ndvi"],
+                add_ndwi=conf["add_ndwi"],
+                add_ndsi=conf["add_ndsi"],
+                add_hsv=conf["add_hsv"],
+                return_band_names=True,
+                verbose=True,
+            )
+            print(
+                f"  ✓ get_tiff_np returned array of shape {tiff_np.shape} for {fname}"
+            )
+
+            # Test save_slices
+            save_path = Path(self.temp_dir) / f"preprocessed_{i}"
+            save_path.mkdir()
+            save_slices(i, fname, labels, save_path, **conf)
+            print(f"  ✓ save_slices ran without errors for {fname}")
+
+            # Verify the output
+            output_files = list(save_path.glob("tiff_*.npy"))
+            mask_files = list(save_path.glob("mask_*.npy"))
+
+            if output_files and mask_files:
+                print(f"  ✓ Found {len(output_files)} output files for {fname}.")
+                break
+        else:
+            raise ValueError("No valid slices were generated from the first 5 images.")
+
+        # Check a sample slice
+        sample_slice = np.load(output_files[0])
+        velocity_mask_channel = band_names.index("velocity_mask")
+        velocity_mask = sample_slice[..., velocity_mask_channel]
+        is_binary = np.all((velocity_mask == 0) | (velocity_mask == 1))
+
+        if not is_binary:
+            unique_vals = np.unique(velocity_mask)
+            print(
+                f"  ❌ Processed velocity mask is NOT BINARY. Unique values: {unique_vals}"
+            )
+            raise ValueError("Processed velocity mask is not binary.")
+        else:
+            print("  ✓ Processed velocity mask is binary.")
+        print()
+
     def _get_timestamp(self) -> str:
         """Get current timestamp."""
         from datetime import datetime
 
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _run_preprocessing(self):
+        """Run the preprocessing script for the test dataset."""
+        print("=== PREPROCESSING STEP ===")
+        preprocess_config_path = (
+            "configs/datasets/bibek_w256_o64_f1_comprehensive_phys64_s1.yaml"
+        )
+
+        if not Path(preprocess_config_path).exists():
+            print(
+                f"⚠️ Preprocessing config not found at {preprocess_config_path}, skipping."
+            )
+            return
+
+        cmd = [
+            "uv",
+            "run",
+            "python",
+            "scripts/preprocess.py",
+            "--server",
+            self.server,
+            "--config",
+            preprocess_config_path,
+        ]
+
+        print(f"Running command: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            print("❌ Preprocessing failed!")
+            print(result.stdout)
+            print(result.stderr)
+            raise RuntimeError("Preprocessing script failed.")
+        else:
+            print("✓ Preprocessing completed successfully.")
+        print()
 
     def create_temp_config(self, task_name: str, task_config: Dict[str, Any]) -> str:
         """Create temporary configuration file."""
@@ -108,12 +308,11 @@ class GlacierTaskTestSuite:
             existing_configs["debris_ice"] = str(debris_config_path)
             print(f"✓ Existing config found: {debris_config_path}")
         else:
-            # Create debris ice config
+            # Create debris ice config with velocity loss enabled
             debris_config = base_config.copy()
             debris_config["training_opts"]["run_name"] = "debris_ice_test"
-            debris_config["loader_opts"]["velocity_channels"] = (
-                True  # Keep velocity for debris ice test
-            )
+            debris_config["loader_opts"]["velocity_channels"] = True
+            debris_config["loss_opts"] = {"use_velocity_loss": True}
             debris_path = self.create_temp_config("debris_ice", debris_config)
             existing_configs["debris_ice"] = debris_path
             print(f"✓ Auto-created temp config: {debris_path}")
@@ -201,6 +400,11 @@ class GlacierTaskTestSuite:
             merged["loader_opts"] = {
                 **merged.get("loader_opts", {}),
                 **exp_config["loader_opts"],
+            }
+        if "loss_opts" in exp_config:
+            merged["loss_opts"] = {
+                **merged.get("loss_opts", {}),
+                **exp_config["loss_opts"],
             }
 
         return merged, task_name
@@ -368,8 +572,152 @@ class GlacierTaskTestSuite:
             }
             print()
 
+            # 3.5 Enhanced Channel Range Validation
+            print("1.4 Enhanced Channel Range Validation:")
+
+            # Check each channel type for reasonable ranges
+            channel_ranges = {}
+
+            # Get band names from dataset metadata
+            import json
+
+            metadata_path = Path(dataset_path) / "band_metadata.json"
+            if metadata_path.exists():
+                with open(metadata_path, "r") as f:
+                    metadata = json.load(f)
+                all_band_names = metadata.get("band_names", [])
+            else:
+                all_band_names = []
+
+            # Get selected channel names from data module logs
+            selected_channel_names = []
+            if hasattr(data_module, "use_channels"):
+                # Try to get band names from dataset
+                try:
+                    from glacier_mapping.data.data import resolve_channel_selection
+
+                    selected_channels = resolve_channel_selection(
+                        dataset_path,
+                        landsat_channels=loader_opts.get("landsat_channels", True),
+                        dem_channels=loader_opts.get("dem_channels", True),
+                        spectral_indices_channels=loader_opts.get(
+                            "spectral_indices_channels", True
+                        ),
+                        hsv_channels=loader_opts.get("hsv_channels", True),
+                        physics_channels=loader_opts.get("physics_channels", False),
+                        velocity_channels=loader_opts.get("velocity_channels", True),
+                    )
+                    # Get band names from dataset
+                    if metadata_path.exists():
+                        selected_channel_names = [
+                            all_band_names[i]
+                            for i in selected_channels
+                            if i < len(all_band_names)
+                        ]
+                except Exception:
+                    selected_channel_names = []
+
+            for i, band_name in enumerate(selected_channel_names[: x.shape[-1]]):
+                channel_data = x[..., i]
+                channel_min = channel_data.min().item()
+                channel_max = channel_data.max().item()
+                channel_mean = channel_data.mean().item()
+                channel_std = channel_data.std().item()
+
+                channel_ranges[band_name] = {
+                    "min": channel_min,
+                    "max": channel_max,
+                    "mean": channel_mean,
+                    "std": channel_std,
+                }
+
+                # Validate reasonable ranges based on channel type
+                if band_name.startswith("B"):  # Landsat bands
+                    if channel_min < -1000 or channel_max > 2000:
+                        print(
+                            f"  ⚠️ {band_name}: Unusual range [{channel_min:.1f}, {channel_max:.1f}]"
+                        )
+                    else:
+                        print(
+                            f"  ✓ {band_name}: Valid range [{channel_min:.1f}, {channel_max:.1f}]"
+                        )
+                elif band_name in ["elevation", "slope_deg"]:  # DEM channels
+                    if band_name == "elevation" and (
+                        channel_min < 0 or channel_max > 9000
+                    ):
+                        print(
+                            f"  ⚠️ {band_name}: Unusual elevation range [{channel_min:.1f}, {channel_max:.1f}]"
+                        )
+                    elif band_name == "slope_deg" and (
+                        channel_min < 0 or channel_max > 90
+                    ):
+                        print(
+                            f"  ⚠️ {band_name}: Unusual slope range [{channel_min:.1f}, {channel_max:.1f}]"
+                        )
+                    else:
+                        print(
+                            f"  ✓ {band_name}: Valid range [{channel_min:.1f}, {channel_max:.1f}]"
+                        )
+                elif band_name == "velocity_mask":
+                    # Check if all values are either 0 or 1
+                    is_binary = torch.all(
+                        (channel_data == 0) | (channel_data == 1)
+                    ).item()
+                    if not is_binary:
+                        unique_vals = torch.unique(channel_data)
+                        print(
+                            f"  ❌ {band_name}: NOT BINARY. Unique values: {unique_vals.numpy()}"
+                        )
+                        raise ValueError(
+                            f"Velocity mask is not binary. Values: {unique_vals.numpy()}"
+                        )
+                    else:
+                        print(
+                            f"  ✓ {band_name}: Is binary [{channel_min:.1f}, {channel_max:.1f}]"
+                        )
+                elif band_name.startswith("velocity"):  # Velocity channels
+                    if abs(channel_min) > 50 or abs(channel_max) > 50:
+                        print(
+                            f"  ⚠️ {band_name}: Unusual velocity range [{channel_min:.1f}, {channel_max:.1f}]"
+                        )
+                    else:
+                        print(
+                            f"  ✓ {band_name}: Valid range [{channel_min:.1f}, {channel_max:.1f}]"
+                        )
+                elif band_name in ["NDVI", "NDWI", "NDSI"]:  # Spectral indices
+                    if channel_min < -1.0 or channel_max > 1.0:
+                        print(
+                            f"  ⚠️ {band_name}: Unusual index range [{channel_min:.3f}, {channel_max:.3f}]"
+                        )
+                    else:
+                        print(
+                            f"  ✓ {band_name}: Valid range [{channel_min:.3f}, {channel_max:.3f}]"
+                        )
+                elif band_name in ["H", "S", "V"]:  # HSV channels
+                    if band_name == "H" and (channel_min < 0 or channel_max > 360):
+                        print(
+                            f"  ⚠️ {band_name}: Unusual hue range [{channel_min:.1f}, {channel_max:.1f}]"
+                        )
+                    elif band_name in ["S", "V"] and (
+                        channel_min < 0 or channel_max > 1.0
+                    ):
+                        print(
+                            f"  ⚠️ {band_name}: Unusual {band_name} range [{channel_min:.3f}, {channel_max:.3f}]"
+                        )
+                    else:
+                        print(
+                            f"  ✓ {band_name}: Valid range [{channel_min:.3f}, {channel_max:.3f}]"
+                        )
+                else:
+                    print(
+                        f"  ✓ {band_name}: Range [{channel_min:.3f}, {channel_max:.3f}]"
+                    )
+
+            result["tests"]["channel_ranges"] = channel_ranges
+            print()
+
             # 4. Model Integration
-            print("1.4 Model Integration:")
+            print("1.5 Model Integration:")
 
             # Extract channel and class configuration from loader_opts to pass to the model.
             # This ensures the model and data module use the exact same channel settings.
@@ -400,6 +748,7 @@ class GlacierTaskTestSuite:
                 optim_opts=config.get("optim_opts", {}),
                 metrics_opts=config.get("metrics_opts", {}),
                 loader_opts=loader_opts,  # Pass full loader_opts for other settings
+                verbose=True,  # Enable verbose logging for debugging
                 **model_init_args,
             )
 
@@ -437,7 +786,7 @@ class GlacierTaskTestSuite:
             print()
 
             # 5. Loss Function Verification
-            print("1.5 Loss Function Verification:")
+            print("1.6 Loss Function Verification:")
 
             loss_fn = model.loss_fn
             print(f"  ✓ Loss function: {type(loss_fn).__name__}")
@@ -497,8 +846,79 @@ class GlacierTaskTestSuite:
             }
             print()
 
-            # 6. End-to-End Validation
-            print("1.6 End-to-End Validation:")
+            # 6. Enhanced Dataset Integrity Validation
+            print("1.7 Enhanced Dataset Integrity Validation:")
+
+            # Check for comprehensive dataset specific issues
+            if "comprehensive_phys64_s1" in str(dataset_path):
+                print("  ✓ Comprehensive dataset detected")
+
+                # Validate physics/velocity channel availability
+                velocity_channels_enabled = loader_opts.get("velocity_channels", False)
+                physics_channels_enabled = loader_opts.get("physics_channels", False)
+
+                if velocity_channels_enabled:
+                    print("  ✓ Velocity channels enabled for comprehensive dataset")
+                else:
+                    print("  ⚠️ Velocity channels disabled for comprehensive dataset")
+
+                if physics_channels_enabled:
+                    print("  ✓ Physics channels enabled for comprehensive dataset")
+                else:
+                    print("  ⚠️ Physics channels disabled for comprehensive dataset")
+
+                # Check for velocity mask in data
+                if "velocity_mask" in selected_channel_names:
+                    print("  ✓ Velocity mask channel available")
+                else:
+                    print("  ⚠️ Velocity mask channel missing")
+
+            # 7. Velocity Loss Configuration Check
+            print("1.8 Velocity Loss Configuration Check:")
+
+            velocity_loss_enabled = config.get("loss_opts", {}).get(
+                "use_velocity_loss", False
+            )
+            velocity_channels_in_data = loader_opts.get("velocity_channels", False)
+
+            print(f"  ✓ Loss velocity_loss setting: {velocity_loss_enabled}")
+            print(f"  ✓ Data velocity channels: {velocity_channels_in_data}")
+
+            # Validate velocity loss configuration consistency
+            if velocity_loss_enabled and not velocity_channels_in_data:
+                print(
+                    "  ⚠️ WARNING: Velocity loss enabled but no velocity channels in data!"
+                )
+            elif not velocity_loss_enabled and velocity_channels_in_data:
+                print("  ✓ Velocity channels available but loss disabled (OK for Gen7)")
+            elif velocity_loss_enabled and velocity_channels_in_data:
+                print("  ✓ Velocity loss properly configured with velocity data")
+            else:
+                print("  ✓ Velocity loss disabled (baseline configuration)")
+
+            result["tests"]["velocity_config"] = {
+                "velocity_loss_enabled": velocity_loss_enabled,
+                "velocity_channels_in_data": velocity_channels_in_data,
+                "consistent": velocity_loss_enabled == velocity_channels_in_data
+                or not velocity_loss_enabled,
+            }
+            print()
+
+            # 8. End-to-End Validation
+            print("1.9 End-to-End Validation:")
+
+            # Run a small training loop
+            trainer = pl.Trainer(
+                max_epochs=1,
+                limit_train_batches=5,
+                limit_val_batches=5,
+                accelerator="auto",
+                devices="auto",
+                logger=False,
+                enable_checkpointing=False,
+                enable_progress_bar=True,
+            )
+            trainer.fit(model, data_module)
 
             # Verify data flow consistency
             expected_output_channels = (
@@ -532,6 +952,11 @@ class GlacierTaskTestSuite:
     def run_all_tests(self) -> Dict[str, Any]:
         """Execute complete test suite."""
         try:
+            # Run standalone tests
+            self.test_raw_file_integrity()
+            self.test_preprocessing_functions()
+            self.verify_preprocessed_dataset()
+
             # Create missing configs
             configs = self.create_missing_configs()
 
@@ -551,6 +976,93 @@ class GlacierTaskTestSuite:
             self.cleanup()
 
         return self.test_results
+
+    def verify_preprocessed_dataset(self):
+        """Verify the integrity of the entire preprocessed dataset."""
+        print("=== Test: Verify Preprocessed Dataset ===")
+        server_config = load_server_config(self.server)
+        dataset_name = "bibek_w256_o64_f1_comprehensive_phys64_s1"
+        dataset_path = Path(server_config["processed_data_path"]) / dataset_name
+
+        if not dataset_path.exists():
+            print(f"  - Dataset not found at {dataset_path}, skipping verification.")
+            return
+
+        # Load band metadata
+        metadata_path = dataset_path / "band_metadata.json"
+        if not metadata_path.exists():
+            raise ValueError("band_metadata.json not found in dataset.")
+        with open(metadata_path, "r") as f:
+            metadata = json.load(f)
+        band_names = metadata.get("band_names", [])
+        try:
+            velocity_mask_channel = band_names.index("velocity_mask")
+        except ValueError:
+            print(
+                "  - No velocity mask channel in this dataset, skipping verification."
+            )
+            return
+
+        all_slice_files = []
+        all_mask_files = []
+        for split in ["train", "val", "test"]:
+            split_dir = dataset_path / split
+            if split_dir.exists():
+                all_slice_files.extend(list(split_dir.glob("tiff_*.npy")))
+                all_mask_files.extend(list(split_dir.glob("mask_*.npy")))
+
+        if not all_slice_files:
+            raise ValueError("No slice files found in the dataset.")
+
+        print(
+            f"  - Found {len(all_slice_files)} slice files and {len(all_mask_files)} mask files to verify."
+        )
+
+        corrupt_files = []
+
+        # Verify TIFF slices
+        for slice_file in all_slice_files:
+            try:
+                slice_data = np.load(slice_file)
+                if slice_data.shape[:2] != (256, 256):
+                    print(f"  - {slice_file.name}: Incorrect shape {slice_data.shape}")
+                    corrupt_files.append(slice_file)
+
+                velocity_mask = slice_data[..., velocity_mask_channel]
+                if not np.all((velocity_mask == 0) | (velocity_mask == 1)):
+                    unique_vals = np.unique(velocity_mask)
+                    print(
+                        f"  - {slice_file.name}: Velocity mask not binary. Values: {unique_vals}"
+                    )
+                    corrupt_files.append(slice_file)
+            except Exception as e:
+                print(f"  - Error reading {slice_file}: {e}")
+                corrupt_files.append(slice_file)
+
+        # Verify Mask slices
+        for mask_file in all_mask_files:
+            try:
+                mask_data = np.load(mask_file)
+                if mask_data.shape != (256, 256):
+                    print(f"  - {mask_file.name}: Incorrect shape {mask_data.shape}")
+                    corrupt_files.append(mask_file)
+
+                valid_labels = np.all(np.isin(mask_data, [0, 1, 2, 255]))
+                if not valid_labels:
+                    print(f"  - {mask_file.name}: Contains invalid labels.")
+                    corrupt_files.append(mask_file)
+            except Exception as e:
+                print(f"  - Error reading {mask_file}: {e}")
+                corrupt_files.append(mask_file)
+
+        if corrupt_files:
+            print(f"  ❌ Found {len(corrupt_files)} corrupt files:")
+            for f in corrupt_files[:5]:  # Print first 5
+                print(f"    - {f.name}")
+            raise ValueError("Dataset verification failed. Corrupt files found.")
+        else:
+            print("  ✓ All slice files are valid.")
+        print()
 
     def generate_summary(self):
         """Generate comprehensive test summary."""

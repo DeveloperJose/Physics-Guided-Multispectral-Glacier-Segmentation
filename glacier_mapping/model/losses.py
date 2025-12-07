@@ -21,6 +21,7 @@ class customloss(nn.Module):
         theta=5,
         foreground_indices=None,
         alpha=0.9,  # compatibility with old code
+        verbose=False,
     ):
         super().__init__()
         self.act = act
@@ -29,6 +30,7 @@ class customloss(nn.Module):
         self.masked = masked
         self.theta0 = theta0
         self.theta = theta
+        self.verbose = verbose
 
         self.foreground_indices = (
             foreground_indices if foreground_indices is not None else [1]
@@ -126,6 +128,7 @@ class customloss(nn.Module):
         # Velocity Consistency Loss
         velocity_loss = torch.tensor(0.0, device=device)
         if velocity is not None and velocity_mask is not None:
+            p_bg = None  # Initialize p_bg
             # Determine Probability of Background (Non-Glacier)
             # Binary: pred_prob is P(Foreground), so P(BG) = 1 - pred_prob
             # Multi: pred_prob is (N,C,H,W), index 0 is BG, so P(BG) = pred_prob[:, 0:1]
@@ -133,6 +136,14 @@ class customloss(nn.Module):
                 p_bg = 1.0 - pred_prob
             else:
                 p_bg = pred_prob[:, 0:1]
+
+            # Debugging: Raise an error to inspect values
+            debug_msg = (
+                f"DEBUG: velocity min={velocity.min():.4f}, max={velocity.max():.4f}, mean={velocity.mean():.4f}, sum={velocity.sum():.4f}\n"
+                f"DEBUG: velocity_mask min={velocity_mask.min():.4f}, max={velocity_mask.max():.4f}, mean={velocity_mask.mean():.4f}, sum={velocity_mask.sum():.4f}\n"
+                f"DEBUG: p_bg min={p_bg.min():.4f}, max={p_bg.max():.4f}, mean={p_bg.mean():.4f}, sum={p_bg.sum():.4f}"
+            )
+            raise ValueError(debug_msg)
 
             # Penalize: High Velocity AND High Probability of Background
             # Loss = mean( P(BG) * Velocity * Mask )

@@ -216,18 +216,33 @@ def get_tiff_np(
             # Create a destination array with the same shape as the tiff, but with 4 bands for velocity
             destination = np.zeros((4, tiff.height, tiff.width), dtype=np.float32)
 
-            reproject(
-                source=rasterio.band(velocity, [1, 2, 3, 4]),
-                destination=destination,
-                src_transform=velocity.transform,
-                src_crs=velocity.crs,
-                dst_transform=tiff.transform,
-                dst_crs=tiff.crs,
-                resampling=Resampling.bilinear,
-            )
+            # Reproject velocity data with different resampling methods
+            # Bands 1-3 (v, vx, vy): bilinear interpolation for continuous velocity values
+            # Band 4 (mask): nearest neighbor to preserve binary nature
+            for band_idx in range(4):
+                resampling_method = (
+                    Resampling.nearest if band_idx == 3 else Resampling.bilinear
+                )
+                reproject(
+                    source=rasterio.band(
+                        velocity, band_idx + 1
+                    ),  # rasterio bands are 1-based
+                    destination=destination[
+                        band_idx : band_idx + 1
+                    ],  # Slice to maintain shape
+                    src_transform=velocity.transform,
+                    src_crs=velocity.crs,
+                    dst_transform=tiff.transform,
+                    dst_crs=tiff.crs,
+                    resampling=resampling_method,
+                )
 
             velocity_np = np.transpose(destination, (1, 2, 0)).astype(np.float32)
             velocity_np = np.nan_to_num(velocity_np)  # NaN → 0
+
+            # Ensure velocity mask is binary
+            velocity_np[:, :, 3] = np.round(velocity_np[:, :, 3]).clip(0, 1)
+
             if verbose:
                 log.debug(f"Loaded velocity data: shape={velocity_np.shape}")
         else:

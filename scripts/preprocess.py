@@ -168,8 +168,10 @@ if __name__ == "__main__":
             [images[i] for i in idx[int((conf.test + conf.val) * len(images)) :]]
         ),
     }
-    print("Splits:", splits)
-    # breakpoint()
+    print(
+        f"Splits: test ({len(splits['test'])}), val ({len(splits['val'])}), train ({len(splits['train'])})"
+    )
+    print("Output will be in", conf.out_dir)
     labels = fn.read_shp(Path(conf.labels_dir) / "HKH_CIDC_5basins_all.shp")
     remove_and_create(conf.out_dir)
 

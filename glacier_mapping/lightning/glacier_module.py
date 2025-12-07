@@ -150,12 +150,18 @@ class GlacierSegmentationModule(pl.LightningModule):
                 )
                 loss_args["foreground_indices"] = [1]
 
-        self.loss_fn = customloss(**loss_args)
+        print(
+            f"DEBUG: Passing verbose to customloss: {self.hparams.get('verbose', False)}"
+        )
+        self.loss_fn = customloss(
+            verbose=self.hparams.get("verbose", False), **loss_args
+        )
 
         # Initialize learnable sigma parameters for loss weighting
-        # 3 sigmas: Dice, Boundary, Velocity
+        # Sigmas: Dice, Boundary, (optional) Velocity
+        num_sigmas = 3 if self.use_velocity_loss else 2
         self.sigma_list = nn.ParameterList(
-            [nn.Parameter(torch.tensor(1.0)) for _ in range(3)]
+            [nn.Parameter(torch.tensor(1.0)) for _ in range(num_sigmas)]
         )
 
         # Identify velocity channel indices for Physics Loss
@@ -245,6 +251,10 @@ class GlacierSegmentationModule(pl.LightningModule):
         velocity = None
         velocity_mask = None
 
+        print(
+            f"DEBUG (training_step): use_velocity_loss={self.use_velocity_loss}, velocity_idx={self.velocity_idx}, velocity_mask_idx={self.velocity_mask_idx}"
+        )
+
         if (
             self.use_velocity_loss
             and self.velocity_idx is not None
@@ -266,6 +276,14 @@ class GlacierSegmentationModule(pl.LightningModule):
             velocity_mask = x[
                 :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
             ]
+            if velocity is not None:
+                print(
+                    f"DEBUG (training_step): Extracted velocity min={velocity.min():.4f}, max={velocity.max():.4f}, mean={velocity.mean():.4f}, sum={velocity.sum():.4f}"
+                )
+            if velocity_mask is not None:
+                print(
+                    f"DEBUG (training_step): Extracted velocity_mask min={velocity_mask.min():.4f}, max={velocity_mask.max():.4f}, mean={velocity_mask.mean():.4f}, sum={velocity_mask.sum():.4f}"
+                )
 
         loss = self.compute_loss(
             y_hat, y_onehot, y_int, velocity=velocity, velocity_mask=velocity_mask
@@ -295,6 +313,10 @@ class GlacierSegmentationModule(pl.LightningModule):
             velocity = None
             velocity_mask = None
 
+            print(
+                f"DEBUG (validation_step): use_velocity_loss={self.use_velocity_loss}, velocity_idx={self.velocity_idx}, velocity_mask_idx={self.velocity_mask_idx}"
+            )
+
             if (
                 self.use_velocity_loss
                 and self.velocity_idx is not None
@@ -313,6 +335,14 @@ class GlacierSegmentationModule(pl.LightningModule):
                 velocity_mask = x[
                     :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
                 ]
+                if velocity is not None:
+                    print(
+                        f"DEBUG (validation_step): Extracted velocity min={velocity.min():.4f}, max={velocity.max():.4f}, mean={velocity.mean():.4f}, sum={velocity.sum():.4f}"
+                    )
+                if velocity_mask is not None:
+                    print(
+                        f"DEBUG (validation_step): Extracted velocity_mask min={velocity_mask.min():.4f}, max={velocity_mask.max():.4f}, mean={velocity_mask.mean():.4f}, sum={velocity_mask.sum():.4f}"
+                    )
 
             loss = self.compute_loss(
                 y_hat, y_onehot, y_int, velocity=velocity, velocity_mask=velocity_mask
@@ -404,9 +434,15 @@ class GlacierSegmentationModule(pl.LightningModule):
     ) -> torch.Tensor:
         """Compute custom loss with sigma weighting."""
         # Compute custom loss (returns list of losses)
-        losses = self.loss_fn(
-            y_hat, y_onehot, y_int, velocity=velocity, velocity_mask=velocity_mask
-        )
+        if self.use_velocity_loss:
+            losses = self.loss_fn(
+                y_hat, y_onehot, y_int, velocity=velocity, velocity_mask=velocity_mask
+            )
+        else:
+            # Pass None for velocity if not used, customloss will return 0.0 for velocity_loss
+            losses = self.loss_fn(
+                y_hat, y_onehot, y_int, velocity=None, velocity_mask=None
+            )
 
         # Apply sigma weighting like in original Framework
         total_loss = torch.zeros(1, device=y_hat.device)
@@ -415,7 +451,7 @@ class GlacierSegmentationModule(pl.LightningModule):
         if self.sigma_list is not None:
             self.log("sigma_dice", self.sigma_list[0], on_step=True, on_epoch=True)
             self.log("sigma_boundary", self.sigma_list[1], on_step=True, on_epoch=True)
-            if len(self.sigma_list) > 2:
+            if self.use_velocity_loss and len(self.sigma_list) > 2:
                 self.log(
                     "sigma_velocity", self.sigma_list[2], on_step=True, on_epoch=True
                 )
