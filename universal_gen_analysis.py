@@ -368,21 +368,15 @@ def generate_outputs(processed_runs: List[Dict[str, Any]], generation_id: str) -
     generate_markdown_summary(output_data, output_dir)
 
 
-def get_primary_iou(run: Dict[str, Any]) -> float:
-    """Get the primary IoU metric for a given run based on its task."""
-    task = run.get("configuration", {}).get("task")
+def get_best_ious(run: Dict[str, Any]) -> Dict[str, float]:
+    """Get the best test IoU metrics for a given run."""
     perf = run.get("performance", {}).get("best_metrics", {})
 
-    if task == "clean_ice":
-        return perf.get("best_test_CleanIce_iou", 0)
-    elif task == "debris_ice":
-        return perf.get("best_test_DebrisIce_iou", 0)
-    elif task == "multiclass":
-        # For multiclass, we might average or prioritize one. Let's prioritize CleanIce for now.
-        return perf.get(
-            "best_test_CleanIce_iou", perf.get("best_test_DebrisIce_iou", 0)
-        )
-    return 0
+    # Corrected metric names
+    clean_ice_iou = perf.get("best_test_CleanIce_iou", 0.0)
+    debris_ice_iou = perf.get("best_test_Debris_iou", 0.0)
+
+    return {"CleanIce": clean_ice_iou, "Debris": debris_ice_iou}
 
 
 def generate_markdown_summary(data: Dict[str, Any], output_dir: Path) -> None:
@@ -410,13 +404,18 @@ def generate_markdown_summary(data: Dict[str, Any], output_dir: Path) -> None:
     # --- Top Performers ---
     finished_runs = [r for r in runs if r.get("status") == "FINISHED"]
     if finished_runs:
-        md += "## Top Performing Runs\n\n"
-        top_runs = sorted(finished_runs, key=get_primary_iou, reverse=True)[:5]
-        md += "| Run Name | Task | Config | Best IoU |\n"
-        md += "|----------|------|--------|----------|\n"
+        md += "## Top Performing Runs (sorted by Debris IoU)\n\n"
+        # Sort by Debris IoU, then Clean Ice IoU as a tie-breaker
+        top_runs = sorted(
+            finished_runs,
+            key=lambda r: (get_best_ious(r)["Debris"], get_best_ious(r)["CleanIce"]),
+            reverse=True,
+        )[:10]
+        md += "| Run Name | Task | Config | Best Debris IoU | Best Clean Ice IoU |\n"
+        md += "|----------|------|--------|-----------------|--------------------|\n"
         for run in top_runs:
-            iou = get_primary_iou(run)
-            md += f"| {run.get('run_name', 'N/A')} | {run.get('configuration', {}).get('task', 'N/A')} | {run.get('configuration', {}).get('config_type', 'N/A')} | {iou:.4f} |\n"
+            ious = get_best_ious(run)
+            md += f"| {run.get('run_name', 'N/A')} | {run.get('configuration', {}).get('task', 'N/A')} | {run.get('configuration', {}).get('config_type', 'N/A')} | {ious['Debris']:.4f} | {ious['CleanIce']:.4f} |\n"
         md += "\n"
 
     # --- Server Performance ---
@@ -466,33 +465,43 @@ def generate_markdown_summary(data: Dict[str, Any], output_dir: Path) -> None:
         for run in task_runs:
             config = run.get("configuration", {}).get("config_type", "unknown")
             if config not in config_perf:
-                config_perf[config] = {"ious": [], "losses": []}
+                config_perf[config] = {
+                    "debris_ious": [],
+                    "clean_ice_ious": [],
+                    "losses": [],
+                }
 
-            iou = get_primary_iou(run)
+            ious = get_best_ious(run)
             loss = (
                 run.get("performance", {}).get("best_metrics", {}).get("best_val_loss")
             )
-            if iou:
-                config_perf[config]["ious"].append(iou)
+
+            if ious["Debris"]:
+                config_perf[config]["debris_ious"].append(ious["Debris"])
+            if ious["CleanIce"]:
+                config_perf[config]["clean_ice_ious"].append(ious["CleanIce"])
             if loss:
                 config_perf[config]["losses"].append(loss)
 
         md += "### Performance by Configuration Type\n\n"
-        md += "| Config Type | Avg. Best IoU | Avg. Best Val Loss |\n"
-        md += "|-------------|---------------|--------------------|\n"
+        md += "| Config Type | Avg Best Debris IoU | Avg Best Clean Ice IoU | Avg Best Val Loss |\n"
+        md += "|-------------|---------------------|------------------------|-------------------|\n"
         for config, perf in config_perf.items():
-            avg_iou = np.mean(perf["ious"]) if perf["ious"] else 0
+            avg_debris_iou = np.mean(perf["debris_ious"]) if perf["debris_ious"] else 0
+            avg_clean_ice_iou = (
+                np.mean(perf["clean_ice_ious"]) if perf["clean_ice_ious"] else 0
+            )
             avg_loss = np.mean(perf["losses"]) if perf["losses"] else 0
-            md += f"| {config} | {avg_iou:.4f} | {avg_loss:.4f} |\n"
+            md += f"| {config} | {avg_debris_iou:.4f} | {avg_clean_ice_iou:.4f} | {avg_loss:.4f} |\n"
         md += "\n"
 
         # Detailed Run Table
         md += "### Detailed Run Results\n\n"
-        md += "| Run Name | Config | Duration (h) | Epochs | Best Val Loss | Best IoU | Overfitting |\n"
-        md += "|----------|--------|--------------|--------|---------------|----------|-------------|\n"
+        md += "| Run Name | Config | Duration (h) | Epochs | Best Val Loss | Best DCI IoU | Best CI IoU | Overfitting |\n"
+        md += "|----------|--------|--------------|--------|---------------|--------------|-------------|-------------|\n"
         for run in task_runs:
-            iou = get_primary_iou(run)
-            md += f"| {run.get('run_name')} | {run.get('configuration', {}).get('config_type')} | {run.get('timing', {}).get('duration_hours', 0):.2f} | {run.get('timing', {}).get('per_epoch_timing', {}).get('total_epochs', 0)} | {run.get('performance', {}).get('best_metrics', {}).get('best_val_loss', 0):.4f} | {iou:.4f} | {run.get('analysis', {}).get('overfitting_indicator', False)} |\n"
+            ious = get_best_ious(run)
+            md += f"| {run.get('run_name')} | {run.get('configuration', {}).get('config_type')} | {run.get('timing', {}).get('duration_hours', 0):.2f} | {run.get('timing', {}).get('per_epoch_timing', {}).get('total_epochs', 0)} | {run.get('performance', {}).get('best_metrics', {}).get('best_val_loss', 0):.4f} | {ious['Debris']:.4f} | {ious['CleanIce']:.4f} | {run.get('analysis', {}).get('overfitting_indicator', False)} |\n"
         md += "\n"
 
     # --- Failure Analysis ---
