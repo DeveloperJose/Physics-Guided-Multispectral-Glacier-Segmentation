@@ -1,0 +1,17 @@
+# Velocity-only dataset (no physics, keep core bands and velocity channels).
+output_name: "bibek_w512_o64_f1_velocity"
+
+window_size: [512, 512]
+overlap: 64
+filter: 1.0
+test: 0.2
+val: 0.1
+
+add_velocity: true
+add_ndvi: false
+add_ndwi: false
+add_ndsi: false
+add_hsv: false
+physics_res: null
+physics_scale: null
+save_skipped_visualizations: false

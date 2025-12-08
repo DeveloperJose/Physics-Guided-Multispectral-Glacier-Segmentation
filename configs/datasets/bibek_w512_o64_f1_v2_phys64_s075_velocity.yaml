@@ -1,0 +1,17 @@
+# Dataset with physics (64m, 0.75 scale) and velocity channels.
+output_name: "bibek_w512_o64_f1_v2_phys64_s075_velocity"
+
+window_size: [512, 512]
+overlap: 64
+filter: 1.0
+test: 0.2
+val: 0.1
+
+add_velocity: true
+add_ndvi: true
+add_ndwi: true
+add_ndsi: true
+add_hsv: true
+physics_res: 64
+physics_scale: 0.75
+save_skipped_visualizations: false

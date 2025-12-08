@@ -9,7 +9,7 @@ training_opts:
   early_stopping: 40
 
 loader_opts:
-  batch_size: 24
+  batch_size: 32
   physics_channels: true
   velocity_channels: true
 
