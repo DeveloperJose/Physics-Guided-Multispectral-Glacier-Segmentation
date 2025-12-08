@@ -7,7 +7,8 @@ class customloss(nn.Module):
     """
     Custom loss combining Dice and boundary (BF1) losses with learned uncertainty weighting.
 
-    Returns [dice_loss_scalar, boundary_loss_scalar] for sigma-weighted combination.
+    Returns [dice_loss_scalar, boundary_loss_scalar, velocity_loss_scalar] for sigma-weighted combination.
+    Velocity loss is optional and will return 0.0 if not enabled or velocity data is not provided.
     Uses target_int==255 as ignore mask.
     """
 
@@ -35,7 +36,9 @@ class customloss(nn.Module):
         self.foreground_indices = (
             foreground_indices if foreground_indices is not None else [1]
         )
-        self.n_sigma = 2
+
+        # Flag for single-run debug logging
+        self._first_call = True
 
     def forward(self, pred, target, target_int, velocity=None, velocity_mask=None):
         """
@@ -48,6 +51,16 @@ class customloss(nn.Module):
         n, c, h, w = pred.shape
         device = pred.device
 
+        # Log classification type for debugging (only on first call)
+        if self._first_call:
+            if c == 2:
+                print(f"[LOSS DEBUG] Binary classification mode (c={c})")
+            elif c == 3:
+                print(f"[LOSS DEBUG] Multi-class classification mode (c={c})")
+            else:
+                print(f"[LOSS DEBUG] Unknown classification mode (c={c})")
+            self._first_call = False
+
         target = target.detach()
 
         if target_int is not None:
@@ -56,8 +69,14 @@ class customloss(nn.Module):
             ignore_mask = target.sum(dim=1) == 1
         ignore_mask_exp = ignore_mask.unsqueeze(1).float().to(device)
 
+        # Validate channel count
+        if c <= 1:
+            raise ValueError(
+                f"Invalid channel count: {c}. Binary requires 2 channels, multi-class requires 3+ channels."
+            )
+
         # Use sigmoid for binary, softmax for multi-class
-        if c == 1:  # Binary classification
+        if c == 2:  # Binary classification (background + foreground)
             pred_prob = torch.sigmoid(pred[:, 1:2])  # Target class only
             target_prob = target[:, 1:2]  # Target class only
             C_eff = 1
@@ -85,6 +104,10 @@ class customloss(nn.Module):
 
             if C_eff == 1:
                 dice_loss_scalar = dice_per_class.sum()
+                if self._first_call:
+                    print(
+                        f"[LOSS DEBUG] Dice loss - c={c}, foreground_indices={self.foreground_indices}"
+                    )
             else:
                 class_mask = torch.zeros_like(dice_per_class).to(device)
                 for fg_idx in self.foreground_indices:
@@ -129,12 +152,14 @@ class customloss(nn.Module):
         velocity_loss = torch.tensor(0.0, device=device)
         if velocity is not None and velocity_mask is not None:
             p_bg = None  # Initialize p_bg
+            if self._first_call:
+                print(f"[LOSS DEBUG] Velocity loss enabled with c={c} channels")
             # Determine Probability of Background (Non-Glacier)
             # Binary: pred_prob is P(Foreground), so P(BG) = 1 - pred_prob
             # Multi: pred_prob is (N,C,H,W), index 0 is BG, so P(BG) = pred_prob[:, 0:1]
-            if C_eff == 1:
-                p_bg = 1.0 - pred_prob
-            else:
+            if c == 2:  # Binary classification
+                p_bg = 1.0 - pred_prob  # pred_prob is already foreground-only
+            else:  # Multi-class classification
                 p_bg = pred_prob[:, 0:1]
 
             # Penalize: High Velocity AND High Probability of Background

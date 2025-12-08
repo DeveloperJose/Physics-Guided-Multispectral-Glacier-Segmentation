@@ -203,7 +203,7 @@ def get_tiff_np(
     # Load velocity data (4 bands: v, vx, vy, mask)
     # If add_velocity is requested, ALWAYS add 4 velocity channels
     # If file missing or doesn't exist, zero-fill with mask=0 (invalid)
-    add_velocity_to_output = not (velocity_fname is None)
+    add_velocity_to_output = velocity_fname is not None
     velocity_np = None
 
     if add_velocity_to_output:

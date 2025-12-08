@@ -158,11 +158,20 @@ class GlacierSegmentationModule(pl.LightningModule):
         )
 
         # Initialize learnable sigma parameters for loss weighting
-        # Sigmas: Dice, Boundary, (optional) Velocity
-        num_sigmas = 3 if self.use_velocity_loss else 2
-        self.sigma_list = nn.ParameterList(
-            [nn.Parameter(torch.tensor(1.0)) for _ in range(num_sigmas)]
+        # Fixed 3-sigma system: Dice, Boundary, Velocity
+        # Based on original stable design from frame.py
+        self.sigma_dice = nn.Parameter(torch.tensor(1.0))
+        self.sigma_boundary = nn.Parameter(torch.tensor(1.0))
+        # Initialize all sigmas to 1.0 for equal initial weighting
+        # The network will learn optimal weights through Kendall's uncertainty formulation
+        self.sigma_velocity = (
+            nn.Parameter(torch.tensor(1.0)) if self.use_velocity_loss else None
         )
+
+        # Keep sigma_list for backward compatibility
+        self.sigma_list = nn.ParameterList([self.sigma_dice, self.sigma_boundary])
+        if self.use_velocity_loss:
+            self.sigma_list.append(self.sigma_velocity)
 
         # Identify velocity channel indices for Physics Loss
         self.velocity_idx = None
@@ -298,18 +307,16 @@ class GlacierSegmentationModule(pl.LightningModule):
                 and self.velocity_mask_idx is not None
             ):
                 vel_norm = x[:, self.velocity_idx : self.velocity_idx + 1, :, :]
-                if self.normalization == "mean-std":
-                    mean = self.norm_arr[0, self.velocity_idx]
-                    std = self.norm_arr[1, self.velocity_idx]
-                    velocity = vel_norm * std + mean
-                elif self.normalization == "min-max":
-                    _min = self.norm_arr_full[2, self.velocity_idx]
-                    _max = self.norm_arr_full[3, self.velocity_idx]
-                    velocity = vel_norm * (_max - _min) + _min
+                # Keep velocity normalized to maintain consistency with training
+                # This prevents 60x scale mismatch between training (normalized) and validation (denormalized)
+                velocity = vel_norm
 
-                velocity_mask = x[
-                    :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
-                ]
+            else:
+                velocity = None
+
+            velocity_mask = x[
+                :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
+            ]
 
             loss = self.compute_loss(
                 y_hat, y_onehot, y_int, velocity=velocity, velocity_mask=velocity_mask
@@ -415,28 +422,27 @@ class GlacierSegmentationModule(pl.LightningModule):
         total_loss = torch.zeros(1, device=y_hat.device)
 
         # Log sigmas for monitoring
-        if self.sigma_list is not None:
-            self.log("sigma_dice", self.sigma_list[0], on_step=True, on_epoch=True)
-            self.log("sigma_boundary", self.sigma_list[1], on_step=True, on_epoch=True)
-            if self.use_velocity_loss and len(self.sigma_list) > 2:
-                self.log(
-                    "sigma_velocity", self.sigma_list[2], on_step=True, on_epoch=True
-                )
+        # Log sigma parameters for monitoring
+        self.log("sigma_dice", self.sigma_dice, on_step=True, on_epoch=True)
+        self.log("sigma_boundary", self.sigma_boundary, on_step=True, on_epoch=True)
+        if self.use_velocity_loss and self.sigma_velocity is not None:
+            self.log("sigma_velocity", self.sigma_velocity, on_step=True, on_epoch=True)
 
-        for i, (_loss, sig) in enumerate(zip(losses, self.sigma_list)):
-            # Weighting formula: 1/(2*sigma^2) * Loss + log(sigma)
-            # Or the simplified version used here: Loss / (N * sigma^2)
+        # Use fixed sigma parameters with proper constraints (original stable design)
+        sigma_params = [self.sigma_dice, self.sigma_boundary]
+        if self.use_velocity_loss and self.sigma_velocity is not None:
+            sigma_params.append(self.sigma_velocity)
 
-            # Use sig**2 + epsilon to avoid division by zero
-            # Use 0.5 * log(sig**2) to ensure argument to log is positive
+        for i, (_loss, sig) in enumerate(zip(losses, sigma_params)):
+            # Apply minimum constraint to prevent sigma from going to zero (original design)
+            sig_clamped = torch.clamp(sig, min=0.1)
+            var = sig_clamped**2 + 1e-8
 
-            var = sig**2 + 1e-8
             # Kendall et al. (2018) uses 2*sigma^2 denominator
             weighted_loss = _loss / (2.0 * var)
             total_loss += weighted_loss
 
-            # Regularization term: log(sigma)
-            # Equivalent to 0.5 * log(sigma^2)
+            # Regularization term: log(sigma) - prevents sigmas from collapsing
             total_loss += 0.5 * torch.log(var)
 
         return total_loss[0]
@@ -464,10 +470,21 @@ class GlacierSegmentationModule(pl.LightningModule):
             except ValueError:
                 optimizer_args["lr"] = float(optimizer_args["lr"].replace("e", "e-"))
 
+        # Create parameter groups for sigma learning (original stable design)
+        param_groups = [
+            {"params": self.model.parameters(), **optimizer_args},
+            {"params": [self.sigma_dice], **optimizer_args},
+            {"params": [self.sigma_boundary], **optimizer_args},
+        ]
+
+        # Add velocity sigma parameter if velocity loss is enabled
+        if self.use_velocity_loss and self.sigma_velocity is not None:
+            param_groups.append({"params": [self.sigma_velocity], **optimizer_args})
+
         if optimizer_name == "AdamW":
-            optimizer = torch.optim.AdamW(self.parameters(), **optimizer_args)
+            optimizer = torch.optim.AdamW(param_groups, **optimizer_args)
         elif optimizer_name == "Adam":
-            optimizer = torch.optim.Adam(self.parameters(), **optimizer_args)
+            optimizer = torch.optim.Adam(param_groups, **optimizer_args)
         else:
             raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 

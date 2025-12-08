@@ -285,7 +285,7 @@ def extract_temporal_median(
 
     # Handle empty arrays
     if len(x) == 0 or len(y) == 0:
-        raise ValueError(f"Empty spatial dimensions after cropping")
+        raise ValueError("Empty spatial dimensions after cropping")
 
     # Create affine transform
     transform = from_bounds(
@@ -780,7 +780,7 @@ def main():
         logger.info(f"Total images processed: {len(results)}")
         logger.info(f"Successful: {len(success)}")
         logger.info(f"Failed: {len(failed)}")
-        logger.info(f"\nCoverage statistics:")
+        logger.info("\nCoverage statistics:")
         logger.info(f"  Mean coverage:   {df['coverage_percent'].mean():.2f}%")
         logger.info(f"  Median coverage: {df['coverage_percent'].median():.2f}%")
         logger.info(f"  Min coverage:    {df['coverage_percent'].min():.2f}%")

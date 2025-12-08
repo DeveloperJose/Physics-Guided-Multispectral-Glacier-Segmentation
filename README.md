@@ -70,10 +70,11 @@ Python-Glacier-Mapping-by-Segmentation/
 - **TODO.md** - Active development items and known issues
 
 ### Historical Documentation
-- `configs/_archive_gen1_gen2/` - Early generation findings
-- `configs/_archive_gen3/` - 256px breakthrough experiments  
-- `configs/_archive_gen5/` - Physics channel optimization
-- `configs/_archive_gen6/` - Current generation implementation and analysis
+- `archive/gen8_configs/` - 512x512 window hypothesis testing (with known regressions)
+- `archive/gen7_configs/` - Physics channel optimization
+- `archive/gen6/` - Current generation implementation and analysis
+- `archive/gen3/` - 256px breakthrough experiments  
+- `archive/gen1_gen2/` - Early generation findings
 
 ## 🔬 Research
 

@@ -133,7 +133,7 @@ class ErrorHandler:
                 log.warning(f"Failed to log error to MLflow: {mlflow_error}")
 
         # Print summary
-        print(f"\n❌ ERROR LOGGED:")
+        print("\n❌ ERROR LOGGED:")
         print(f"   Type: {type(exception).__name__}")
         print(f"   Message: {str(exception)}")
         print(f"   Log file: {error_log_path}")
@@ -182,7 +182,7 @@ class ErrorHandler:
                 log.warning(f"Failed to log warning to MLflow: {mlflow_error}")
 
         # Print summary
-        print(f"\n⚠️  WARNING LOGGED:")
+        print("\n⚠️  WARNING LOGGED:")
         print(f"   Message: {message}")
         print(f"   Log file: {warning_log_path}")
 

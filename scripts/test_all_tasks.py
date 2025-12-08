@@ -38,7 +38,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from glacier_mapping.utils.config import load_config, load_server_config
 from glacier_mapping.lightning.glacier_datamodule import GlacierDataModule
 import json
-import pytorch_lightning as pl
 from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
 from glacier_mapping.data.slice import get_tiff_np, save_slices, read_shp
 import rasterio
