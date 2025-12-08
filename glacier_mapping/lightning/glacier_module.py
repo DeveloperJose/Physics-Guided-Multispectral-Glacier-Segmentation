@@ -256,18 +256,9 @@ class GlacierSegmentationModule(pl.LightningModule):
             and self.velocity_idx is not None
             and self.velocity_mask_idx is not None
         ):
-            # Extract normalized velocity
-            vel_norm = x[:, self.velocity_idx : self.velocity_idx + 1, :, :]
-
-            # Un-normalize to get physical units (meters/year)
-            if self.normalization == "mean-std":
-                mean = self.norm_arr[0, self.velocity_idx]
-                std = self.norm_arr[1, self.velocity_idx]
-                velocity = vel_norm * std + mean
-            elif self.normalization == "min-max":
-                _min = self.norm_arr_full[2, self.velocity_idx]
-                _max = self.norm_arr_full[3, self.velocity_idx]
-                velocity = vel_norm * (_max - _min) + _min
+            # Extract normalized velocity and keep it normalized for loss computation
+            # Using normalized values prevents velocity loss from dominating training
+            velocity = x[:, self.velocity_idx : self.velocity_idx + 1, :, :]
 
             velocity_mask = x[
                 :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :

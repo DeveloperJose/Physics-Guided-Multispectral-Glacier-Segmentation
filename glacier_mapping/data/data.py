@@ -14,33 +14,33 @@ from torchvision import transforms
 import glacier_mapping.utils.logging as fn
 
 # Legacy hardcoded band names (for backward compatibility)
-BAND_NAMES_LEGACY = np.array(
-    [
-        "B1",  # 0
-        "B2",  # 1
-        "B3",  # 2
-        "B4",  # 3
-        "B5",  # 4
-        "B6_VCID1",  # 5
-        "B6_VCID2",  # 6
-        "B7",  # 7
-        "elevation",  # 8  (raw meters)
-        "slope_deg",  # 9  (raw degrees)
-        "NDVI",  # 10
-        "NDWI",  # 11
-        "NDSI",  # 12
-        "H",  # 13
-        "S",  # 14
-        "V",  # 15
-        "flow_accumulation",  # 16
-        "tpi",  # 17
-        "roughness",  # 18
-        "plan_curvature",  # 19
-    ]
-)
-
-# Global BAND_NAMES loaded dynamically
-BAND_NAMES = BAND_NAMES_LEGACY.copy()
+# BAND_NAMES_LEGACY = np.array(
+#     [
+#         "B1",  # 0
+#         "B2",  # 1
+#         "B3",  # 2
+#         "B4",  # 3
+#         "B5",  # 4
+#         "B6_VCID1",  # 5
+#         "B6_VCID2",  # 6
+#         "B7",  # 7
+#         "elevation",  # 8  (raw meters)
+#         "slope_deg",  # 9  (raw degrees)
+#         "NDVI",  # 10
+#         "NDWI",  # 11
+#         "NDSI",  # 12
+#         "H",  # 13
+#         "S",  # 14
+#         "V",  # 15
+#         "flow_accumulation",  # 16
+#         "tpi",  # 17
+#         "roughness",  # 18
+#         "plan_curvature",  # 19
+#     ]
+# )
+#
+# # Global BAND_NAMES loaded dynamically
+# BAND_NAMES = BAND_NAMES_LEGACY.copy()
 
 # Channel group definitions for semantic selection
 # NOTE: Indices are resolved dynamically from band_metadata.json at runtime.
@@ -79,7 +79,7 @@ CHANNEL_GROUP_DEFINITIONS = {
 
 def load_band_names(processed_dir):
     """
-    Load band names from band_metadata.json if available, otherwise fall back to legacy.
+    Load band names from band_metadata.json if available
 
     Args:
         processed_dir: Path to processed dataset directory
@@ -105,12 +105,14 @@ def load_band_names(processed_dir):
         except Exception as e:
             fn.log(
                 logging.WARNING,
-                f"Failed to load band_metadata.json: {e}. Using legacy band names.",
+                f"Failed to load band_metadata.json: {e}. Throwing exception.",
             )
-            return BAND_NAMES_LEGACY.copy()
+            # return BAND_NAMES_LEGACY.copy()
+            raise e
     else:
-        fn.log(logging.INFO, "No band_metadata.json found. Using legacy band names.")
-        return BAND_NAMES_LEGACY.copy()
+        fn.log(logging.INFO, "No band_metadata.json found. Throwing exception.")
+        raise Exception("Failed to load band_metadata.json")
+        # return BAND_NAMES_LEGACY.copy()
 
 
 def resolve_channel_indices_by_name(band_names, channel_names):

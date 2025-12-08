@@ -66,15 +66,18 @@ def extract_generation_data(generation_id: str) -> pd.DataFrame:
     return all_gen
 
 
-def classify_run(run_name: Any) -> Dict[str, Any]:
-    """Classify run based on name patterns."""
-    name = str(run_name).lower()
+def classify_run(run_data: pd.Series) -> Dict[str, Any]:
+    """Classify run based on MLflow tags and run name patterns."""
+    name = str(run_data.get("tags.mlflow.runName", "")).lower()
+    experiment_name = str(run_data.get("experiment_name", "")).lower()
+
+    # Determine task from experiment_name (more reliable)
     task = "unknown"
-    if "ci" in name or "clean_ice" in name:
+    if "clean_ice" in experiment_name:
         task = "clean_ice"
-    elif "dci" in name or "debris_ice" in name:
+    elif "debris_ice" in experiment_name:
         task = "debris_ice"
-    elif "multi" in name:
+    elif "multiclass" in experiment_name:
         task = "multiclass"
 
     server = "unknown"
@@ -284,7 +287,7 @@ def process_generation_data(
                 "end_time": pd.to_datetime(end_time).isoformat()
                 if pd.notna(end_time)
                 else None,
-                "configuration": classify_run(run_name),
+                "configuration": classify_run(run),
                 "timing": calculate_timing_analysis(run),
                 "performance": performance,
                 "analysis": analyze_training_behavior(performance),
