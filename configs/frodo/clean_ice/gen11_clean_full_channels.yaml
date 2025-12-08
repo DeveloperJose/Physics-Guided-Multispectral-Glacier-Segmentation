@@ -1,0 +1,14 @@
+# Gen11 Clean Ice with full spectral/physics context (no velocity).
+# Goal: Maintain strong CI IoU with richer channels and slightly denser test evals.
+
+training_opts:
+  dataset_name: "bibek_w512_o64_f1_comprehensive_phys64_s1"
+  run_name: "gen11_clean_full_channels"
+  epochs: 180
+  test_eval_n: 3
+
+loader_opts:
+  physics_channels: true
+  spectral_indices_channels: true
+  hsv_channels: true
+  velocity_channels: false

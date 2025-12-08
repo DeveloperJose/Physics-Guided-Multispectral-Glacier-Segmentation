@@ -1,0 +1,14 @@
+# Gen11 Debris regression: physics + velocity focus on current comprehensive dataset.
+# Goal: Reproduce Gen5-era Debris IoU on the current data pipeline with slightly longer training.
+
+training_opts:
+  dataset_name: "bibek_w512_o64_f1_comprehensive_phys64_s1"
+  run_name: "gen11_dci_phys_vel_regression"
+  epochs: 200
+  test_eval_n: 3
+  test_eval_baseline_epoch: 40
+  test_eval_transition_epoch: 120
+
+loader_opts:
+  physics_channels: true
+  velocity_channels: true
