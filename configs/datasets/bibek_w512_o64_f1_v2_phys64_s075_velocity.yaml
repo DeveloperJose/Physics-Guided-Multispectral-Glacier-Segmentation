@@ -3,7 +3,7 @@ output_name: "bibek_w512_o64_f1_v2_phys64_s075_velocity"
 
 window_size: [512, 512]
 overlap: 64
-filter: 1.0
+filter: 0.1
 test: 0.2
 val: 0.1
 

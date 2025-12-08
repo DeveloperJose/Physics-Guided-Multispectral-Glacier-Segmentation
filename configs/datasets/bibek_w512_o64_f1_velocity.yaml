@@ -3,7 +3,7 @@ output_name: "bibek_w512_o64_f1_velocity"
 
 window_size: [512, 512]
 overlap: 64
-filter: 1.0
+filter: 0.1
 test: 0.2
 val: 0.1
 
@@ -12,6 +12,6 @@ add_ndvi: false
 add_ndwi: false
 add_ndsi: false
 add_hsv: false
-physics_res: null
-physics_scale: null
+physics_res: None
+physics_scale: -1
 save_skipped_visualizations: false
