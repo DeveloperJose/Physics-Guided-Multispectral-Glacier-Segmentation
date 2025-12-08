@@ -1,0 +1,13 @@
+# Gen13 Clean Ice Physics + Velocity (Frodo GPU2, w512).
+# Both physics and velocity channels enabled; velocity loss remains disabled.
+
+training_opts:
+  dataset_name: bibek_w512_o64_f1_v2_phys64_s075_velocity
+  run_name: gen13_ci_w512_physvel
+  epochs: 200
+  test_eval_n: 3
+  early_stopping: 50
+
+loader_opts:
+  physics_channels: true
+  velocity_channels: true

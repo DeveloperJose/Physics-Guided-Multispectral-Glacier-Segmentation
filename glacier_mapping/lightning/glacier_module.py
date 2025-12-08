@@ -496,7 +496,7 @@ class GlacierSegmentationModule(pl.LightningModule):
                 optimizer_args["weight_decay"] = float(optimizer_args["weight_decay"])
             except ValueError:
                 optimizer_args["weight_decay"] = float(
-                    optimizer_args["weight_decay"].replace("e", "e-")
+                    str(optimizer_args["weight_decay"]).replace("E", "e")
                 )
 
         if "lr" in optimizer_args and isinstance(optimizer_args["lr"], str):

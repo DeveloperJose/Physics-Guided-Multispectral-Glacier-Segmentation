@@ -1,0 +1,13 @@
+# Gen13 Clean Ice Velocity (Frodo GPU2).
+# Velocity channels on, physics off. Velocity loss remains disabled.
+
+training_opts:
+  dataset_name: bibek_w512_o64_f1_velocity
+  run_name: gen13_ci_w512_velocity
+  epochs: 200
+  test_eval_n: 3
+  early_stopping: 50
+
+loader_opts:
+  physics_channels: false
+  velocity_channels: true

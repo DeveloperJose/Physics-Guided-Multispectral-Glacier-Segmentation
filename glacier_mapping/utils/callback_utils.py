@@ -32,6 +32,8 @@ from glacier_mapping.model.metrics import IoU, precision, recall, tp_fp_fn
 from glacier_mapping.utils import cleanup_gpu_memory
 import torch
 
+MAX_TIFF_CACHE_ENTRIES = 16  # Prevent unbounded memory growth
+
 # Import MLflow utilities with error handling
 try:
     import importlib.util
@@ -305,6 +307,10 @@ def generate_single_visualization(
 
         # Load and cache TIFF
         if tiff_num not in tiff_cache:
+            # Enforce simple LRU-like eviction to prevent unbounded growth
+            if len(tiff_cache) >= MAX_TIFF_CACHE_ENTRIES:
+                oldest_key = next(iter(tiff_cache))
+                tiff_cache.pop(oldest_key, None)
             tiff_cache[tiff_num] = load_full_tiff_rgb(str(tiff_path))
 
         tiff_full_rgb = tiff_cache[tiff_num]
@@ -743,6 +749,9 @@ def log_visualizations_to_all_loggers(
                         for png_file in tile_dir.glob("*.png"):
                             # Load PNG and convert to tensor for TensorBoard
                             img = cv2.imread(str(png_file))  # BGR format (H, W, 3)
+                            if img is None:
+                                warning(f"cv2 failed to read image: {png_file}")
+                                continue
                             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # Convert to RGB
                             img_tensor = (
                                 torch.from_numpy(img).permute(2, 0, 1).float() / 255.0

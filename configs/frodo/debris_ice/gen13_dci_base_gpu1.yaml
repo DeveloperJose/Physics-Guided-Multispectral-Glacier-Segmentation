@@ -1,0 +1,13 @@
+# Gen13 Debris-Covered Ice BASE (Frodo GPU1, w512).
+# No physics or velocity.
+
+training_opts:
+  dataset_name: bibek_w512_o64_f1_v2
+  run_name: gen13_dci_base
+  epochs: 200
+  test_eval_n: 3
+  early_stopping: 50
+
+loader_opts:
+  physics_channels: false
+  velocity_channels: false

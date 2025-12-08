@@ -627,10 +627,12 @@ class DropoutChannels(object):
     def __call__(self, sample):
         data, label = sample["image"], sample["mask"]
         if torch.rand(1) < self.p:
-            rand_channel_index = np.random.randint(
-                low=0, high=data.shape[2], size=int(data.shape[2] / 5)
-            )
-            data[:, :, rand_channel_index] = 0
+            # When channel count is very small, np.random.randint(size=0) fails.
+            if data.shape[2] >= 5:
+                rand_channel_index = np.random.randint(
+                    low=0, high=data.shape[2], size=int(data.shape[2] / 5)
+                )
+                data[:, :, rand_channel_index] = 0
         return {"image": data, "mask": label}
 
 
