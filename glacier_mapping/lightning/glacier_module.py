@@ -130,6 +130,12 @@ class GlacierSegmentationModule(pl.LightningModule):
             "theta",
             "alpha",
             "class_weights",
+            "velocity_confidence_threshold",
+            "velocity_low_speed_threshold",
+            "velocity_loss_weight",
+            "velocity_loss_warmup_epochs",
+            "velocity_loss_ramp_epochs",
+            "velocity_loss_clip",
         }
         loss_args = {k: v for k, v in loss_opts.items() if k in supported_loss_args}
 
@@ -414,12 +420,22 @@ class GlacierSegmentationModule(pl.LightningModule):
         # Compute custom loss (returns list of losses)
         if self.use_velocity_loss:
             losses = self.loss_fn(
-                y_hat, y_onehot, y_int, velocity=velocity, velocity_mask=velocity_mask
+                y_hat,
+                y_onehot,
+                y_int,
+                velocity=velocity,
+                velocity_mask=velocity_mask,
+                current_epoch=self.current_epoch,
             )
         else:
             # Pass None for velocity if not used, customloss will return 0.0 for velocity_loss
             losses = self.loss_fn(
-                y_hat, y_onehot, y_int, velocity=None, velocity_mask=None
+                y_hat,
+                y_onehot,
+                y_int,
+                velocity=None,
+                velocity_mask=None,
+                current_epoch=self.current_epoch,
             )
 
         # Apply sigma weighting like in original Framework

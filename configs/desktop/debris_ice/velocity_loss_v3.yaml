@@ -1,0 +1,26 @@
+# Velocity Loss Experiment
+# This config enables velocity channels which triggers the Physics-Informed Velocity Loss.
+
+training_opts:
+  dataset_name: "bibek_w256_o64_f1_comprehensive_phys64_s1"
+  run_name: "velocity_loss_v2"
+  test_eval_baseline_epoch: 5 # Single baseline evaluation at this epoch
+  test_eval_aggressive_threshold: 0.15 # 15% improvement threshold during phase 2 (reduced frequency)
+  test_eval_transition_epoch: 100 # Switch from phase 2 to phase 3 at this epoch
+
+loader_opts:
+  # Enable Velocity channels to trigger the Physics Loss in the model
+  velocity_channels: true
+
+  # Disable other physics channels to isolate the effect
+  physics_channels: false
+
+loss_opts:
+  use_velocity_loss: true
+  # Confidence-masked, warm-started low-velocity penalty
+  velocity_confidence_threshold: 0.65  # only enforce where model is confident in ice
+  velocity_low_speed_threshold: 0.1    # normalized velocity magnitude below this is penalized
+  velocity_loss_weight: 0.05           # max weight once ramped in
+  velocity_loss_warmup_epochs: 10      # pure segmentation for first epochs
+  velocity_loss_ramp_epochs: 10        # linear ramp for velocity weight
+  velocity_loss_clip: 1.0              # cap per-pixel penalty to avoid spikes

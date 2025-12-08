@@ -1,0 +1,15 @@
+# Gen12 Clean Ice: full channels with tighter stopping to keep val loss from rebounding.
+# Goal: preserve strong CI IoU while avoiding late-epoch degradation seen in Gen11.
+
+training_opts:
+  dataset_name: "bibek_w512_o64_f1_comprehensive_phys64_s1"
+  run_name: "gen12_clean_full_channels_earlystop"
+  epochs: 180
+  test_eval_n: 3
+  early_stopping: 45
+
+loader_opts:
+  physics_channels: true
+  spectral_indices_channels: true
+  hsv_channels: true
+  velocity_channels: false
