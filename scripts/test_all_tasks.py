@@ -299,22 +299,51 @@ class GlacierTaskTestSuite:
         # Check existing configs
         existing_configs = {}
 
-        # Check for debris ice config
-        debris_config_path = Path(
+        # Check for debris ice config (velocity loss)
+        debris_velocity_config_path = Path(
             "configs/desktop/debris_ice/velocity_loss_experiment.yaml"
         )
-        if debris_config_path.exists():
-            existing_configs["debris_ice"] = str(debris_config_path)
-            print(f"✓ Existing config found: {debris_config_path}")
+        if debris_velocity_config_path.exists():
+            existing_configs["debris_ice_velocity"] = str(debris_velocity_config_path)
+            print(f"✓ Existing config found: {debris_velocity_config_path}")
         else:
             # Create debris ice config with velocity loss enabled
-            debris_config = base_config.copy()
-            debris_config["training_opts"]["run_name"] = "debris_ice_test"
-            debris_config["loader_opts"]["velocity_channels"] = True
-            debris_config["loss_opts"] = {"use_velocity_loss": True}
-            debris_path = self.create_temp_config("debris_ice", debris_config)
-            existing_configs["debris_ice"] = debris_path
-            print(f"✓ Auto-created temp config: {debris_path}")
+            debris_velocity_config = base_config.copy()
+            debris_velocity_config["training_opts"]["run_name"] = (
+                "debris_ice_velocity_test"
+            )
+            debris_velocity_config["loader_opts"]["velocity_channels"] = True
+            debris_velocity_config["loss_opts"] = {"use_velocity_loss": True}
+            debris_velocity_path = self.create_temp_config(
+                "debris_ice_velocity", debris_velocity_config
+            )
+            existing_configs["debris_ice_velocity"] = debris_velocity_path
+            print(f"✓ Auto-created temp config: {debris_velocity_path}")
+
+        # Check for debris ice config (class weighting)
+        debris_weighted_config_path = Path(
+            "configs/desktop/debris_ice/class_weighting_experiment.yaml"
+        )
+        if debris_weighted_config_path.exists():
+            existing_configs["debris_ice_weighted"] = str(debris_weighted_config_path)
+            print(f"✓ Existing config found: {debris_weighted_config_path}")
+        else:
+            # Create debris ice config with class weighting enabled
+            debris_weighted_config = base_config.copy()
+            debris_weighted_config["training_opts"]["dataset_name"] = (
+                "bibek_w512_o64_f1_comprehensive_phys64_s1"
+            )
+            debris_weighted_config["training_opts"]["run_name"] = (
+                "debris_ice_weighted_test"
+            )
+            debris_weighted_config["loader_opts"]["velocity_channels"] = True
+            debris_weighted_config["loader_opts"]["physics_channels"] = True
+            debris_weighted_config["loss_opts"] = {"class_weights": [1, 6.0]}
+            debris_weighted_path = self.create_temp_config(
+                "debris_ice_weighted", debris_weighted_config
+            )
+            existing_configs["debris_ice_weighted"] = debris_weighted_path
+            print(f"✓ Auto-created temp config: {debris_weighted_path}")
 
         # Create clean ice config
         clean_config = base_config.copy()
@@ -788,21 +817,20 @@ class GlacierTaskTestSuite:
 
             loss_fn = model.loss_fn
             print(f"  ✓ Loss function: {type(loss_fn).__name__}")
-            print(f"  ✓ foreground_indices: {loss_fn.foreground_indices}")
 
-            # Check binary remapping
+            # The foreground_indices attribute was removed, so we no longer check it directly.
+            # The class_weights parameter in customloss now handles class importance.
+            # We can infer the effective foreground from output_classes and target_class_ids.
             if len(output_classes) == 1:
-                expected_foreground = [1]  # Always [1] for binary
-                if loss_fn.foreground_indices != expected_foreground:
-                    print(
-                        f"  ⚠ Binary remapping: {target_class_ids} → {loss_fn.foreground_indices}"
-                    )
-                else:
-                    print(
-                        f"  ✓ Binary remapping: {target_class_ids} → {loss_fn.foreground_indices}"
-                    )
+                # For binary, the foreground is implicitly the non-background class (index 1 after remapping)
+                print(
+                    f"  ✓ Binary task: output_classes={output_classes}, target_class_ids={target_class_ids}"
+                )
             else:
-                print(f"  ✓ Multi-class: {loss_fn.foreground_indices}")
+                # For multi-class, all non-background output classes are considered
+                print(
+                    f"  ✓ Multi-class task: output_classes={output_classes}, target_class_ids={target_class_ids}"
+                )
 
             # Test loss computation
             with torch.no_grad():
@@ -883,7 +911,6 @@ class GlacierTaskTestSuite:
                 print(f"  ✓ Total loss: {total_loss.item():.4f}")
 
             result["tests"]["loss"] = {
-                "foreground_indices": loss_fn.foreground_indices,
                 "loss_computed": True,
                 "passed": True,
             }
