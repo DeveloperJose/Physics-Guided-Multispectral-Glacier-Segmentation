@@ -335,8 +335,12 @@ class GlacierSegmentationModule(pl.LightningModule):
         prefix: str,
     ):
         """Update metrics with predictions and targets."""
-        # Convert predictions to probabilities
+        # Convert predictions to probabilities / hard labels
         y_prob = torch.softmax(y_hat, dim=1)
+        y_pred_argmax = torch.argmax(y_prob, dim=1)
+        thresholds = self.metrics_opts.get(
+            "threshold", [0.5 for _ in range(len(self.class_names))]
+        )
 
         valid_mask = y_int != 255
         if valid_mask.sum() == 0:
@@ -349,12 +353,15 @@ class GlacierSegmentationModule(pl.LightningModule):
 
             class_name = self.class_names[class_idx]
 
-            # Get binary predictions for this class
-            if len(self.output_classes) == 1:  # Binary case
-                y_pred_class = (y_prob[:, 1] > 0.5).float()
+            if len(self.output_classes) == 1:
+                # Binary case: channel 1 is always the positive class in the two-logit head
+                pos_prob = y_prob[:, 1]
+                thr = thresholds[class_idx] if class_idx < len(thresholds) else 0.5
+                y_pred_class = (pos_prob >= thr).float()
                 y_true_class = (y_int == class_idx).float()
-            else:  # Multi-class case
-                y_pred_class = (y_prob[:, class_idx] > 0.5).float()
+            else:
+                # Multiclass: align with argmax inference to avoid empty positives
+                y_pred_class = (y_pred_argmax == class_idx).float()
                 y_true_class = (y_int == class_idx).float()
 
             # Apply ignore mask
@@ -600,7 +607,11 @@ class GlacierSegmentationModule(pl.LightningModule):
 
     def _denormalize_velocity(self, vel_norm):
         # mean and std for velocity channel
-        channel_idx = self.use_channels[self.velocity_idx]
+        if self.velocity_idx is None:
+            # Guard against misuse; should not happen when velocity loss is active
+            raise ValueError("velocity_idx is None, cannot denormalize velocity.")
+
+        channel_idx = self.use_channels[int(self.velocity_idx)]
         mean = torch.tensor(self.norm_arr_full[0, channel_idx], device=vel_norm.device)
         std = torch.tensor(self.norm_arr_full[1, channel_idx], device=vel_norm.device)
 

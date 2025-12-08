@@ -467,8 +467,12 @@ def main():
                 )
             )
 
-    # Test evaluation (runs even with --no-output for metrics, but no PNGs)
-    run_test_eval = training_opts.get("run_test_eval", True) and not args.skip_test_eval
+    # Test evaluation (skip entirely when --no-output to avoid disk writes)
+    run_test_eval = (
+        training_opts.get("run_test_eval", True)
+        and not args.skip_test_eval
+        and not args.no_output
+    )
     if run_test_eval:
         test_eval_n = training_opts.get("test_eval_n", 4) if not args.no_output else 0
         # Extract optimization parameters

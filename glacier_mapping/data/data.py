@@ -433,7 +433,6 @@ def fetch_loaders(
 
     common_loader_kwargs = dict(
         worker_init_fn=seed_worker,
-        generator=g,
         num_workers=num_workers,
     )
 
@@ -441,18 +440,21 @@ def fetch_loaders(
         train_dataset,
         batch_size=batch_size,
         shuffle=shuffle,
+        generator=g,
         **common_loader_kwargs,
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
+        generator=g,
         **common_loader_kwargs,
     )
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
+        generator=g,
         **common_loader_kwargs,
     )
     return train_loader, val_loader, test_loader

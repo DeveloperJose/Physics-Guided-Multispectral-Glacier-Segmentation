@@ -93,20 +93,12 @@ class customloss(nn.Module):
                 f"Invalid channel count: {c}. Binary requires 2 channels, multi-class requires 3+ channels."
             )
 
-        # Use sigmoid for binary, softmax for multi-class
-        if c == 2:  # Binary classification (background + foreground)
-            # Construct two-channel probability tensors
-            pred_fg = torch.sigmoid(pred[:, 1:2])  # Foreground probability
-            pred_bg = 1.0 - pred_fg  # Background probability
-            pred_prob = torch.cat([pred_bg, pred_fg], dim=1)  # (N, 2, H, W)
-
-            # Construct two-channel one-hot target
-            target_fg = target[:, 1:2]  # Foreground target
-            target_bg = 1.0 - target_fg  # Background target
-            target_prob = torch.cat([target_bg, target_fg], dim=1)  # (N, 2, H, W)
-
+        # Always train both logits; use softmax for binary too so BG receives gradients
+        if c == 2:
+            pred_prob = torch.softmax(pred, dim=1)
+            target_prob = target
             C_eff = 2
-        else:  # Multi-class classification
+        else:
             pred_prob = self.act(pred)  # Softmax
             target_prob = target
             C_eff = c
@@ -207,7 +199,7 @@ class customloss(nn.Module):
             valid_count = combined_mask.sum()
             if valid_count > 0:
                 numerator = (per_pixel_penalty * combined_mask).sum()
-                base_velocity_loss = numerator / (valid_count + 1e-7)
+                base_velocity_loss = numerator / valid_count
                 weight = self._compute_velocity_weight(current_epoch)
                 velocity_loss = base_velocity_loss * weight
             else:
@@ -225,9 +217,7 @@ class customloss(nn.Module):
         ramp_start = self.velocity_loss_warmup_epochs
         ramp_end = ramp_start + max(1, self.velocity_loss_ramp_epochs)
         if current_epoch < ramp_end:
-            progress = (current_epoch - ramp_start + 1) / (
-                ramp_end - ramp_start + 1e-7
-            )
+            progress = (current_epoch - ramp_start + 1) / (ramp_end - ramp_start + 1e-7)
             return self.velocity_loss_weight * max(0.0, min(1.0, progress))
 
         return self.velocity_loss_weight
