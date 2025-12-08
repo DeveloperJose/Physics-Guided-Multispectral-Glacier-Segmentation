@@ -434,9 +434,10 @@ class GlacierSegmentationModule(pl.LightningModule):
             sigma_params.append(self.sigma_velocity)
 
         for i, (_loss, sig) in enumerate(zip(losses, sigma_params)):
-            # Apply minimum constraint to prevent sigma from going to zero (original design)
-            sig_clamped = torch.clamp(sig, min=0.1)
-            var = sig_clamped**2 + 1e-8
+            # Allow sigma to be learned freely, enabling the model to down-weight
+            # unhelpful loss components or heavily weight informative ones.
+            # Numerical stability is maintained by the epsilon term.
+            var = sig**2 + 1e-8
 
             # Kendall et al. (2018) uses 2*sigma^2 denominator
             weighted_loss = _loss / (2.0 * var)
