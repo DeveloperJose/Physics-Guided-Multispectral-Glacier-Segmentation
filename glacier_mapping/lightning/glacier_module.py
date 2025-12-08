@@ -248,9 +248,8 @@ class GlacierSegmentationModule(pl.LightningModule):
             and self.velocity_idx is not None
             and self.velocity_mask_idx is not None
         ):
-            # Extract normalized velocity and keep it normalized for loss computation
-            # Using normalized values prevents velocity loss from dominating training
-            velocity = x[:, self.velocity_idx : self.velocity_idx + 1, :, :]
+            vel_norm = x[:, self.velocity_idx : self.velocity_idx + 1, :, :]
+            velocity = self._denormalize_velocity(vel_norm)
 
             velocity_mask = x[
                 :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
@@ -290,9 +289,7 @@ class GlacierSegmentationModule(pl.LightningModule):
                 and self.velocity_mask_idx is not None
             ):
                 vel_norm = x[:, self.velocity_idx : self.velocity_idx + 1, :, :]
-                # Keep velocity normalized to maintain consistency with training
-                # This prevents 60x scale mismatch between training (normalized) and validation (denormalized)
-                velocity = vel_norm
+                velocity = self._denormalize_velocity(vel_norm)
                 velocity_mask = x[
                     :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
                 ]
@@ -346,10 +343,9 @@ class GlacierSegmentationModule(pl.LightningModule):
 
             # Update metrics
             if f"{class_name}_iou" in metrics_dict:
-                metrics_dict[f"{class_name}_iou"].update(
-                    y_pred_class, y_true_class.int()
-                )
-                iou_value = metrics_dict[f"{class_name}_iou"].compute()
+                iou_metric: Any = metrics_dict[f"{class_name}_iou"]
+                iou_metric.update(y_pred_class, y_true_class.int())
+                iou_value = iou_metric.compute()
                 self.log(
                     f"{prefix}_{class_name}_iou",
                     iou_value,
@@ -358,10 +354,9 @@ class GlacierSegmentationModule(pl.LightningModule):
                 )
 
             if f"{class_name}_precision" in metrics_dict:
-                metrics_dict[f"{class_name}_precision"].update(
-                    y_pred_class, y_true_class.int()
-                )
-                precision_value = metrics_dict[f"{class_name}_precision"].compute()
+                precision_metric: Any = metrics_dict[f"{class_name}_precision"]
+                precision_metric.update(y_pred_class, y_true_class.int())
+                precision_value = precision_metric.compute()
                 self.log(
                     f"{prefix}_{class_name}_precision",
                     precision_value,
@@ -370,10 +365,9 @@ class GlacierSegmentationModule(pl.LightningModule):
                 )
 
             if f"{class_name}_recall" in metrics_dict:
-                metrics_dict[f"{class_name}_recall"].update(
-                    y_pred_class, y_true_class.int()
-                )
-                recall_value = metrics_dict[f"{class_name}_recall"].compute()
+                recall_metric: Any = metrics_dict[f"{class_name}_recall"]
+                recall_metric.update(y_pred_class, y_true_class.int())
+                recall_value = recall_metric.compute()
                 self.log(
                     f"{prefix}_{class_name}_recall",
                     recall_value,
@@ -431,7 +425,7 @@ class GlacierSegmentationModule(pl.LightningModule):
 
         return total_loss[0]
 
-    def configure_optimizers(self):
+    def configure_optimizers(self) -> Any:
         """Configure optimizers and learning rate schedulers."""
         # Setup optimizer
         optimizer_name = self.optim_opts.get("name", "AdamW")
@@ -510,13 +504,15 @@ class GlacierSegmentationModule(pl.LightningModule):
 
     def on_train_epoch_end(self):
         """Reset training metrics at end of epoch."""
-        for metric in self.train_metrics.values():
-            metric.reset()
+        for metric_name, metric_obj in self.train_metrics.items():
+            metric_obj: Any = metric_obj
+            metric_obj.reset()
 
     def on_validation_epoch_end(self):
         """Reset validation metrics at end of epoch."""
-        for metric in self.val_metrics.values():
-            metric.reset()
+        for metric_name, metric_obj in self.val_metrics.items():
+            metric_obj: Any = metric_obj
+            metric_obj.reset()
 
     def _load_normalization_params(self):
         """Load normalization array from processed data directory."""
@@ -551,6 +547,17 @@ class GlacierSegmentationModule(pl.LightningModule):
         self.no_normalize_mask = np.array(
             [band_names[ch] in no_norm_names for ch in self.use_channels]
         )
+
+    def _denormalize_velocity(self, vel_norm):
+        # mean and std for velocity channel
+        mean = torch.tensor(
+            self.norm_arr_full[0, self.velocity_idx], device=vel_norm.device
+        )
+        std = torch.tensor(
+            self.norm_arr_full[1, self.velocity_idx], device=vel_norm.device
+        )
+
+        return vel_norm * std + mean
 
     def normalize(self, x):
         """Normalize input data (from Framework).
