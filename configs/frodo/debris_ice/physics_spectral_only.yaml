@@ -1,0 +1,17 @@
+# Gen9 Physics + Spectral Only Debris Model (Frodo RTX 2080 Ti)
+# Hypothesis: Physics + spectral channels are most discriminative for debris
+# while removing redundant channels (Landsat, DEM, HSV)
+
+training_opts:
+  dataset_name: "bibek_w512_o64_f1_comprehensive_phys64_s1"
+  run_name: "gen9_physics_spectral_debris"
+
+loader_opts:
+  # Enable physics + spectral only
+  physics_channels: true
+  spectral_indices_channels: true
+  # Disable all other channel groups
+  landsat_channels: false
+  dem_channels: false
+  hsv_channels: false
+  velocity_channels: false

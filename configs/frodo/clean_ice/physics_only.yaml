@@ -1,0 +1,20 @@
+# Gen9 Physics-Only Clean Ice Model (Frodo RTX 2080 Ti)
+# Hypothesis: Physics features help distinguish clean ice from bare terrain
+# Complements Bilbo debris physics experiment
+
+training_opts:
+  dataset_name: "bibek_w512_o64_f1_comprehensive_phys64_s1"
+  run_name: "gen9_physics_only_clean"
+
+loader_opts:
+  # Enable physics channels only
+  physics_channels: true
+  # Disable all other channel groups
+  landsat_channels: false
+  dem_channels: false
+  spectral_indices_channels: false
+  hsv_channels: false
+  velocity_channels: false
+
+loss_opts:
+  label_smoothing: 0.15

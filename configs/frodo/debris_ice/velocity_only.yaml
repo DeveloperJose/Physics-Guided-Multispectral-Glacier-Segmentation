@@ -1,0 +1,21 @@
+# Gen9 Velocity-Only Debris Model (Frodo RTX 2080 Ti)
+# Hypothesis: Velocity channels alone are highly discriminative for debris-covered ice
+# High-risk, high-reward experiment testing minimal channel approach
+
+training_opts:
+  dataset_name: "bibek_w512_o64_f1_comprehensive_phys64_s1"
+  run_name: "gen9_velocity_only_debris"
+
+loader_opts:
+  # Enable velocity channels only
+  velocity_channels: true
+  # Disable all other channel groups
+  landsat_channels: false
+  dem_channels: false
+  spectral_indices_channels: false
+  hsv_channels: false
+  physics_channels: false
+
+optim_opts:
+  args:
+    lr: 0.001  # Higher learning rate for velocity-only model

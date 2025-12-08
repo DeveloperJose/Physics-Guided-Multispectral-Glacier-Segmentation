@@ -25,7 +25,7 @@ class TestVelocityLossMath(unittest.TestCase):
         pred_logits = torch.randn(batch_size, 2, height, width)
         target_onehot = torch.zeros(batch_size, 2, height, width)
         target_onehot[:, 1] = 1.0  # Set foreground class
-        target_int = torch.ones(batch_size, height, width, 1).long()  # Foreground label
+        target_int = torch.ones(batch_size, height, width).long()  # Foreground label
 
         # Create velocity data
         velocity = (
@@ -64,7 +64,7 @@ class TestVelocityLossMath(unittest.TestCase):
 
         # Create module with velocity loss enabled
         config = {
-            "model_opts": {},
+            "model_opts": {"args": {"net_depth": 4, "first_channel_output": 16}},
             "loss_opts": {"use_velocity_loss": True},
             "optim_opts": {},
             "metrics_opts": {},
@@ -78,6 +78,9 @@ class TestVelocityLossMath(unittest.TestCase):
         model = GlacierSegmentationModule(**config)
 
         # Check initial sigma values are all 1.0
+        self.assertIsNotNone(model.sigma_dice)
+        self.assertIsNotNone(model.sigma_boundary)
+        self.assertIsNotNone(model.sigma_velocity)
         self.assertEqual(model.sigma_dice.item(), 1.0)
         self.assertEqual(model.sigma_boundary.item(), 1.0)
         self.assertEqual(model.sigma_velocity.item(), 1.0)
@@ -130,7 +133,7 @@ class TestVelocityLossMath(unittest.TestCase):
         pred_logits = torch.randn(2, 2, 32, 32)
         target_onehot = torch.zeros(2, 2, 32, 32)
         target_onehot[:, 1] = 1.0
-        target_int = torch.ones(2, 32, 32, 1).long()
+        target_int = torch.ones(2, 32, 32).long()
 
         velocity = torch.zeros(2, 1, 32, 32)  # All zero velocity
         velocity_mask = torch.ones(2, 1, 32, 32)  # All valid
@@ -162,7 +165,7 @@ class TestVelocityLossMath(unittest.TestCase):
         from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
 
         model = GlacierSegmentationModule(
-            model_opts={},
+            model_opts={"args": {"net_depth": 4, "first_channel_output": 16}},
             loss_opts={"use_velocity_loss": True},
             optim_opts={},
             metrics_opts={},
@@ -175,14 +178,23 @@ class TestVelocityLossMath(unittest.TestCase):
 
         # Test that very small sigma values are clamped to minimum
         with torch.no_grad():
+            self.assertIsNotNone(model.sigma_dice)
+            self.assertIsNotNone(model.sigma_boundary)
+            self.assertIsNotNone(model.sigma_velocity)
             model.sigma_dice.data = torch.tensor(0.05)  # Below min=0.1
             model.sigma_boundary.data = torch.tensor(0.01)
             model.sigma_velocity.data = torch.tensor(0.02)
 
         # Test loss computation with clamped sigmas (should not crash)
-        losses = torch.tensor([0.5, 0.3, 1.0])
+        pred_logits = torch.randn(1, 2, 32, 32)
+        target_onehot = torch.zeros(1, 2, 32, 32)
+        target_onehot[:, 1] = 1.0
+        target_int = torch.ones(1, 32, 32).long()
+        velocity = torch.randn(1, 1, 32, 32)
+        velocity_mask = torch.ones(1, 1, 32, 32)
+
         test_loss = model.compute_loss(
-            losses, [model.sigma_dice, model.sigma_boundary, model.sigma_velocity]
+            pred_logits, target_onehot, target_int, velocity, velocity_mask
         )
 
         # Should not crash and should be finite
@@ -230,248 +242,6 @@ class TestSliceFunctions(unittest.TestCase):
         self.assertTrue(np.all(result[..., 0] == 1000))
         self.assertTrue(np.all(result[..., 1] == 30))
         print("  ✓ Correctly extracts elevation and slope.")
-
-    def test_velocity_loss_mathematical_correctness(self):
-        """Test velocity loss mathematical correctness and Kendall formulation."""
-        print("=== Test: Velocity Loss Mathematical Correctness ===")
-
-        # Create simple test data without requiring full data pipeline
-        batch_size, height, width = 2, 32, 32
-
-        # Create model inputs (binary classification)
-        pred_logits = torch.randn(batch_size, 2, height, width)
-        target_onehot = torch.zeros(batch_size, 2, height, width)
-        target_onehot[:, 1] = 1.0  # Set foreground class
-        target_int = torch.ones(batch_size, height, width, 1).long()  # Foreground label
-
-        # Create velocity data
-        velocity = (
-            torch.abs(torch.randn(batch_size, 1, height, width)) * 5.0
-        )  # Positive velocities
-        velocity_mask = torch.ones(batch_size, 1, height, width)  # All valid
-
-        # Initialize loss function
-        loss_fn = customloss()
-
-        # Test loss computation
-        dice_loss, boundary_loss, velocity_loss = loss_fn(
-            pred_logits, target_onehot, target_int, velocity, velocity_mask
-        )
-
-        # Verify velocity loss is positive and reasonable
-        self.assertGreater(velocity_loss.item(), 0.0)
-        self.assertLess(velocity_loss.item(), 100.0)  # Shouldn't be too large
-
-        # Test without velocity data
-        dice_loss_no_vel, boundary_loss_no_vel, velocity_loss_no_vel = loss_fn(
-            pred_logits, target_onehot, target_int, None, None
-        )
-
-        # Velocity loss should be zero when no velocity data
-        self.assertEqual(velocity_loss_no_vel.item(), 0.0)
-
-        print("  ✓ Velocity loss mathematical correctness verified.")
-        print("  ✓ Velocity loss returns zero when no velocity data provided.")
-
-    def test_sigma_initialization(self):
-        """Test sigma parameters initialize correctly for velocity loss."""
-        print("=== Test: Sigma Initialization ===")
-
-        # Test that all sigmas start at 1.0 for equal weighting
-        from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
-
-        # Create module with velocity loss enabled (minimal config)
-        model = GlacierSegmentationModule(
-            model_opts={},
-            loss_opts={"use_velocity_loss": True},
-            optim_opts={},
-            metrics_opts={},
-            loader_opts={
-                "velocity_channels": True,
-                "output_classes": [1],
-                "class_names": ["bg", "fg"],
-            },
-        )
-
-        # Check initial sigma values
-        self.assertEqual(model.sigma_dice.item(), 1.0)
-        self.assertEqual(model.sigma_boundary.item(), 1.0)
-        self.assertEqual(model.sigma_velocity.item(), 1.0)
-
-        # Check sigma_list contains all three sigmas
-        self.assertEqual(len(model.sigma_list), 3)
-        self.assertIs(model.sigma_list[0], model.sigma_dice)
-        self.assertIs(model.sigma_list[1], model.sigma_boundary)
-        self.assertIs(model.sigma_list[2], model.sigma_velocity)
-
-        print("  ✓ All sigmas initialize to 1.0 for equal weighting.")
-        print("  ✓ Sigma list correctly contains all three parameters.")
-
-    def test_kendall_formulation_implementation(self):
-        """Test exact Kendall uncertainty weighting formulation."""
-        print("=== Test: Kendall Formulation Implementation ===")
-
-        # Create test losses and sigmas
-        losses = torch.tensor([0.5, 0.3, 1.2])  # dice, boundary, velocity
-        sigmas = torch.tensor([0.8, 1.1, 0.6], requires_grad=True)
-
-        # Implement Kendall formulation: L/(2σ²) + 0.5*log(σ²)
-        expected_total = torch.tensor(0.0)
-
-        for loss, sigma in zip(losses, sigmas):
-            sigma_clamped = torch.clamp(sigma, min=0.1)
-            var = sigma_clamped**2 + 1e-8
-
-            # Kendall weighting
-            weighted_loss = loss / (2.0 * var)
-            expected_total += weighted_loss
-
-            # Regularization term
-            expected_total += 0.5 * torch.log(var)
-
-        # Test that implementation matches expected
-        from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
-
-        # Create a minimal model to test compute_loss method
-        model = GlacierSegmentationModule(
-            model_opts={},
-            loss_opts={"use_velocity_loss": True},
-            optim_opts={},
-            metrics_opts={},
-            loader_opts={
-                "velocity_channels": True,
-                "output_classes": [1],
-                "class_names": ["bg", "fg"],
-            },
-        )
-
-        # Manually set sigma values for testing
-        with torch.no_grad():
-            model.sigma_dice.data = sigmas[0]
-            model.sigma_boundary.data = sigmas[1]
-            model.sigma_velocity.data = sigmas[2]
-
-        # Test loss computation using model's method
-        test_loss = model.compute_loss(
-            losses, [model.sigma_dice, model.sigma_boundary, model.sigma_velocity]
-        )
-
-        # Should match expected total (within numerical precision)
-        self.assertTrue(torch.allclose(test_loss, expected_total, atol=1e-6))
-
-        print("  ✓ Kendall formulation implementation is mathematically correct.")
-        print("  ✓ Loss weighting and regularization terms match expected values.")
-
-    def test_velocity_loss_edge_cases(self):
-        """Test velocity loss edge cases and numerical stability."""
-        print("=== Test: Velocity Loss Edge Cases ===")
-
-        loss_fn = customloss()
-
-        # Test case 1: All zero velocity
-        pred_logits = torch.randn(2, 2, 32, 32)
-        target_onehot = torch.zeros(2, 2, 32, 32)
-        target_onehot[:, 1] = 1.0
-        target_int = torch.ones(2, 32, 32, 1).long()
-
-        velocity = torch.zeros(2, 1, 32, 32)  # All zero velocity
-        velocity_mask = torch.ones(2, 1, 32, 32)
-
-        dice_loss, boundary_loss, velocity_loss = loss_fn(
-            pred_logits, target_onehot, target_int, velocity, velocity_mask
-        )
-
-        # Velocity loss should be zero when all velocity is zero
-        self.assertEqual(velocity_loss.item(), 0.0)
-
-        # Test case 2: Empty velocity mask
-        velocity_mask = torch.zeros(2, 1, 32, 32)  # No valid velocity
-
-        dice_loss, boundary_loss, velocity_loss = loss_fn(
-            pred_logits, target_onehot, target_int, velocity, velocity_mask
-        )
-
-        # Velocity loss should be zero when mask is empty
-        self.assertEqual(velocity_loss.item(), 0.0)
-
-        print("  ✓ Zero velocity case handled correctly.")
-        print("  ✓ Empty velocity mask case handled correctly.")
-
-    def test_sigma_constraints(self):
-        """Test sigma parameter constraints and numerical stability."""
-        print("=== Test: Sigma Constraints ===")
-
-        from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
-
-        model = GlacierSegmentationModule(
-            model_opts={},
-            loss_opts={"use_velocity_loss": True},
-            optim_opts={},
-            metrics_opts={},
-            loader_opts={
-                "velocity_channels": True,
-                "output_classes": [1],
-                "class_names": ["bg", "fg"],
-            },
-        )
-
-        # Try to set sigma below minimum (should be clamped)
-        with torch.no_grad():
-            model.sigma_dice.data = torch.tensor(0.05)  # Below min=0.1
-            model.sigma_boundary.data = torch.tensor(0.01)
-            model.sigma_velocity.data = torch.tensor(0.02)
-
-        # Test loss computation with clamped sigmas
-        losses = torch.tensor([0.5, 0.3, 1.0])
-        test_loss = model.compute_loss(
-            losses, [model.sigma_dice, model.sigma_boundary, model.sigma_velocity]
-        )
-
-        # Should not crash and should be finite
-        self.assertTrue(torch.isfinite(test_loss))
-        self.assertGreater(test_loss.item(), 0.0)
-
-        print("  ✓ Sigma minimum constraint (0.1) enforced correctly.")
-        print("  ✓ No numerical instability with very small sigmas.")
-
-    def test_three_loss_integration(self):
-        """Test proper integration of all three loss components."""
-        print("=== Test: Three-Loss Integration ===")
-
-        loss_fn = customloss()
-
-        # Create test data
-        pred_logits = torch.randn(2, 2, 32, 32)
-        target_onehot = torch.zeros(2, 2, 32, 32)
-        target_onehot[:, 1] = 1.0
-        target_int = torch.ones(2, 32, 32, 1).long()
-
-        velocity = torch.abs(torch.randn(2, 1, 32, 32)) * 3.0
-        velocity_mask = torch.ones(2, 1, 32, 32)
-
-        # Test all three losses are computed
-        dice_loss, boundary_loss, velocity_loss = loss_fn(
-            pred_logits, target_onehot, target_int, velocity, velocity_mask
-        )
-
-        # All losses should be positive and finite
-        self.assertGreater(dice_loss.item(), 0.0)
-        self.assertLess(dice_loss.item(), 2.0)  # Dice loss bounded [0, 2]
-
-        self.assertGreater(boundary_loss.item(), 0.0)
-        self.assertLess(boundary_loss.item(), 2.0)  # Boundary loss bounded [0, 2]
-
-        self.assertGreaterEqual(velocity_loss.item(), 0.0)  # Can be zero
-        self.assertLess(velocity_loss.item(), 100.0)  # Reasonable upper bound
-
-        # Test total loss computation
-        total_loss = dice_loss + boundary_loss + velocity_loss
-        self.assertTrue(torch.isfinite(total_loss))
-        self.assertGreater(total_loss.item(), 0.0)
-
-        print("  ✓ All three loss components computed correctly.")
-        print("  ✓ Loss values are within expected ranges.")
-        print("  ✓ Total loss is finite and positive.")
 
 
 if __name__ == "__main__":
