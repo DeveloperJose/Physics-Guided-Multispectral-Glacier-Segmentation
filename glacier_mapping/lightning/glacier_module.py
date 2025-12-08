@@ -310,13 +310,13 @@ class GlacierSegmentationModule(pl.LightningModule):
                 # Keep velocity normalized to maintain consistency with training
                 # This prevents 60x scale mismatch between training (normalized) and validation (denormalized)
                 velocity = vel_norm
+                velocity_mask = x[
+                    :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
+                ]
 
             else:
                 velocity = None
-
-            velocity_mask = x[
-                :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
-            ]
+                velocity_mask = None
 
             loss = self.compute_loss(
                 y_hat, y_onehot, y_int, velocity=velocity, velocity_mask=velocity_mask
