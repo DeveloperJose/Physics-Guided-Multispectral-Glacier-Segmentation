@@ -21,7 +21,6 @@ class customloss(nn.Module):
         masked=True,
         theta0=3,
         theta=5,
-        foreground_indices=None,
         alpha=0.9,  # compatibility with old code
         verbose=False,
         class_weights: Optional[List[float]] = None,  # New parameter
@@ -35,11 +34,6 @@ class customloss(nn.Module):
         self.theta = theta
         self.verbose = verbose
         self.class_weights = class_weights  # Store class weights
-        self.class_weights = class_weights  # Store class weights
-
-        self.foreground_indices = (
-            foreground_indices if foreground_indices is not None else [1]
-        )
 
         # Flag for single-run debug logging
         self._first_call = True
@@ -81,9 +75,17 @@ class customloss(nn.Module):
 
         # Use sigmoid for binary, softmax for multi-class
         if c == 2:  # Binary classification (background + foreground)
-            pred_prob = torch.sigmoid(pred[:, 1:2])  # Target class only
-            target_prob = target[:, 1:2]  # Target class only
-            C_eff = 1
+            # Construct two-channel probability tensors
+            pred_fg = torch.sigmoid(pred[:, 1:2])  # Foreground probability
+            pred_bg = 1.0 - pred_fg  # Background probability
+            pred_prob = torch.cat([pred_bg, pred_fg], dim=1)  # (N, 2, H, W)
+
+            # Construct two-channel one-hot target
+            target_fg = target[:, 1:2]  # Foreground target
+            target_bg = 1.0 - target_fg  # Background target
+            target_prob = torch.cat([target_bg, target_fg], dim=1)  # (N, 2, H, W)
+
+            C_eff = 2
         else:  # Multi-class classification
             pred_prob = self.act(pred)  # Softmax
             target_prob = target
@@ -106,34 +108,20 @@ class customloss(nn.Module):
             denominator = pred_flat.sum(dim=0) + targ_flat.sum(dim=0) + self.smooth
             dice_per_class = 1 - numerator / denominator
 
-            if C_eff == 1:
-                dice_loss_scalar = dice_per_class.sum()
-                if self._first_call:
-                    print(
-                        f"[LOSS DEBUG] Dice loss - c={c}, foreground_indices={self.foreground_indices}"
+            if self.class_weights is not None:
+                if len(self.class_weights) != C_eff:
+                    raise ValueError(
+                        f"Length of class_weights ({len(self.class_weights)}) "
+                        f"must match number of effective classes ({C_eff})"
                     )
+                weights_tensor = torch.tensor(self.class_weights, device=device)
+                dice_loss_scalar = (dice_per_class * weights_tensor).sum()
             else:
-                if self.class_weights is not None:
-                    if len(self.class_weights) != C_eff:
-                        raise ValueError(
-                            f"Length of class_weights ({len(self.class_weights)}) "
-                            f"must match number of effective classes ({C_eff})"
-                        )
-                    weights_tensor = torch.tensor(self.class_weights, device=device)
-                    dice_loss_scalar = (dice_per_class * weights_tensor).sum()
-                else:
-                    class_mask = torch.zeros_like(dice_per_class).to(device)
-                    for fg_idx in self.foreground_indices:
-                        if 0 <= fg_idx < dice_per_class.shape[0]:
-                            class_mask[fg_idx] = 1.0
-                    dice_loss_scalar = (dice_per_class * class_mask).sum()
+                # Fallback to equal weighting if no class_weights are provided
+                dice_loss_scalar = dice_per_class.mean()
 
-        if C_eff == 1:
-            pred_b_in = pred_prob
-            targ_b_in = target_prob
-        else:
-            pred_b_in = pred_prob
-            targ_b_in = target_prob
+        pred_b_in = pred_prob
+        targ_b_in = target_prob
 
         gt_b = F.max_pool2d(1 - targ_b_in, self.theta0, 1, (self.theta0 - 1) // 2) - (
             1 - targ_b_in
@@ -168,12 +156,9 @@ class customloss(nn.Module):
             if self._first_call:
                 print(f"[LOSS DEBUG] Velocity loss enabled with c={c} channels")
             # Determine Probability of Background (Non-Glacier)
-            # Binary: pred_prob is P(Foreground), so P(BG) = 1 - pred_prob
+            # Binary: pred_prob is (N,2,H,W), index 0 is BG, so P(BG) = pred_prob[:, 0:1]
             # Multi: pred_prob is (N,C,H,W), index 0 is BG, so P(BG) = pred_prob[:, 0:1]
-            if c == 2:  # Binary classification
-                p_bg = 1.0 - pred_prob  # pred_prob is already foreground-only
-            else:  # Multi-class classification
-                p_bg = pred_prob[:, 0:1]
+            p_bg = pred_prob[:, 0:1]
 
             # Penalize: High Velocity AND High Probability of Background
             # Loss = mean( P(BG) * Velocity * Mask )

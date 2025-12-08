@@ -10,4 +10,5 @@ loader_opts:
   physics_channels: true
 
 loss_opts:
-  class_weights: [0.5, 2.0] # Background, Debris
+  class_weights: [1, 6.0] # Background, Debris
+

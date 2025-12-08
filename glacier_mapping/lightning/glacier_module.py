@@ -121,13 +121,6 @@ class GlacierSegmentationModule(pl.LightningModule):
         )
 
         # Initialize loss function - filter only supported args
-        # Map target_class_ids (from config) to foreground_indices (for loss)
-        if "target_class_ids" in loss_opts:
-            loss_opts["foreground_indices"] = loss_opts["target_class_ids"]
-        elif "foreground_classes" in loss_opts:
-            # Backward compatibility
-            loss_opts["foreground_indices"] = loss_opts["foreground_classes"]
-
         supported_loss_args = {
             "act",
             "smooth",
@@ -135,20 +128,10 @@ class GlacierSegmentationModule(pl.LightningModule):
             "masked",
             "theta0",
             "theta",
-            "foreground_indices",
             "alpha",
+            "class_weights",
         }
         loss_args = {k: v for k, v in loss_opts.items() if k in supported_loss_args}
-
-        # FIX: Ensure foreground_indices matches model output indices
-        # If binary classification (out_channels=2), the foreground is ALWAYS index 1.
-        # But config might say [2] (Debris) or [1] (Clean Ice).
-        if out_channels == 2 and "foreground_indices" in loss_args:
-            if loss_args["foreground_indices"] != [1]:
-                print(
-                    f"Binary Classification detected. Remapping foreground_indices {loss_args['foreground_indices']} to [1]"
-                )
-                loss_args["foreground_indices"] = [1]
 
         print(
             f"DEBUG: Passing verbose to customloss: {self.hparams.get('verbose', False)}"

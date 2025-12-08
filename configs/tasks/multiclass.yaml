@@ -4,3 +4,5 @@ loader_opts:
   target_class_ids: [1, 2]  # Critical fix for multi-class loss
 metrics_opts:
   threshold: [0.5, 0.5, 0.5]  # BG, CleanIce, Debris
+loss_opts:
+  class_weights: [0, 1, 1]  # Default for multi-class: ignore background (0), focus on foreground classes (1, 2)

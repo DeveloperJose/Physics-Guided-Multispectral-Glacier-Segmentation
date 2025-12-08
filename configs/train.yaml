@@ -55,6 +55,7 @@ loss_opts:
   label_smoothing: 0
   use_unified: false
   use_velocity_loss: false
+  class_weights: [0, 1]  # Default for binary: ignore background (0), focus on foreground (1)
 
 model_opts:
   args:

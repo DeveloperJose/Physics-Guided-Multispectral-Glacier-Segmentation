@@ -244,5 +244,116 @@ class TestSliceFunctions(unittest.TestCase):
         print("  ✓ Correctly extracts elevation and slope.")
 
 
+class TestClassWeights(unittest.TestCase):
+    """Test class weighting for Dice loss in binary and multi-class scenarios."""
+
+    def test_binary_class_weights(self):
+        """Test binary classification with class_weights=[0, 1]."""
+        print("=== Test: Binary Class Weights ===")
+
+        batch_size, height, width = 2, 32, 32
+
+        # Create model inputs (binary classification)
+        pred_logits = torch.randn(batch_size, 2, height, width)
+        target_onehot = torch.zeros(batch_size, 2, height, width)
+        target_onehot[:, 1] = 1.0  # Set foreground class
+        target_int = torch.ones(batch_size, height, width).long()  # Foreground label
+
+        # Initialize loss function with class weights
+        loss_fn = customloss(class_weights=[0, 1])
+
+        # Test loss computation
+        dice_loss, boundary_loss, velocity_loss = loss_fn(
+            pred_logits, target_onehot, target_int
+        )
+
+        # Verify losses are finite and positive
+        self.assertTrue(torch.isfinite(dice_loss))
+        self.assertGreaterEqual(dice_loss.item(), 0.0)
+        self.assertTrue(torch.isfinite(boundary_loss))
+        self.assertGreaterEqual(boundary_loss.item(), 0.0)
+        self.assertEqual(velocity_loss.item(), 0.0)  # No velocity data
+
+        print("  ✓ Binary class weights [0, 1] handled correctly.")
+
+    def test_multiclass_class_weights(self):
+        """Test multi-class classification with class_weights=[0, 1, 1]."""
+        print("=== Test: Multi-class Class Weights ===")
+
+        batch_size, height, width = 2, 32, 32
+
+        # Create model inputs (multi-class classification)
+        pred_logits = torch.randn(batch_size, 3, height, width)
+        target_onehot = torch.zeros(batch_size, 3, height, width)
+        target_onehot[:, 1] = 1.0  # Set class 1
+        target_int = torch.ones(batch_size, height, width).long()  # Class 1 label
+
+        # Initialize loss function with class weights
+        loss_fn = customloss(class_weights=[0, 1, 1])
+
+        # Test loss computation
+        dice_loss, boundary_loss, velocity_loss = loss_fn(
+            pred_logits, target_onehot, target_int
+        )
+
+        # Verify losses are finite and positive
+        self.assertTrue(torch.isfinite(dice_loss))
+        self.assertGreaterEqual(dice_loss.item(), 0.0)
+        self.assertTrue(torch.isfinite(boundary_loss))
+        self.assertGreaterEqual(boundary_loss.item(), 0.0)
+        self.assertEqual(velocity_loss.item(), 0.0)  # No velocity data
+
+        print("  ✓ Multi-class class weights [0, 1, 1] handled correctly.")
+
+    def test_class_weights_length_mismatch(self):
+        """Test that a ValueError is raised for mismatched class_weights length."""
+        print("=== Test: Class Weights Length Mismatch ===")
+
+        batch_size, height, width = 2, 32, 32
+
+        # Create model inputs (binary classification)
+        pred_logits = torch.randn(batch_size, 2, height, width)
+        target_onehot = torch.zeros(batch_size, 2, height, width)
+        target_onehot[:, 1] = 1.0
+        target_int = torch.ones(batch_size, height, width).long()
+
+        # Initialize loss function with incorrect class_weights length
+        loss_fn = customloss(class_weights=[0, 1, 1])  # Should be length 2 for binary
+
+        with self.assertRaises(ValueError):
+            loss_fn(pred_logits, target_onehot, target_int)
+
+        print("  ✓ ValueError raised for mismatched class_weights length.")
+
+    def test_no_class_weights_fallback(self):
+        """Test that the loss function works without class_weights (equal weighting)."""
+        print("=== Test: No Class Weights Fallback ===")
+
+        batch_size, height, width = 2, 32, 32
+
+        # Create model inputs (binary classification)
+        pred_logits = torch.randn(batch_size, 2, height, width)
+        target_onehot = torch.zeros(batch_size, 2, height, width)
+        target_onehot[:, 1] = 1.0
+        target_int = torch.ones(batch_size, height, width).long()
+
+        # Initialize loss function without class_weights
+        loss_fn = customloss()
+
+        # Test loss computation
+        dice_loss, boundary_loss, velocity_loss = loss_fn(
+            pred_logits, target_onehot, target_int
+        )
+
+        # Verify losses are finite and positive
+        self.assertTrue(torch.isfinite(dice_loss))
+        self.assertGreaterEqual(dice_loss.item(), 0.0)
+        self.assertTrue(torch.isfinite(boundary_loss))
+        self.assertGreaterEqual(boundary_loss.item(), 0.0)
+        self.assertEqual(velocity_loss.item(), 0.0)  # No velocity data
+
+        print("  ✓ Equal weighting fallback works correctly.")
+
+
 if __name__ == "__main__":
     unittest.main()
