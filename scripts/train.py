@@ -9,6 +9,21 @@ from typing import Dict, Any
 import torch
 import yaml
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import (
+    ModelCheckpoint,
+    LearningRateMonitor,
+    EarlyStopping,
+)
+from pytorch_lightning.loggers import TensorBoardLogger
+from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
+from glacier_mapping.lightning.glacier_datamodule import GlacierDataModule
+from glacier_mapping.lightning.callbacks import ValidationVisualizationCallback
+from glacier_mapping.lightning.best_model_callback import TestEvaluationCallback
+import glacier_mapping.utils.mlflow_utils as mlflow_utils
+from glacier_mapping.utils.error_handler import setup_error_handler
+
+MLFLOW_AVAILABLE = True
+ERROR_HANDLER_AVAILABLE = True
 
 # Suppress "scheduler.step() before optimizer.step()" warning (benign in this Lightning+OneCycleLR context)
 warnings.filterwarnings(
@@ -16,35 +31,6 @@ warnings.filterwarnings(
     category=UserWarning,
     message=".*Detected call of `lr_scheduler.step()` before `optimizer.step()`.*",
 )
-from pytorch_lightning.callbacks import (
-    ModelCheckpoint,
-    LearningRateMonitor,
-    EarlyStopping,
-)
-from pytorch_lightning.loggers import TensorBoardLogger
-
-from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
-from glacier_mapping.lightning.glacier_datamodule import GlacierDataModule
-from glacier_mapping.lightning.callbacks import ValidationVisualizationCallback
-from glacier_mapping.lightning.best_model_callback import TestEvaluationCallback
-
-# Import MLflow utilities
-try:
-    import glacier_mapping.utils.mlflow_utils as mlflow_utils
-
-    MLFLOW_AVAILABLE = True
-except ImportError as e:
-    print(f"Warning: MLflow utilities not available: {e}")
-    MLFLOW_AVAILABLE = False
-
-# Import error handling
-try:
-    from glacier_mapping.utils.error_handler import setup_error_handler
-
-    ERROR_HANDLER_AVAILABLE = True
-except ImportError as e:
-    print(f"Warning: Error handler not available: {e}")
-    ERROR_HANDLER_AVAILABLE = False
 
 
 def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:

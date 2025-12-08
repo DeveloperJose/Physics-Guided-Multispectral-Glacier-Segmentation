@@ -6,7 +6,6 @@ training_opts:
   dataset_name: "bibek_w512_o64_f1_comprehensive_phys64_s1"
   run_name: "gen10_heavy_all_channels_debris"
   epochs: 300
-  early_stopping: 75
 
 loader_opts:
   # Enable ALL available channels for maximum feature diversity
@@ -16,19 +15,3 @@ loader_opts:
   hsv_channels: true          # [13-15] H, S, V
   velocity_channels: true     # [16-19] velocity, vx, vy, mask
   physics_channels: true      # [20-23] flow, TPI, roughness, curvature
-
-loss_opts:
-  label_smoothing: 0.0        # No experimental evidence of benefit
-  use_velocity_loss: false    # Disabled (being debugged)
-
-model_opts:
-  args:
-    net_depth: 4              # Only experimentally validated depth
-    dropout: 0.1              # Consistent across all successful runs
-    first_channel_output: 32   # Only experimentally validated width
-    spatial: true            # Keep spatial dropout
-
-optim_opts:
-  args:
-    lr: 0.0003               # Only experimentally validated learning rate
-    weight_decay: 5e-05       # Only experimentally validated weight decay

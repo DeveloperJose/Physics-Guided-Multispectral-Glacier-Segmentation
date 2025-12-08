@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Optional, List  # Added imports
 
 
 class customloss(nn.Module):
@@ -23,6 +24,7 @@ class customloss(nn.Module):
         foreground_indices=None,
         alpha=0.9,  # compatibility with old code
         verbose=False,
+        class_weights: Optional[List[float]] = None,  # New parameter
     ):
         super().__init__()
         self.act = act
@@ -32,6 +34,8 @@ class customloss(nn.Module):
         self.theta0 = theta0
         self.theta = theta
         self.verbose = verbose
+        self.class_weights = class_weights  # Store class weights
+        self.class_weights = class_weights  # Store class weights
 
         self.foreground_indices = (
             foreground_indices if foreground_indices is not None else [1]
@@ -109,11 +113,20 @@ class customloss(nn.Module):
                         f"[LOSS DEBUG] Dice loss - c={c}, foreground_indices={self.foreground_indices}"
                     )
             else:
-                class_mask = torch.zeros_like(dice_per_class).to(device)
-                for fg_idx in self.foreground_indices:
-                    if 0 <= fg_idx < dice_per_class.shape[0]:
-                        class_mask[fg_idx] = 1.0
-                dice_loss_scalar = (dice_per_class * class_mask).sum()
+                if self.class_weights is not None:
+                    if len(self.class_weights) != C_eff:
+                        raise ValueError(
+                            f"Length of class_weights ({len(self.class_weights)}) "
+                            f"must match number of effective classes ({C_eff})"
+                        )
+                    weights_tensor = torch.tensor(self.class_weights, device=device)
+                    dice_loss_scalar = (dice_per_class * weights_tensor).sum()
+                else:
+                    class_mask = torch.zeros_like(dice_per_class).to(device)
+                    for fg_idx in self.foreground_indices:
+                        if 0 <= fg_idx < dice_per_class.shape[0]:
+                            class_mask[fg_idx] = 1.0
+                    dice_loss_scalar = (dice_per_class * class_mask).sum()
 
         if C_eff == 1:
             pred_b_in = pred_prob

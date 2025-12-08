@@ -12,10 +12,10 @@ from pathlib import Path
 import warnings
 from typing import Any, Dict, List, Optional
 
-warnings.filterwarnings("ignore")
-
 import mlflow
 from mlflow.tracking import MlflowClient
+
+warnings.filterwarnings("ignore")
 
 
 def safe_float(value: Any) -> Optional[float]:

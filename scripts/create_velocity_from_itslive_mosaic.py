@@ -697,7 +697,6 @@ def main():
 
     # Filter based on --skip-existing
     if args.skip_existing:
-        original_count = len(images)
         images_to_process = []
         skipped = 0
         for img_path in images:

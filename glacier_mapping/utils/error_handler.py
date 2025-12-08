@@ -18,12 +18,11 @@ try:
 except ImportError:
     PSUTIL_AVAILABLE = False
 
-try:
-    from glacier_mapping.utils.mlflow_utils import MLflowManager
+import importlib.util
 
-    MLFLOW_AVAILABLE = True
-except ImportError:
-    MLFLOW_AVAILABLE = False
+MLFLOW_AVAILABLE = (
+    importlib.util.find_spec("glacier_mapping.utils.mlflow_utils") is not None
+)
 
 
 class ErrorHandler:
