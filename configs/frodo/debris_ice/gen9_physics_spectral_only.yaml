@@ -14,4 +14,3 @@ loader_opts:
   landsat_channels: false
   dem_channels: false
   hsv_channels: false
-  velocity_channels: false

@@ -19,7 +19,7 @@ training_opts:
   viz_scale_factor: 1 # Scale factor for visualization panels (0.5=256x256, 1.0=full resolution)
   # Test evaluation optimization (3-phase strategy to reduce training time)
   test_eval_baseline_epoch: 50 # Single baseline evaluation at this epoch
-  test_eval_aggressive_threshold: 0.15 # Improvement threshold during phase 2 (reduced frequency)
+  test_eval_aggressive_threshold: 0.1 # Improvement threshold during phase 2 (reduced frequency)
   test_eval_transition_epoch: 100 # Switch from phase 2 to phase 3 at this epoch
 
 loader_opts:

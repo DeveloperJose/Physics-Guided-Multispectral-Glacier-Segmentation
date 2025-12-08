@@ -14,8 +14,4 @@ loader_opts:
   dem_channels: false
   spectral_indices_channels: false
   hsv_channels: false
-  physics_channels: false
 
-optim_opts:
-  args:
-    lr: 0.001  # Higher learning rate for velocity-only model
