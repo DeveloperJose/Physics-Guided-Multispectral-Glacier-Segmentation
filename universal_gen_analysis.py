@@ -5,12 +5,17 @@ Works for any generation (gen1-6) with comprehensive data extraction and analysi
 """
 
 import json
-import pandas as pd
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Dict, List, Optional
+
 import numpy as np
+import pandas as pd
 from datetime import datetime
 from pathlib import Path
 import warnings
-from typing import Any, Dict, List, Optional
+
+from tqdm import tqdm
 
 import mlflow
 from mlflow.tracking import MlflowClient
@@ -32,6 +37,10 @@ def extract_generation_data(generation_id: str) -> pd.DataFrame:
 
     experiments = mlflow.search_experiments()
     print(f"Found {len(experiments)} experiments")
+
+    # Special case: gen1/gen2 => grab all runs before the first gen>=3 run.
+    if generation_id in {"gen1", "gen2"}:
+        return extract_pre_gen3_runs(experiments)
 
     generation_runs = []
     for exp in experiments:
@@ -66,6 +75,54 @@ def extract_generation_data(generation_id: str) -> pd.DataFrame:
     return all_gen
 
 
+def extract_pre_gen3_runs(experiments: List[mlflow.entities.Experiment]) -> pd.DataFrame:
+    """Return all runs that occurred before the first gen>=3 run."""
+    exp_id_to_name = {exp.experiment_id: exp.name for exp in experiments}
+    all_runs: List[pd.DataFrame] = []
+    for exp in experiments:
+        try:
+            runs_df: pd.DataFrame = mlflow.search_runs(
+                experiment_ids=[exp.experiment_id], output_format="pandas"
+            )
+            if runs_df.empty:
+                continue
+            runs_df["experiment_name"] = exp.name
+            runs_df["tags.mlflow.runName"] = runs_df["tags.mlflow.runName"].astype(
+                str
+            )
+            all_runs.append(runs_df)
+        except Exception as e:
+            print(f"  Error searching {exp.name}: {e}")
+            continue
+
+    if not all_runs:
+        print("\n*** NO PRE-GEN3 RUNS FOUND ***")
+        return pd.DataFrame()
+
+    df = pd.concat(all_runs, ignore_index=True)
+    df["start_time"] = pd.to_datetime(df.get("start_time"))
+    # Identify first gen>=3 run by name pattern.
+    df["gen_num"] = df["tags.mlflow.runName"].str.extract(r"gen(\\d+)", expand=False)
+    df["gen_num_int"] = pd.to_numeric(df["gen_num"], errors="coerce")
+    earliest_gen3 = df.loc[df["gen_num_int"] >= 3, "start_time"].min()
+
+    pre_gen3 = df
+    if pd.notna(earliest_gen3):
+        pre_gen3 = df[df["start_time"] < earliest_gen3].copy()
+
+    if pre_gen3.empty:
+        print("\n*** NO PRE-GEN3 RUNS FOUND ***")
+        return pd.DataFrame()
+
+    # Ensure experiment_name is filled (should already be)
+    pre_gen3["experiment_name"] = pre_gen3["experiment_id"].map(exp_id_to_name)
+
+    print(
+        f"\n*** TOTAL PRE-GEN3 RUNS FOUND: {len(pre_gen3)} (earliest gen>=3 at {earliest_gen3}) ***"
+    )
+    return pre_gen3
+
+
 def classify_run(run_data: pd.Series) -> Dict[str, Any]:
     """Classify run based on MLflow tags and run name patterns."""
     name = str(run_data.get("tags.mlflow.runName", "")).lower()
@@ -77,8 +134,15 @@ def classify_run(run_data: pd.Series) -> Dict[str, Any]:
         task = "clean_ice"
     elif "debris_ice" in experiment_name:
         task = "debris_ice"
-    elif "multiclass" in experiment_name:
-        task = "multiclass"
+    elif (
+        "multi_class" in experiment_name
+        or "multiclass" in experiment_name
+        or "multi" in experiment_name
+        or "multi_class" in name
+        or "multiclass" in name
+        or "multi_" in name
+    ):
+        task = "multi_class"
 
     server = "unknown"
     if "frodo" in name:
@@ -223,6 +287,31 @@ def analyze_training_behavior(performance: Dict[str, Any]) -> Dict[str, bool]:
     return behavior
 
 
+def fetch_metric_history(run_id: str, metric_names: List[str]) -> Dict[str, Any]:
+    """Fetch full metric history for the provided metric names."""
+    client = MlflowClient()
+    histories: Dict[str, Any] = {}
+
+    for metric in metric_names:
+        try:
+            records = client.get_metric_history(run_id, metric)
+        except Exception as e:
+            histories[metric] = {"error": str(e)}
+            continue
+
+        metric_points = []
+        for rec in records:
+            value = safe_float(rec.value)
+            if value is None:
+                continue
+            metric_points.append(
+                {"step": rec.step, "value": value, "timestamp": rec.timestamp}
+            )
+        histories[metric] = metric_points
+
+    return histories
+
+
 def analyze_failure(run_data: pd.Series) -> Dict[str, Any]:
     """Analyze failure patterns."""
     if run_data["status"] != "FAILED":
@@ -231,7 +320,10 @@ def analyze_failure(run_data: pd.Series) -> Dict[str, Any]:
     error_logs = extract_error_logs(str(run_data["run_id"]))
     error_details = error_logs.get("error_details", "").lower()
     error_type = "unknown"
-    if "memory" in error_details or "cuda" in error_details:
+    if not error_logs.get("error_logs_found") and "no log files found" in error_details:
+        # Most likely manually stopped or cancelled with no logs written.
+        error_type = "user_cancelled"
+    elif "memory" in error_details or "cuda" in error_details:
         error_type = "hardware"
     elif "file" in error_details:
         error_type = "data"
@@ -268,36 +360,105 @@ def process_generation_data(
 ) -> List[Dict[str, Any]]:
     """Process all runs for a generation."""
     print(f"\nProcessing {len(df)} {generation_id} runs...")
-    processed_runs = []
-    for _, run in df.iterrows():
-        try:
-            run_name = run.get("tags.mlflow.runName", "Unknown")
-            start_time = run.get("start_time")
-            end_time = run.get("end_time")
-            performance = analyze_performance(run)
+    processed_runs: List[Dict[str, Any]] = []
 
-            run_info = {
-                "run_id": run["run_id"],
-                "run_name": run_name,
-                "status": run["status"],
-                "experiment_name": run.get("experiment_name", "Unknown"),
-                "start_time": pd.to_datetime(start_time).isoformat()
-                if pd.notna(start_time)
-                else None,
-                "end_time": pd.to_datetime(end_time).isoformat()
-                if pd.notna(end_time)
-                else None,
-                "configuration": classify_run(run),
-                "timing": calculate_timing_analysis(run),
-                "performance": performance,
-                "analysis": analyze_training_behavior(performance),
-                "failure_analysis": analyze_failure(run),
-                "all_parameters": extract_all_parameters(run),
+    def process_run(run: pd.Series, set_stage=None) -> Optional[Dict[str, Any]]:
+        run_name = run.get("tags.mlflow.runName", "Unknown")
+        if set_stage:
+            set_stage(run_name, "analyze_performance")
+        start_time = run.get("start_time")
+        end_time = run.get("end_time")
+        performance = analyze_performance(run)
+        metric_names = sorted(
+            {
+                str(col).replace("metrics.", "")
+                for col in run.index
+                if str(col).startswith("metrics.")
             }
-            processed_runs.append(run_info)
-        except Exception as e:
-            print(f"Error processing run {run.get('run_id', 'unknown')}: {e}")
-            continue
+        )
+        if set_stage:
+            set_stage(run_name, "fetch_metric_history")
+        metric_history = (
+            fetch_metric_history(str(run["run_id"]), metric_names)
+            if metric_names
+            else {}
+        )
+        if set_stage:
+            set_stage(run_name, "finalize")
+
+        return {
+            "run_id": run["run_id"],
+            "run_name": run_name,
+            "status": run["status"],
+            "experiment_name": run.get("experiment_name", "Unknown"),
+            "start_time": pd.to_datetime(start_time).isoformat()
+            if pd.notna(start_time)
+            else None,
+            "end_time": pd.to_datetime(end_time).isoformat()
+            if pd.notna(end_time)
+            else None,
+            "configuration": classify_run(run),
+            "timing": calculate_timing_analysis(run),
+            "performance": performance,
+            "analysis": analyze_training_behavior(performance),
+            "failure_analysis": analyze_failure(run),
+            "all_parameters": extract_all_parameters(run),
+            "metric_history": metric_history,
+        }
+
+    # Configure parallelism (env var UGA_WORKERS, default: 75% of available cores)
+    max_workers = os.cpu_count() or 4
+    max_workers = max(1, int(max_workers * 0.75))
+    try:
+        env_workers = os.getenv("UGA_WORKERS")
+        if env_workers is not None:
+            max_workers = max(1, int(env_workers))
+    except ValueError:
+        pass
+
+    if max_workers == 1:
+        progress_bar = tqdm(
+            df.iterrows(),
+            total=len(df),
+            desc="Processing runs (classify/metrics/history)",
+            unit="run",
+        )
+
+        def set_stage(run_name: str, stage: str) -> None:
+            progress_bar.set_postfix(run=run_name, stage=stage)
+
+        for _, run in progress_bar:
+            try:
+                run_info = process_run(run, set_stage=set_stage)
+                if run_info:
+                    processed_runs.append(run_info)
+            except Exception as e:
+                print(f"Error processing run {run.get('run_id', 'unknown')}: {e}")
+                continue
+    else:
+        records = list(df.to_dict(orient="records"))
+        desc = f"Processing runs (workers={max_workers})"
+        progress_bar = tqdm(total=len(records), desc=desc, unit="run")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_name = {
+                executor.submit(process_run, pd.Series(rec), None): rec.get(
+                    "tags.mlflow.runName", "Unknown"
+                )
+                for rec in records
+            }
+            for future in as_completed(future_to_name):
+                run_name = future_to_name[future]
+                try:
+                    run_info = future.result()
+                    if run_info:
+                        processed_runs.append(run_info)
+                        progress_bar.set_postfix(run=run_name, stage="done")
+                except Exception as e:
+                    print(f"Error processing run {run_name}: {e}")
+                finally:
+                    progress_bar.update(1)
+        progress_bar.close()
+
     print(f"Successfully processed {len(processed_runs)} runs")
     return processed_runs
 
@@ -352,18 +513,21 @@ def calculate_summary_statistics(
 
 def generate_outputs(processed_runs: List[Dict[str, Any]], generation_id: str) -> None:
     """Generate comprehensive outputs."""
-    output_dir = Path(f"archive/{generation_id}")
+    canonical_generation_id = (
+        "gen1_2" if generation_id in {"gen1", "gen2"} else generation_id
+    )
+    output_dir = Path(f"archive/{canonical_generation_id}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     summary = calculate_summary_statistics(processed_runs)
     output_data = {
         "extraction_time": datetime.now().isoformat(),
-        "generation": generation_id,
+        "generation": canonical_generation_id,
         "summary_statistics": summary,
         "runs": processed_runs,
     }
 
-    json_filename = output_dir / f"{generation_id}_all_data.json"
+    json_filename = output_dir / f"{canonical_generation_id}_all_data.json"
     with open(json_filename, "w") as f:
         json.dump(output_data, f, indent=2)
     print(f"\nData saved to {json_filename}")
@@ -380,6 +544,15 @@ def get_best_ious(run: Dict[str, Any]) -> Dict[str, float]:
     debris_ice_iou = perf.get("best_test_Debris_iou", 0.0)
 
     return {"CleanIce": clean_ice_iou, "Debris": debris_ice_iou}
+
+
+def get_timing_info(run: Dict[str, Any]) -> Dict[str, float]:
+    """Return safe timing info, handling missing or null per-epoch data."""
+    timing = run.get("timing") or {}
+    duration = safe_float(timing.get("duration_hours")) or 0.0
+    per_epoch = timing.get("per_epoch_timing") or {}
+    total_epochs = per_epoch.get("total_epochs") or 0
+    return {"duration_hours": duration, "total_epochs": int(total_epochs)}
 
 
 def generate_markdown_summary(data: Dict[str, Any], output_dir: Path) -> None:
@@ -432,9 +605,10 @@ def generate_markdown_summary(data: Dict[str, Any], output_dir: Path) -> None:
             server_stats[server]["total"] += 1
             if run["status"] == "FINISHED":
                 server_stats[server]["finished"] += 1
-                if run.get("timing", {}).get("duration_hours"):
+                timing_info = get_timing_info(run)
+                if timing_info["duration_hours"]:
                     server_stats[server]["durations"].append(
-                        run["timing"]["duration_hours"]
+                        timing_info["duration_hours"]
                     )
 
         md += "| Server | Total Runs | Success Rate | Avg. Duration (h) |\n"
@@ -504,7 +678,19 @@ def generate_markdown_summary(data: Dict[str, Any], output_dir: Path) -> None:
         md += "|----------|--------|--------------|--------|---------------|--------------|-------------|-------------|\n"
         for run in task_runs:
             ious = get_best_ious(run)
-            md += f"| {run.get('run_name')} | {run.get('configuration', {}).get('config_type')} | {run.get('timing', {}).get('duration_hours', 0):.2f} | {run.get('timing', {}).get('per_epoch_timing', {}).get('total_epochs', 0)} | {run.get('performance', {}).get('best_metrics', {}).get('best_val_loss', 0):.4f} | {ious['Debris']:.4f} | {ious['CleanIce']:.4f} | {run.get('analysis', {}).get('overfitting_indicator', False)} |\n"
+            timing_info = get_timing_info(run)
+            best_val_loss = safe_float(
+                run.get("performance", {}).get("best_metrics", {}).get("best_val_loss")
+            ) or 0.0
+            md += (
+                f"| {run.get('run_name')} | "
+                f"{run.get('configuration', {}).get('config_type')} | "
+                f"{timing_info['duration_hours']:.2f} | "
+                f"{timing_info['total_epochs']} | "
+                f"{best_val_loss:.4f} | "
+                f"{ious['Debris']:.4f} | {ious['CleanIce']:.4f} | "
+                f"{run.get('analysis', {}).get('overfitting_indicator', False)} |\n"
+            )
         md += "\n"
 
     # --- Failure Analysis ---
