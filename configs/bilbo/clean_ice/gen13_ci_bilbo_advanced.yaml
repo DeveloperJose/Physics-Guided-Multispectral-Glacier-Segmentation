@@ -1,0 +1,21 @@
+# Gen13 Clean Ice advanced (Bilbo GPU1).
+# Physics + velocity with regularization tweaks to limit overfit.
+
+training_opts:
+  dataset_name: bibek_w512_o64_f1_v2_phys64_s075_velocity
+  run_name: gen13_ci_bilbo_advanced
+  epochs: 200
+  test_eval_n: 3
+  early_stopping: 40
+
+loader_opts:
+  batch_size: 24
+  physics_channels: true
+  velocity_channels: true
+
+loss_opts:
+  label_smoothing: 0.03
+
+optim_opts:
+  args:
+    weight_decay: 0.0001

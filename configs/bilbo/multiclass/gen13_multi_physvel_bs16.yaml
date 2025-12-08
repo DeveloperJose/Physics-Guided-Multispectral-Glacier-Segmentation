@@ -1,0 +1,14 @@
+# Gen13 Multiclass Physics + Velocity on Bilbo (batch 16).
+# Physics and velocity channels enabled; velocity loss disabled.
+
+training_opts:
+  dataset_name: bibek_w512_o64_f1_v2_phys64_s075_velocity
+  run_name: gen13_multi_physvel_bs16
+  epochs: 200
+  test_eval_n: 3
+  early_stopping: 50
+
+loader_opts:
+  batch_size: 16
+  physics_channels: true
+  velocity_channels: true
