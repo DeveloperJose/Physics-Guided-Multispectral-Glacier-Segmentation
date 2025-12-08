@@ -1,0 +1,34 @@
+# Gen9 Heavy All-Channels Debris Model (Bilbo RTX 4090)
+# Maximum debris IoU test using all available channels with proven hyperparameters
+# Based on experimental evidence from 15 successful debris detection runs
+
+training_opts:
+  dataset_name: "bibek_w512_o64_f1_comprehensive_phys64_s1"
+  run_name: "gen9_heavy_all_channels_debris"
+  epochs: 300
+  early_stopping: 75
+
+loader_opts:
+  # Enable ALL available channels for maximum feature diversity
+  landsat_channels: true      # [0-7] Landsat B1-B7
+  dem_channels: true          # [8-9] elevation, slope  
+  spectral_indices_channels: true # [10-12] NDVI, NDWI, NDSI
+  hsv_channels: true          # [13-15] H, S, V
+  velocity_channels: true     # [16-19] velocity, vx, vy, mask
+  physics_channels: true      # [20-23] flow, TPI, roughness, curvature
+
+loss_opts:
+  label_smoothing: 0.0        # No experimental evidence of benefit
+  use_velocity_loss: false    # Disabled (being debugged)
+
+model_opts:
+  args:
+    net_depth: 4              # Only experimentally validated depth
+    dropout: 0.1              # Consistent across all successful runs
+    first_channel_output: 32   # Only experimentally validated width
+    spatial: true            # Keep spatial dropout
+
+optim_opts:
+  args:
+    lr: 0.0003               # Only experimentally validated learning rate
+    weight_decay: 5e-05       # Only experimentally validated weight decay
