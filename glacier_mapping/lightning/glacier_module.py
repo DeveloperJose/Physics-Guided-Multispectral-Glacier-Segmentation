@@ -308,10 +308,16 @@ class GlacierSegmentationModule(pl.LightningModule):
         # Update and log additional metrics
         self._update_metrics(y_hat, y_int, self.val_metrics, "val")
 
-        # Track best validation loss
-        if loss < self.best_val_loss:
-            self.best_val_loss = loss
-            self.log("best_val_loss", self.best_val_loss)
+        # Track best validation loss (store scalar to avoid device issues)
+        loss_value = loss.detach().item()
+        if loss_value < self.best_val_loss:
+            self.best_val_loss = loss_value
+        self.log(
+            "best_val_loss",
+            torch.tensor(self.best_val_loss, device=loss.device),
+            on_step=False,
+            on_epoch=True,
+        )
 
         return loss
 
@@ -325,6 +331,10 @@ class GlacierSegmentationModule(pl.LightningModule):
         """Update metrics with predictions and targets."""
         # Convert predictions to probabilities
         y_prob = torch.softmax(y_hat, dim=1)
+
+        valid_mask = y_int != 255
+        if valid_mask.sum() == 0:
+            return
 
         # Update metrics for each class
         for i, class_idx in enumerate(self.output_classes):
@@ -340,6 +350,13 @@ class GlacierSegmentationModule(pl.LightningModule):
             else:  # Multi-class case
                 y_pred_class = (y_prob[:, class_idx] > 0.5).float()
                 y_true_class = (y_int == class_idx).float()
+
+            # Apply ignore mask
+            y_pred_class = y_pred_class[valid_mask]
+            y_true_class = y_true_class[valid_mask]
+
+            if y_true_class.numel() == 0:
+                continue
 
             # Update metrics
             if f"{class_name}_iou" in metrics_dict:
@@ -384,6 +401,16 @@ class GlacierSegmentationModule(pl.LightningModule):
         velocity_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Compute custom loss with sigma weighting."""
+        velocity_valid = False
+        if (
+            self.use_velocity_loss
+            and velocity_mask is not None
+            and y_int is not None
+            and velocity_mask.numel() > 0
+        ):
+            ignore_mask = (y_int != 255).unsqueeze(1)
+            velocity_valid = (velocity_mask * ignore_mask).sum() > 0
+
         # Compute custom loss (returns list of losses)
         if self.use_velocity_loss:
             losses = self.loss_fn(
@@ -407,10 +434,17 @@ class GlacierSegmentationModule(pl.LightningModule):
 
         # Use fixed sigma parameters with proper constraints (original stable design)
         sigma_params = [self.sigma_dice, self.sigma_boundary]
-        if self.use_velocity_loss and self.sigma_velocity is not None:
+        loss_components = [losses[0], losses[1]]
+        if (
+            self.use_velocity_loss
+            and self.sigma_velocity is not None
+            and velocity_valid
+            and len(losses) >= 3
+        ):
             sigma_params.append(self.sigma_velocity)
+            loss_components.append(losses[2])
 
-        for i, (_loss, sig) in enumerate(zip(losses, sigma_params)):
+        for _loss, sig in zip(loss_components, sigma_params):
             # Allow sigma to be learned freely, enabling the model to down-weight
             # unhelpful loss components or heavily weight informative ones.
             # Numerical stability is maintained by the epsilon term.
@@ -550,12 +584,9 @@ class GlacierSegmentationModule(pl.LightningModule):
 
     def _denormalize_velocity(self, vel_norm):
         # mean and std for velocity channel
-        mean = torch.tensor(
-            self.norm_arr_full[0, self.velocity_idx], device=vel_norm.device
-        )
-        std = torch.tensor(
-            self.norm_arr_full[1, self.velocity_idx], device=vel_norm.device
-        )
+        channel_idx = self.use_channels[self.velocity_idx]
+        mean = torch.tensor(self.norm_arr_full[0, channel_idx], device=vel_norm.device)
+        std = torch.tensor(self.norm_arr_full[1, channel_idx], device=vel_norm.device)
 
         return vel_norm * std + mean
 

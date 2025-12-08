@@ -92,10 +92,23 @@ class customloss(nn.Module):
             C_eff = c
 
         pred_prob = pred_prob * ignore_mask_exp
-        target_prob = target_prob * ignore_mask_exp
         if self.label_smoothing > 0 and C_eff > 1:
             target_prob = (
                 target_prob * (1 - self.label_smoothing) + self.label_smoothing / C_eff
+            )
+        # Reapply ignore mask after label smoothing so ignored pixels stay zeroed
+        target_prob = target_prob * ignore_mask_exp
+
+        # Prepare optional class weights once to share between dice and boundary losses
+        weights_tensor = None
+        if self.class_weights is not None:
+            if len(self.class_weights) != C_eff:
+                raise ValueError(
+                    f"Length of class_weights ({len(self.class_weights)}) "
+                    f"must match number of effective classes ({C_eff})"
+                )
+            weights_tensor = torch.tensor(
+                self.class_weights, device=device, dtype=pred_prob.dtype
             )
 
         pred_flat = pred_prob.permute(0, 2, 3, 1)[ignore_mask]
@@ -108,13 +121,7 @@ class customloss(nn.Module):
             denominator = pred_flat.sum(dim=0) + targ_flat.sum(dim=0) + self.smooth
             dice_per_class = 1 - numerator / denominator
 
-            if self.class_weights is not None:
-                if len(self.class_weights) != C_eff:
-                    raise ValueError(
-                        f"Length of class_weights ({len(self.class_weights)}) "
-                        f"must match number of effective classes ({C_eff})"
-                    )
-                weights_tensor = torch.tensor(self.class_weights, device=device)
+            if weights_tensor is not None:
                 dice_loss_scalar = (dice_per_class * weights_tensor).sum()
             else:
                 # Fallback to equal weighting if no class_weights are provided
@@ -147,7 +154,12 @@ class customloss(nn.Module):
         R = (pred_b_ext * gt_b).sum(dim=2) / (gt_b.sum(dim=2) + 1e-7)
 
         BF1 = 2 * P * R / (P + R + 1e-7)
-        boundary_loss = torch.mean(1 - BF1)
+        boundary_loss_unreduced = 1 - BF1
+
+        if weights_tensor is not None:
+            boundary_loss = (boundary_loss_unreduced.mean(dim=0) * weights_tensor).sum()
+        else:
+            boundary_loss = torch.mean(boundary_loss_unreduced)
 
         # Velocity Consistency Loss
         velocity_loss = torch.tensor(0.0, device=device)
@@ -164,8 +176,12 @@ class customloss(nn.Module):
             # Loss = mean( P(BG) * Velocity * Mask )
             # We assume velocity is passed in positive magnitude units (e.g. meters/year)
             # The sigma weighting will handle the scale difference.
-            numerator = (p_bg * velocity * velocity_mask).sum()
-            denominator = velocity_mask.sum() + 1e-7
-            velocity_loss = numerator / denominator
+            combined_mask = velocity_mask * ignore_mask_exp
+            valid_count = combined_mask.sum()
+            if valid_count > 0:
+                numerator = (p_bg * velocity * combined_mask).sum()
+                velocity_loss = numerator / (valid_count + 1e-7)
+            else:
+                velocity_loss = torch.tensor(0.0, device=device)
 
         return [dice_loss_scalar, boundary_loss, velocity_loss]
