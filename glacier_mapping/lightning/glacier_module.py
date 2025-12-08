@@ -531,7 +531,17 @@ class GlacierSegmentationModule(pl.LightningModule):
 
             if scheduler_name == "OneCycleLR":
                 # Need total_steps for OneCycleLR
-                total_steps = int(self.trainer.estimated_stepping_batches)
+                estimated_steps = int(self.trainer.estimated_stepping_batches)
+                if estimated_steps <= 0:
+                    # Fall back to a single step to avoid crashing; warn loudly so the run gets fixed
+                    print(
+                        "⚠️ Estimated stepping batches is 0; falling back to total_steps=1. "
+                        "Check that the training dataloader has samples and drop_last "
+                        "is not eliminating all batches."
+                    )
+                    total_steps = 1
+                else:
+                    total_steps = estimated_steps
                 scheduler = OneCycleLR(
                     optimizer, total_steps=total_steps, **scheduler_args
                 )
