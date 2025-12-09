@@ -1,5 +1,5 @@
 training_opts:
-  dataset_name: "gen_robust_combined_noflow"
+  dataset_name: "gen_robust_comprehensive"
 loader_opts:
   velocity_channels: true
   physics_channels: ["tpi", "roughness", "plan_curvature"]
