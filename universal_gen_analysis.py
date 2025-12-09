@@ -101,8 +101,10 @@ def extract_pre_gen3_runs(experiments: List[mlflow.entities.Experiment]) -> pd.D
 
     df = pd.concat(all_runs, ignore_index=True)
     df["start_time"] = pd.to_datetime(df.get("start_time"))
-    # Identify first gen>=3 run by name pattern.
-    df["gen_num"] = df["tags.mlflow.runName"].str.extract(r"gen(\\d+)", expand=False)
+    # Identify first gen>=3 run by name pattern (case-insensitive).
+    df["gen_num"] = df["tags.mlflow.runName"].str.extract(
+        r"(?i)gen(\d+)", expand=False
+    )
     df["gen_num_int"] = pd.to_numeric(df["gen_num"], errors="coerce")
     earliest_gen3 = df.loc[df["gen_num_int"] >= 3, "start_time"].min()
 
@@ -127,6 +129,33 @@ def classify_run(run_data: pd.Series) -> Dict[str, Any]:
     """Classify run based on MLflow tags and run name patterns."""
     name = str(run_data.get("tags.mlflow.runName", "")).lower()
     experiment_name = str(run_data.get("experiment_name", "")).lower()
+
+    def resolve_window_size() -> Dict[str, Any]:
+        """Determine window size from params or name; default to 512 if unknown."""
+        candidate_param_keys = [
+            "window_size",
+            "patch_size",
+            "patch_size_pix",
+            "tile_size",
+        ]
+        for key in candidate_param_keys:
+            raw = run_data.get(f"params.{key}")
+            if raw is None or str(raw).strip() == "":
+                continue
+            try:
+                value = int(float(raw))
+                if value > 0:
+                    return {"window_size": value, "window_size_source": f"param:{key}"}
+            except Exception:
+                continue
+
+        if "w512" in name:
+            return {"window_size": 512, "window_size_source": "name"}
+        if "w256" in name:
+            return {"window_size": 256, "window_size_source": "name"}
+
+        # Historical default for unlabeled runs is 512.
+        return {"window_size": 512, "window_size_source": "default_512"}
 
     # Determine task from experiment_name (more reliable)
     task = "unknown"
@@ -162,17 +191,13 @@ def classify_run(run_data: pd.Series) -> Dict[str, Any]:
     elif "baseline" in name or "base" in name:
         config_type = "baseline"
 
-    window_size = None
-    if "w512" in name:
-        window_size = 512
-    elif "w256" in name:
-        window_size = 256
+    window_info = resolve_window_size()
 
     return {
         "task": task,
         "server": server,
         "config_type": config_type,
-        "window_size": window_size,
+        **window_info,
     }
 
 
