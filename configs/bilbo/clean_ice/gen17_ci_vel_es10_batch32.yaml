@@ -1,5 +1,5 @@
 training_opts:
-  run_name: "gen16_ci_vel_es10_batch32"
+  run_name: "gen17_ci_vel_es10_batch32"
   dataset_name: "bibek_w512_o64_f1_velocity"
   epochs: 90
   early_stopping: 10

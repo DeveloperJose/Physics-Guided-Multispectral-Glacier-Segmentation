@@ -1,8 +1,12 @@
 training_opts:
-  run_name: "gen16_dci_baseline_lowlr_es10"
-  dataset_name: "bibek_w512_o64_f1_v2"
+  run_name: "gen17_dci_vel_lowlr_es10"
+  dataset_name: "bibek_w512_o64_f1_v2_velocity"
   epochs: 120
   early_stopping: 10
+
+loader_opts:
+  physics_channels: false
+  velocity_channels: true
 
 optim_opts:
   args:

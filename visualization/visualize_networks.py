@@ -24,6 +24,18 @@ from pathlib import Path
 from typing import Tuple, Any, List, Optional
 import cv2
 
+# Try to import PlotNeuralNet for professional diagrams
+try:
+    from plotneuralnet.pycore import tikzeng
+    from plotneuralnet.pycore.blocks import *
+
+    PLOTNEURALNET_AVAILABLE = True
+    print("✅ PlotNeuralNet available - professional diagrams enabled")
+except ImportError:
+    PLOTNEURALNET_AVAILABLE = False
+    print("⚠️  PlotNeuralNet not found - using matplotlib fallback")
+    print("   Install with: pip install plotneuralnet")
+
 # Add project root to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -2409,204 +2421,139 @@ class NetworkVisualizer:
         self.save_figure(fig, "temporal_sequence", "physics_lstm")
         plt.close(fig)
 
-    def create_architecture_comparison(self):
-        """Create side-by-side comparison of U-Net vs Physics-LSTM."""
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
-        fig.suptitle(
-            "Architecture Comparison: U-Net vs Physics-LSTM", fontsize=16, weight="bold"
-        )
+    def create_physics_lstm_plotneuralnet_professional(self):
+        """Create professional Physics-LSTM diagram using PlotNeuralNet."""
+        if not PLOTNEURALNET_AVAILABLE:
+            print("⚠️  PlotNeuralNet not available - skipping professional diagram")
+            return None
 
-        # U-Net side
-        ax1.set_xlim(0, 1)
-        ax1.set_ylim(0, 1)
-        ax1.axis("off")
-
-        # U-Net components
-        unet_components = [
-            (0.15, 0.7, "Input\nImage", COLORS["input"], 0.08, 0.06),
-            (0.35, 0.7, "Encoder\n(Contraction)", COLORS["conv"], 0.12, 0.08),
-            (0.55, 0.7, "Decoder\n(Expansion)", COLORS["conv"], 0.12, 0.08),
-            (0.75, 0.7, "Output\nMask", COLORS["output"], 0.08, 0.06),
+        # Create publication-quality Physics-LSTM using PlotNeuralNet
+        arch = [
+            tikzeng.to_head(".."),
+            tikzeng.to_cor(),
+            # Input layer (7D: X,Y,T,Vu,Vv,P,W.VF)
+            tikzeng.to_input(
+                "Input: [X,Y,T,Vu,Vv,P,W.VF]", width=2.5, height=1.8, depth=1
+            ),
+            # LSTM Branch (top)
+            tikzeng.to_lstm(name="lstm1", units=32, depth=2, position=(0.2, 0.7)),
+            tikzeng.to_lstm(name="lstm2", units=32, depth=2, position=(0.4, 0.7)),
+            tikzeng.to_dense(name="lstm_dense", units=32, depth=1, position=(0.6, 0.7)),
+            # PINNs Branch (bottom)
+            tikzeng.to_conv(
+                name="pinns1", filters=32, kernel=(3, 3), depth=1, position=(0.2, 0.4)
+            ),
+            tikzeng.to_conv(
+                name="pinns2", filters=64, kernel=(3, 3), depth=1, position=(0.4, 0.4)
+            ),
+            # Physics Constraints (Navier-Stokes)
+            tikzeng.to_custom(
+                name="navier_stokes",
+                width=3.5,
+                height=2.5,
+                position=(0.6, 0.4),
+                text=r"$\begin{aligned}&f_u &= u_t + \lambda_1(u u_x + v u_y) + p_x - \lambda_2(u_{xx} + u_{yy})\\&f_v &= v_t + \lambda_1(u v_x + v v_y) + p_y - \lambda_2(v_{xx} + v_{yy})\end{aligned}$",
+                text_options={"font_size": "tiny"},
+            ),
+            # Weighted Combination
+            tikzeng.to_join(
+                name="weighted_combine", width=2, height=1.5, position=(0.8, 0.55)
+            ),
+            # Output (velocity field)
+            tikzeng.to_softmax(name="output", units=2, depth=1, position=(0.8, 0.7)),
+            tikzeng.to_end(),
         ]
 
-        for x, y, label, color, width, height in unet_components:
-            self.draw_layer_box(ax1, x, y, width, height, color=color)
-            ax1.text(x, y, label, ha="center", va="center", fontsize=9, weight="bold")
-
-        # U-Net arrows
-        for i in range(len(unet_components) - 1):
-            x1, y1, _, _, w1, _ = unet_components[i]
-            x2, _, _, _, _, _ = unet_components[i + 1]
-            self.draw_arrow(ax1, x1 + w1 / 2, y1, x2 - w1 / 2, y1, linewidth=2)
-
-        # U-Net characteristics
-        ax1.text(
-            0.5,
-            0.4,
-            "Characteristics:",
-            ha="center",
-            va="top",
-            fontsize=11,
-            weight="bold",
-        )
-        ax1.text(
-            0.5,
-            0.35,
-            "• Spatial convolutional layers",
-            ha="center",
-            va="top",
-            fontsize=9,
-        )
-        ax1.text(0.5, 0.30, "• Skip connections", ha="center", va="top", fontsize=9)
-        ax1.text(0.5, 0.25, "• Static image input", ha="center", va="top", fontsize=9)
-        ax1.text(
-            0.5, 0.20, "• Pixel-wise segmentation", ha="center", va="top", fontsize=9
-        )
-        ax1.text(
-            0.5,
-            0.15,
-            "• Application: Image segmentation",
-            ha="center",
-            va="top",
-            fontsize=9,
+        # Generate LaTeX with professional styling
+        latex_code = tikzeng.to_generate(
+            arch,
+            "physics_lstm_professional.tex",
+            style="academic",
+            font_size=10,
+            line_width=1.2,
+            node_distance=2.0,
         )
 
-        ax1.text(
-            0.5,
-            0.05,
-            "U-Net Architecture",
-            ha="center",
-            va="center",
-            fontsize=12,
-            weight="bold",
-            bbox=dict(boxstyle="round,pad=0.4", facecolor="lightblue", alpha=0.8),
+        # Save LaTeX file
+        with open("physics_lstm_professional.tex", "w") as f:
+            f.write(latex_code)
+
+        print(
+            "✅ Generated professional Physics-LSTM diagram: physics_lstm_professional.tex"
+        )
+        print("📝 Compile with: pdflatex physics_lstm_professional.tex")
+        print(
+            "🎯 This creates publication-quality PDF with proper mathematical notation"
         )
 
-        # Physics-LSTM side
-        ax2.set_xlim(0, 1)
-        ax2.set_ylim(0, 1)
-        ax2.axis("off")
+        return latex_code
 
-        # Physics-LSTM components
-        lstm_components = [
-            (0.15, 0.8, "Input\nSequence", COLORS["input"], 0.08, 0.06),
-            (0.35, 0.8, "LSTM\nBranch", COLORS["lstm"], 0.10, 0.06),
-            (0.35, 0.6, "PINNs\nBranch", COLORS["physics"], 0.10, 0.06),
-            (0.55, 0.7, "Weighted\nCombine", COLORS["combine"], 0.10, 0.06),
-            (0.75, 0.7, "Output\nVelocity", COLORS["output"], 0.08, 0.06),
+    def create_physics_lstm_plotneuralnet(self):
+        """Create professional Physics-LSTM diagram using PlotNeuralNet."""
+        if not PLOTNEURALNET_AVAILABLE:
+            print("⚠️  PlotNeuralNet not available - skipping professional diagram")
+            return None
+
+        # Create publication-quality Physics-LSTM using PlotNeuralNet
+        arch = [
+            tikzeng.to_head(".."),
+            tikzeng.to_cor(),
+            # Input layer (7D: X,Y,T,Vu,Vv,P,W.VF)
+            tikzeng.to_input(
+                "Input: [X,Y,T,Vu,Vv,P,W.VF]", width=2.5, height=1.8, depth=1
+            ),
+            # LSTM Branch (top)
+            tikzeng.to_lstm(name="lstm1", units=32, depth=2, position=(0.2, 0.7)),
+            tikzeng.to_lstm(name="lstm2", units=32, depth=2, position=(0.4, 0.7)),
+            tikzeng.to_dense(name="lstm_dense", units=32, depth=1, position=(0.6, 0.7)),
+            # PINNs Branch (bottom)
+            tikzeng.to_conv(
+                name="pinns1", filters=32, kernel=(3, 3), depth=1, position=(0.2, 0.4)
+            ),
+            tikzeng.to_conv(
+                name="pinns2", filters=64, kernel=(3, 3), depth=1, position=(0.4, 0.4)
+            ),
+            # Physics Constraints (Navier-Stokes)
+            tikzeng.to_custom(
+                name="navier_stokes",
+                width=3.5,
+                height=2.5,
+                position=(0.6, 0.4),
+                text=r"$\begin{aligned}&f_u &= u_t + \lambda_1(u u_x + v u_y) + p_x - \lambda_2\nabla(u_{xx} + u_{yy})\\&f_v &= v_t + \lambda_1(u v_x + v v_y) + p_y - \lambda_2\nabla(v_{xx} + v_{yy})\end{aligned}$",
+                text_options={"font_size": "tiny"},
+            ),
+            # Weighted Combination
+            tikzeng.to_join(
+                name="weighted_combine", width=2, height=1.5, position=(0.8, 0.55)
+            ),
+            # Output (velocity field)
+            tikzeng.to_softmax(name="output", units=2, depth=1, position=(0.8, 0.7)),
+            tikzeng.to_end(),
         ]
 
-        for x, y, label, color, width, height in lstm_components:
-            self.draw_layer_box(ax2, x, y, width, height, color=color)
-            ax2.text(x, y, label, ha="center", va="center", fontsize=9, weight="bold")
-
-        # Physics-LSTM arrows
-        # Input to both branches
-        input_x, input_y, _, _, input_w, _ = lstm_components[0]
-        lstm_x, lstm_y, _, _, _, _ = lstm_components[1]
-        pinns_x, pinns_y, _, _, _, _ = lstm_components[2]
-
-        self.draw_arrow(
-            ax2,
-            input_x + input_w / 2,
-            input_y,
-            lstm_x - 0.05,
-            lstm_y,
-            linewidth=2,
-            color="darkgreen",
-        )
-        self.draw_arrow(
-            ax2,
-            input_x + input_w / 2,
-            input_y,
-            pinns_x - 0.05,
-            pinns_y,
-            linewidth=2,
-            color="darkred",
+        # Generate LaTeX with professional styling
+        latex_code = tikzeng.to_generate(
+            arch,
+            "physics_lstm_professional.tex",
+            style="academic",
+            font_size=10,
+            line_width=1.2,
+            node_distance=2.0,
         )
 
-        # Branches to combination
-        self.draw_arrow(
-            ax2, lstm_x + 0.05, lstm_y, 0.5, 0.7, linewidth=2, color="darkgreen"
+        # Save LaTeX file
+        with open("physics_lstm_professional.tex", "w") as f:
+            f.write(latex_code)
+
+        print(
+            "✅ Generated professional Physics-LSTM diagram: physics_lstm_professional.tex"
         )
-        self.draw_arrow(
-            ax2, pinns_x + 0.05, pinns_y, 0.5, 0.7, linewidth=2, color="darkred"
+        print("📝 Compile with: pdflatex physics_lstm_professional.tex")
+        print(
+            "🎯 This creates publication-quality PDF with proper mathematical notation"
         )
 
-        # Combination to output
-        self.draw_arrow(ax2, 0.6, 0.7, 0.71, 0.7, linewidth=2)
-
-        # Physics-LSTM characteristics
-        ax2.text(
-            0.5,
-            0.4,
-            "Characteristics:",
-            ha="center",
-            va="top",
-            fontsize=11,
-            weight="bold",
-        )
-        ax2.text(
-            0.5,
-            0.35,
-            "• Temporal sequence processing",
-            ha="center",
-            va="top",
-            fontsize=9,
-        )
-        ax2.text(
-            0.5,
-            0.30,
-            "• Physics-informed constraints",
-            ha="center",
-            va="top",
-            fontsize=9,
-        )
-        ax2.text(
-            0.5, 0.25, "• Dual-branch architecture", ha="center", va="top", fontsize=9
-        )
-        ax2.text(0.5, 0.20, "• Spatiotemporal input", ha="center", va="top", fontsize=9)
-        ax2.text(
-            0.5,
-            0.15,
-            "• Application: Dynamics simulation",
-            ha="center",
-            va="top",
-            fontsize=9,
-        )
-
-        ax2.text(
-            0.5,
-            0.05,
-            "Physics-LSTM Architecture",
-            ha="center",
-            va="center",
-            fontsize=12,
-            weight="bold",
-            bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", alpha=0.8),
-        )
-
-        # Add comparison table at bottom
-        comparison_text = (
-            "Input: Static Image vs Temporal Sequence\n"
-            "Processing: Spatial Convolution vs Temporal Recurrence\n"
-            "Constraints: Data-driven only vs Physics-informed\n"
-            "Output: Segmentation Mask vs Velocity Field"
-        )
-
-        fig.text(
-            0.5,
-            0.02,
-            comparison_text,
-            ha="center",
-            va="bottom",
-            fontsize=10,
-            bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgray", alpha=0.8),
-        )
-
-        plt.tight_layout()
-        self.save_figure(fig, "architecture_comparison", "concepts")
-        plt.close(fig)
+        return latex_code
 
 
 def main():
@@ -2667,6 +2614,12 @@ def main():
         print("   ✓ Physics-LSTM Architecture")
     except Exception as e:
         print(f"   ✗ Physics-LSTM Architecture: {e}")
+
+        try:
+        visualizer.create_physics_lstm_plotneuralnet_professional()
+        print("   ✓ Professional Physics-LSTM (PlotNeuralNet)")
+    except Exception as e:
+        print(f"   ✗ Professional Physics-LSTM (PlotNeuralNet): {e}")
 
     try:
         visualizer.create_temporal_sequence()

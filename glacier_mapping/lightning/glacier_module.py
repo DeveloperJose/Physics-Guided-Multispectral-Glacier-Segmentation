@@ -255,8 +255,8 @@ class GlacierSegmentationModule(pl.LightningModule):
             and self.velocity_mask_idx is not None
         ):
             vel_norm = x[:, self.velocity_idx : self.velocity_idx + 1, :, :]
-            velocity = self._denormalize_velocity(vel_norm)
-
+            # Keep velocity in normalized units so loss thresholds align with config
+            velocity = vel_norm
             velocity_mask = x[
                 :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
             ]
@@ -295,7 +295,8 @@ class GlacierSegmentationModule(pl.LightningModule):
                 and self.velocity_mask_idx is not None
             ):
                 vel_norm = x[:, self.velocity_idx : self.velocity_idx + 1, :, :]
-                velocity = self._denormalize_velocity(vel_norm)
+                # Keep velocity in normalized units so loss thresholds align with config
+                velocity = vel_norm
                 velocity_mask = x[
                     :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
                 ]

@@ -1,3 +1,6 @@
+temp**/
+*.aux
+visualization/Layers
 dissertation/
 original_code/
 Python-Physics-LSTM/
