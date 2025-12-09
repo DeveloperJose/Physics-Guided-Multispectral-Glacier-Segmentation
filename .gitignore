@@ -6,6 +6,7 @@ archive/
 AGENTS**
 CLAUDE**
 **output/
+visualization/**/*.md
 
 .ruff_cache/
 .python-version

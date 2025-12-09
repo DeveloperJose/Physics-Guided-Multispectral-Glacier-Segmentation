@@ -1,5 +1,5 @@
 training_opts:
-  run_name: "gen15_dci_phys_vel_es10"
+  run_name: "gen16_dci_phys_vel_nowarm"
   dataset_name: "bibek_w512_o64_f1_v2_phys64_s1_velocity"
   epochs: 90
   early_stopping: 10
@@ -11,8 +11,8 @@ loader_opts:
 loss_opts:
   use_velocity_loss: true
   velocity_confidence_threshold: 0.6
-  velocity_low_speed_threshold: 0.25
-  velocity_loss_weight: 0.02
-  velocity_loss_warmup_epochs: 5
-  velocity_loss_ramp_epochs: 5
+  velocity_low_speed_threshold: 0.35
+  velocity_loss_weight: 0.05
+  velocity_loss_warmup_epochs: 0
+  velocity_loss_ramp_epochs: 0
   velocity_loss_clip: 1.0
