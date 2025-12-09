@@ -1,0 +1,5 @@
+training_opts:
+  dataset_name: "gen_robust_physics_noflow"
+loader_opts:
+  velocity_channels: true
+  physics_channels: ["tpi", "roughness", "plan_curvature"]

@@ -47,6 +47,12 @@ CHANNEL_GROUP_DEFINITIONS = {
     },
 }
 
+# Channels requiring logarithmic scaling (0 to +inf -> 0 to 1)
+LOG_CHANNELS = {"velocity", "flow_accumulation", "roughness"}
+
+# Channels requiring symmetric logarithmic scaling (-inf to +inf -> -1 to 1)
+SYMLOG_CHANNELS = {"velocity_x", "velocity_y", "tpi", "plan_curvature"}
+
 
 def load_band_names(processed_dir):
     """
@@ -355,6 +361,8 @@ class GlacierDataset(Dataset):
         elif self.normalize == "mean-std":
             self.mean, self.std = arr[0], arr[1]
             self.mean, self.std = self.mean[use_channels], self.std[use_channels]
+            # We still need min/max for robust scaling of special channels
+            self.min, self.max = arr[2][use_channels], arr[3][use_channels]
         else:
             raise ValueError("normalize must be 'min-max' or 'mean-std'")
 
@@ -363,10 +371,42 @@ class GlacierDataset(Dataset):
         band_names = load_band_names(folder_path.parent)
         no_norm_names = get_no_normalize_channel_names()
 
-        # Build boolean mask: True = skip normalization for this channel
-        self.no_normalize_mask = np.array(
-            [band_names[ch] in no_norm_names for ch in use_channels]
+        # --- Enhanced Channel Handling for Physics/Velocity ---
+
+        # 1. Map use_channels indices to names
+        self.channel_names = [band_names[ch] for ch in use_channels]
+
+        # 2. Build masks for special scaling types
+        self.log_mask = np.array([name in LOG_CHANNELS for name in self.channel_names])
+        self.symlog_mask = np.array(
+            [name in SYMLOG_CHANNELS for name in self.channel_names]
         )
+
+        # 3. Build no_normalize mask (include binary masks AND special scaling channels)
+        # The special scaling channels are handled separately, so we exclude them from
+        # standard min-max/mean-std normalization loops.
+        self.no_normalize_mask = np.array(
+            [
+                (name in no_norm_names)
+                or (name in LOG_CHANNELS)
+                or (name in SYMLOG_CHANNELS)
+                for name in self.channel_names
+            ]
+        )
+
+        if np.any(self.log_mask) or np.any(self.symlog_mask):
+            fn.log(
+                logging.INFO,
+                f"Applied robust scaling to: {[n for n in self.channel_names if n in LOG_CHANNELS or n in SYMLOG_CHANNELS]}",
+            )
+
+        # 4. Pre-compute scaling factors for special channels
+        # LOG: log1p(x) / log1p(max) -> [0, 1]
+        self.log_max = np.log1p(np.maximum(self.max, 1e-6))
+
+        # SYMLOG: sign(x)*log1p(abs(x)) / log1p(max_abs) -> [-1, 1]
+        max_abs = np.maximum(np.abs(self.min), np.abs(self.max))
+        self.symlog_max = np.log1p(np.maximum(max_abs, 1e-6))
 
         if np.any(self.no_normalize_mask):
             skip_names = [
@@ -374,26 +414,67 @@ class GlacierDataset(Dataset):
                 for ch, skip in zip(use_channels, self.no_normalize_mask)
                 if skip
             ]
-            fn.log(logging.INFO, f"Channels excluded from normalization: {skip_names}")
+            fn.log(
+                logging.INFO,
+                f"Channels excluded from standard normalization: {skip_names}",
+            )
 
     def __getitem__(self, index):
         file_data = np.load(self.img_files[index])
         data = file_data[:, :, self.use_channels]
 
-        # Store original values for channels that should not be normalized
+        # Store original values for channels that should not be normalized (binary masks etc)
+        # AND for special channels (log/symlog) which we will process manually
         data_no_norm = None
         if np.any(self.no_normalize_mask):
             data_no_norm = data[:, :, self.no_normalize_mask].copy()
 
+        # Apply Standard Normalization (Min-Max or Mean-Std)
+        # This will affect all channels, but we will overwrite the "no_normalize" ones later.
+        # Ideally we'd only touch the relevant ones, but masking in place is tricky.
+        # Overwriting is cleaner.
         if self.normalize == "min-max":
             data = np.clip(data, self.min, self.max)
             data = (data - self.min) / (self.max - self.min)
         elif self.normalize == "mean-std":
             data = (data - self.mean) / self.std
 
-        # Restore original values for no-normalize channels (e.g., binary masks)
+        # Restore/Process special channels
         if data_no_norm is not None:
+            # First restore everything
             data[:, :, self.no_normalize_mask] = data_no_norm
+
+            # Now apply custom transforms for Log/Symlog channels
+            # We iterate because boolean masking 3D array flattens it
+            # But we can use boolean indexing on the last dim if we are careful
+
+            # Apply Log Transform: log1p(x) / log_max -> [0, 1]
+            if np.any(self.log_mask):
+                # We need to act only on log_mask channels.
+                # Since data_no_norm contains ALL no_norm channels, we need to map
+                # global indices to no_norm indices? No.
+                # data is (H, W, C). self.log_mask is (C,).
+                # We can update in place using fancy indexing on axis 2?
+                # No, data[:, :, mask] returns copy or flattened.
+
+                # Loop is safest for clarity and avoiding shape errors
+                for i in range(data.shape[2]):
+                    if self.log_mask[i]:
+                        # Clip to 0 just in case
+                        val = np.maximum(data[:, :, i], 0)
+                        data[:, :, i] = np.log1p(val) / self.log_max[i]
+
+            # Apply SymLog Transform: sign(x) * log1p(abs(x)) / symlog_max -> [-1, 1]
+            if np.any(self.symlog_mask):
+                for i in range(data.shape[2]):
+                    if self.symlog_mask[i]:
+                        val = data[:, :, i]
+                        # symlog
+                        data[:, :, i] = (
+                            np.sign(val) * np.log1p(np.abs(val)) / self.symlog_max[i]
+                        )
+
+            # Binary masks (no_norm but NOT log/symlog) are already restored and left untouched.
 
         label_int = np.load(self.mask_files[index]).astype(np.uint8)
         label_int = np.expand_dims(label_int, axis=2)

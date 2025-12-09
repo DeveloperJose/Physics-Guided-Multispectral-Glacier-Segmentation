@@ -1,0 +1,5 @@
+training_opts:
+  dataset_name: "gen_robust_baseline"
+loader_opts:
+  velocity_channels: false
+  physics_channels: false

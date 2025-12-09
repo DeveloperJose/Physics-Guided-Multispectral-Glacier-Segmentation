@@ -1,0 +1,5 @@
+training_opts:
+  dataset_name: "gen_robust_velocity"
+loader_opts:
+  velocity_channels: true
+  physics_channels: false
