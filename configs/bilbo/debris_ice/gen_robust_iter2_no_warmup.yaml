@@ -1,0 +1,14 @@
+training_opts:
+  run_name: "gen_robust_iter2_no_warmup"
+  dataset_name: "gen_robust_comprehensive"
+
+loader_opts:
+  # batch_size defaults to 32 on Bilbo usually, but let's stick to default inheritance unless specifically limited like GPU 0
+  velocity_channels: true
+  physics_channels: ["tpi", "roughness", "plan_curvature"]
+
+loss_opts:
+  use_velocity_loss: true
+  velocity_loss_weight: 0.5
+  velocity_loss_warmup_epochs: 0
+  velocity_loss_ramp_epochs: 0

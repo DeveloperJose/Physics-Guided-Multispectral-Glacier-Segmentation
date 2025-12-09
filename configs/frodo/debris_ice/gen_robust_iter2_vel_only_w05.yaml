@@ -1,10 +1,10 @@
 training_opts:
+  run_name: "gen_robust_iter2_vel_only_w05"
   dataset_name: "gen_robust_comprehensive"
 
 loader_opts:
-  # batch_size: 32 (Inherited from Bilbo default)
   velocity_channels: true
-  physics_channels: false
+  # physics_channels defaults to false in train.yaml
 
 loss_opts:
   use_velocity_loss: true

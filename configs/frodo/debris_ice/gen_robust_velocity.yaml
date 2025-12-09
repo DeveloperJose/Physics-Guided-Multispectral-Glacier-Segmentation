@@ -1,5 +1,0 @@
-training_opts:
-  dataset_name: "gen_robust_comprehensive"
-loader_opts:
-  velocity_channels: true
-  physics_channels: false
