@@ -49,6 +49,11 @@ class customloss(nn.Module):
 
         # Flag for single-run debug logging
         self._first_call = True
+        # Telemetry for logging loss magnitudes
+        self.last_velocity_loss: Optional[torch.Tensor] = None
+        self.last_velocity_base: Optional[torch.Tensor] = None
+        self.last_velocity_weight: float = 0.0
+        self.last_velocity_valid: bool = False
 
     def forward(
         self,
@@ -68,6 +73,12 @@ class customloss(nn.Module):
         """
         n, c, h, w = pred.shape
         device = pred.device
+
+        # Reset telemetry
+        self.last_velocity_loss = torch.tensor(0.0, device=device)
+        self.last_velocity_base = torch.tensor(0.0, device=device)
+        self.last_velocity_weight = 0.0
+        self.last_velocity_valid = False
 
         # Log classification type for debugging (only on first call)
         if self._first_call:
@@ -202,6 +213,10 @@ class customloss(nn.Module):
                 base_velocity_loss = numerator / valid_count
                 weight = self._compute_velocity_weight(current_epoch)
                 velocity_loss = base_velocity_loss * weight
+                self.last_velocity_base = base_velocity_loss.detach()
+                self.last_velocity_loss = velocity_loss.detach()
+                self.last_velocity_weight = float(weight)
+                self.last_velocity_valid = True
             else:
                 velocity_loss = torch.tensor(0.0, device=device)
 

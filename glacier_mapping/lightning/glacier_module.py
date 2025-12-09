@@ -149,12 +149,12 @@ class GlacierSegmentationModule(pl.LightningModule):
         # Initialize learnable sigma parameters for loss weighting
         # Fixed 3-sigma system: Dice, Boundary, Velocity
         # Based on original stable design from frame.py
-        self.sigma_dice = nn.Parameter(torch.tensor(1.0))
-        self.sigma_boundary = nn.Parameter(torch.tensor(1.0))
-        # Initialize all sigmas to 1.0 for equal initial weighting
+        self.sigma_dice = nn.Parameter(torch.tensor(0.5))
+        self.sigma_boundary = nn.Parameter(torch.tensor(0.5))
+        # Initialize all sigmas to 0.5 for equal initial weighting
         # The network will learn optimal weights through Kendall's uncertainty formulation
         self.sigma_velocity = (
-            nn.Parameter(torch.tensor(1.0)) if self.use_velocity_loss else None
+            nn.Parameter(torch.tensor(0.5)) if self.use_velocity_loss else None
         )
 
         # Keep sigma_list for backward compatibility
@@ -422,7 +422,18 @@ class GlacierSegmentationModule(pl.LightningModule):
             and velocity_mask.numel() > 0
         ):
             ignore_mask = (y_int != 255).unsqueeze(1)
-            velocity_valid = (velocity_mask * ignore_mask).sum() > 0
+            masked_velocity = velocity_mask * ignore_mask
+            valid_pixels = masked_velocity.sum()
+            total_pixels = ignore_mask.sum()
+            if total_pixels > 0:
+                coverage = valid_pixels.float() / total_pixels.float()
+                self.log(
+                    "velocity_valid_fraction",
+                    coverage,
+                    on_step=True,
+                    on_epoch=True,
+                )
+            velocity_valid = valid_pixels > 0
 
         # Compute custom loss (returns list of losses)
         if self.use_velocity_loss:
@@ -447,6 +458,34 @@ class GlacierSegmentationModule(pl.LightningModule):
 
         # Apply sigma weighting like in original Framework
         total_loss = torch.zeros(1, device=y_hat.device)
+
+        # Telemetry for physics loss scaling
+        if (
+            self.use_velocity_loss
+            and getattr(self.loss_fn, "last_velocity_valid", False)
+            and len(losses) >= 3
+        ):
+            self.log(
+                "velocity_loss_raw",
+                self.loss_fn.last_velocity_base,
+                on_step=True,
+                on_epoch=True,
+            )
+            self.log(
+                "velocity_loss_weighted",
+                self.loss_fn.last_velocity_loss,
+                on_step=True,
+                on_epoch=True,
+            )
+            self.log(
+                "velocity_loss_weight",
+                torch.tensor(
+                    getattr(self.loss_fn, "last_velocity_weight", 0.0),
+                    device=y_hat.device,
+                ),
+                on_step=True,
+                on_epoch=True,
+            )
 
         # Log sigmas for monitoring
         # Log sigma parameters for monitoring

@@ -16,6 +16,8 @@ checkpoints/
 lightning_logs/
 
 *.png
+*.svg
+*.pdf
 *.tif
 *.nc
 

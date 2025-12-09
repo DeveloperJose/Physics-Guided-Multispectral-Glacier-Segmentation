@@ -872,18 +872,30 @@ def make_redesigned_panel(
     fp_mask = np.zeros_like(gt_labels, dtype=bool)
     fn_mask = np.zeros_like(gt_labels, dtype=bool)
 
-    for target_class in output_classes:
-        if target_class == 0:  # Skip background
-            continue
-
-        # For binary models, predictions are always 1 for the target class
-        pr_class = 1 if len(output_classes) == 1 else target_class
-
-        tp_mask |= (gt_labels == target_class) & (pr_labels == pr_class)
-        fp_mask |= (
-            (gt_labels != target_class) & (pr_labels == pr_class) & (gt_labels != 255)
+    # Map each target class to the label value used in the provided GT/pred maps.
+    # Binary tasks use 0/1 labels even when the semantic target is class 2 (Debris),
+    # so we align to the observed label value (prefer the target class if present).
+    if len(output_classes) == 1:
+        target_class = output_classes[0]
+        observed_vals = np.unique(
+            np.concatenate([gt_labels.ravel(), pr_labels.ravel()])
         )
-        fn_mask |= (gt_labels == target_class) & (pr_labels != pr_class)
+        observed_vals = observed_vals[observed_vals != 255]
+        if target_class in observed_vals:
+            class_label_pairs = [(target_class, target_class)]
+        elif 1 in observed_vals:
+            class_label_pairs = [(target_class, 1)]
+        else:
+            class_label_pairs = [(target_class, target_class)]
+    else:
+        class_label_pairs = [(tc, tc) for tc in output_classes if tc != 0]
+
+    for _, label_value in class_label_pairs:
+        tp_mask |= (gt_labels == label_value) & (pr_labels == label_value)
+        fp_mask |= (gt_labels != label_value) & (pr_labels == label_value) & (
+            gt_labels != 255
+        )
+        fn_mask |= (gt_labels == label_value) & (pr_labels != label_value)
 
     # --------------------------------------------------------------------------
     # Stage 3: Generate Visual Components
