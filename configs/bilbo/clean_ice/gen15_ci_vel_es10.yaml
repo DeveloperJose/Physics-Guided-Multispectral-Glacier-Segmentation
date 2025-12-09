@@ -7,4 +7,3 @@ training_opts:
 loader_opts:
   physics_channels: false
   velocity_channels: true
-  batch_size: 16
