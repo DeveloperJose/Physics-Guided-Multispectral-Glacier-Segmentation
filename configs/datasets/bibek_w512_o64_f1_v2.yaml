@@ -9,10 +9,10 @@ val: 0.1
 
 # Channel toggles
 add_velocity: false
-add_ndvi: false
-add_ndwi: false
-add_ndsi: false
-add_hsv: false
+add_ndvi: true
+add_ndwi: true
+add_ndsi: true
+add_hsv: true
 physics_res: None
 physics_scale: -1
 save_skipped_visualizations: false

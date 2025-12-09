@@ -199,6 +199,7 @@ def get_tiff_np(
         dem_np = compute_dems(dem_np)  # [elevation_raw, slope_deg_raw]
         tiff_np = np.concatenate((tiff_np, dem_np), axis=2)
         band_names.extend(["elevation", "slope_deg"])
+    tiff_np = np.nan_to_num(tiff_np.astype(np.float32))
 
     # Load velocity data (4 bands: v, vx, vy, mask)
     # If add_velocity is requested, ALWAYS add 4 velocity channels
@@ -258,7 +259,7 @@ def get_tiff_np(
         tiff_np = np.concatenate((tiff_np, velocity_np), axis=2)
         band_names.extend(["velocity", "velocity_x", "velocity_y", "velocity_mask"])
 
-    tiff_np = np.nan_to_num(tiff_np.astype(np.float32))
+    # tiff_np = np.nan_to_num(tiff_np.astype(np.float32))
 
     if add_ndvi:
         tiff_np = add_index(tiff_np, index1=3, index2=2)
@@ -306,13 +307,17 @@ def get_tiff_np(
 def save_slices(
     filenum, fname, labels, savepath, save_skipped_visualizations=False, **conf
 ):
-    tiff_fname = pathlib.Path(conf["image_dir"]) / fname
-    dem_fname = pathlib.Path(conf["dem_dir"]) / fname
+    # Ensure fname is treated as a filename, not an absolute path
+    # If fname is absolute path (e.g. from glob), extracting .name fixes the issue
+    fname_str = pathlib.Path(fname).name
+
+    tiff_fname = pathlib.Path(conf["image_dir"]) / fname_str
+    dem_fname = pathlib.Path(conf["dem_dir"]) / fname_str
 
     # Build velocity filename if velocity is enabled
     velocity_fname = None
     if conf.get("add_velocity", False) and "velocity_dir" in conf:
-        velocity_fname = pathlib.Path(conf["velocity_dir"]) / fname
+        velocity_fname = pathlib.Path(conf["velocity_dir"]) / fname_str
 
     mask = get_mask(tiff_fname, labels)
 
