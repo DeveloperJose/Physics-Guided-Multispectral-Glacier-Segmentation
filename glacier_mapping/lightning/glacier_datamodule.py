@@ -3,6 +3,7 @@
 import pathlib
 from typing import List, Optional
 
+import albumentations as A
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 
@@ -22,6 +23,7 @@ class GlacierDataModule(pl.LightningDataModule):
         hsv_channels=True,
         physics_channels=False,
         velocity_channels=True,
+        augmentations: Optional[dict] = None,
         output_classes: List[int] = [0, 1, 2],
         class_names: List[str] = ["BG", "CleanIce", "Debris"],
         normalize: str = "mean-std",
@@ -40,6 +42,7 @@ class GlacierDataModule(pl.LightningDataModule):
             hsv_channels: HSV channel selection (true/false/list)
             physics_channels: Physics feature selection (true/false/list)
             velocity_channels: Velocity data selection (true/false/list)
+            augmentations: Dictionary of augmentation probabilities and limits
             output_classes: 0=BG, 1=CleanIce, 2=Debris. If len==1 → binary (NOT~cls vs cls)
             class_names: Names for each class
             normalize: "min-max" or "mean-std"
@@ -65,10 +68,26 @@ class GlacierDataModule(pl.LightningDataModule):
         self.pin_memory = pin_memory
 
         # Data augmentation transforms for training (disabled for debugging)
-        self.train_transform = None
+        if augmentations is not None:
+            self.train_transform = self.create_augmentations(augmentations)
+        else:
+            self.train_transform = None
 
         # No augmentation for validation/test
         self.val_transform = None
+
+    def create_augmentations(self, aug_opts: dict) -> A.Compose:
+        """Create an albumentations augmentation pipeline from a config dict."""
+        transforms = []
+        if aug_opts.get("h_flip_prob", 0) > 0:
+            transforms.append(A.HorizontalFlip(p=aug_opts["h_flip_prob"]))
+        if aug_opts.get("v_flip_prob", 0) > 0:
+            transforms.append(A.VerticalFlip(p=aug_opts["v_flip_prob"]))
+        if aug_opts.get("rotate_prob", 0) > 0:
+            transforms.append(
+                A.Rotate(limit=aug_opts["rotate_limit"], p=aug_opts["rotate_prob"])
+            )
+        return A.Compose(transforms)
 
     def setup(self, stage: Optional[str] = None):
         """Setup datasets for training and validation."""

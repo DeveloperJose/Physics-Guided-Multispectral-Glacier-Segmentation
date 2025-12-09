@@ -1,0 +1,15 @@
+# Increase early stopping patience to 15 to allow for more gradual improvement
+training_opts:
+  run_name: "gen18_dci_vel_longer_es15_gpu2"
+  dataset_name: "bibek_w512_o64_f1_v2_velocity"
+  epochs: 120
+  early_stopping: 15
+loader_opts:
+  velocity_channels: true
+optim_opts:
+  args:
+    lr: 0.0001
+    weight_decay: 0.0001
+scheduler_opts:
+  args:
+    max_lr: 0.0003

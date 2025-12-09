@@ -26,6 +26,7 @@ class customloss(nn.Module):
         class_weights: Optional[List[float]] = None,  # New parameter
         velocity_confidence_threshold: float = 0.6,
         velocity_low_speed_threshold: float = 0.1,
+        velocity_high_speed_threshold: Optional[float] = None,
         velocity_loss_weight: float = 0.05,
         velocity_loss_warmup_epochs: int = 10,
         velocity_loss_ramp_epochs: int = 10,
@@ -42,6 +43,7 @@ class customloss(nn.Module):
         self.class_weights = class_weights  # Store class weights
         self.velocity_confidence_threshold = velocity_confidence_threshold
         self.velocity_low_speed_threshold = velocity_low_speed_threshold
+        self.velocity_high_speed_threshold = velocity_high_speed_threshold
         self.velocity_loss_weight = velocity_loss_weight
         self.velocity_loss_warmup_epochs = velocity_loss_warmup_epochs
         self.velocity_loss_ramp_epochs = velocity_loss_ramp_epochs
@@ -192,9 +194,12 @@ class customloss(nn.Module):
 
             if C_eff == 2:
                 ice_prob = pred_prob[:, 1:2]
+                bg_prob = pred_prob[:, 0:1]
             else:
                 ice_prob = pred_prob[:, 1:].sum(dim=1, keepdim=True)
+                bg_prob = pred_prob[:, :1]
 
+            # Simple penalty: confident ice on low-speed areas, averaged over valid mask
             confidence_mask = (ice_prob > self.velocity_confidence_threshold).float()
             low_speed_penalty = torch.clamp(
                 self.velocity_low_speed_threshold - velocity, min=0.0
@@ -208,14 +213,30 @@ class customloss(nn.Module):
 
             combined_mask = confidence_mask * velocity_mask * ignore_mask_exp
             valid_count = combined_mask.sum()
+            base_velocity_loss = torch.tensor(0.0, device=device)
             if valid_count > 0:
-                numerator = (per_pixel_penalty * combined_mask).sum()
-                base_velocity_loss = numerator / valid_count
-                weight = self._compute_velocity_weight(current_epoch)
-                velocity_loss = base_velocity_loss * weight
+                base_velocity_loss += (per_pixel_penalty * combined_mask).sum() / valid_count
+
+            # Penalize BG predictions in high-speed regions (optional)
+            if self.velocity_high_speed_threshold is not None:
+                high_speed_penalty = torch.clamp(
+                    velocity - self.velocity_high_speed_threshold, min=0.0
+                )
+                per_pixel_bg_penalty = bg_prob * high_speed_penalty
+                if self.velocity_loss_clip is not None:
+                    per_pixel_bg_penalty = torch.clamp(
+                        per_pixel_bg_penalty, max=self.velocity_loss_clip
+                    )
+                high_mask = velocity_mask * ignore_mask_exp
+                high_valid = high_mask.sum()
+                if high_valid > 0:
+                    base_velocity_loss += (per_pixel_bg_penalty * high_mask).sum() / high_valid
+
+            if base_velocity_loss > 0:
+                velocity_loss = base_velocity_loss * self.velocity_loss_weight
                 self.last_velocity_base = base_velocity_loss.detach()
                 self.last_velocity_loss = velocity_loss.detach()
-                self.last_velocity_weight = float(weight)
+                self.last_velocity_weight = float(self.velocity_loss_weight)
                 self.last_velocity_valid = True
             else:
                 velocity_loss = torch.tensor(0.0, device=device)
@@ -223,16 +244,5 @@ class customloss(nn.Module):
         return [dice_loss_scalar, boundary_loss, velocity_loss]
 
     def _compute_velocity_weight(self, current_epoch: Optional[int]) -> float:
-        if current_epoch is None:
-            return self.velocity_loss_weight
-
-        if current_epoch < self.velocity_loss_warmup_epochs:
-            return 0.0
-
-        ramp_start = self.velocity_loss_warmup_epochs
-        ramp_end = ramp_start + max(1, self.velocity_loss_ramp_epochs)
-        if current_epoch < ramp_end:
-            progress = (current_epoch - ramp_start + 1) / (ramp_end - ramp_start + 1e-7)
-            return self.velocity_loss_weight * max(0.0, min(1.0, progress))
-
+        # Simplified: always return full weight (warmup/ramp disabled)
         return self.velocity_loss_weight

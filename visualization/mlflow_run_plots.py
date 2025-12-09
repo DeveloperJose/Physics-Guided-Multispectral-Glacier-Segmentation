@@ -17,7 +17,8 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple
+from bisect import bisect_right
+from typing import Dict, List, Sequence, Tuple
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -83,14 +84,20 @@ def fetch_metric_series(client, run_id: str, metric_names: List[str]) -> Dict[st
     return series
 
 
-def plot_lines(series: Dict[str, Tuple[List[int], List[float]]], title: str, ylabel: str, out_path: Path):
+def plot_lines(
+    series: Dict[str, Tuple[List[int], List[float]]],
+    title: str,
+    ylabel: str,
+    out_path: Path,
+    xlabel: str = "Step",
+):
     if not series:
         return
     fig, ax = plt.subplots(figsize=(8, 5), dpi=300)
     for name, (steps, vals) in series.items():
         ax.plot(steps, vals, label=name)
     ax.set_title(title)
-    ax.set_xlabel("Step")
+    ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.legend()
     fig.tight_layout()
@@ -113,16 +120,79 @@ def discover_metric_names(client, run_id: str) -> List[str]:
     return list(info.keys())
 
 
-def downsample_to_epochs(series: Dict[str, Tuple[List[int], List[float]]]) -> Dict[str, Tuple[List[int], List[float]]]:
-    """Group by epoch (int step) using last value in that epoch."""
+def extract_epoch_steps(loss_series: Dict[str, Tuple[List[int], List[float]]]) -> List[int]:
+    """Infer epoch boundaries from validation loss metrics (one per epoch)."""
+    epoch_steps: set[int] = set()
+    for name, (steps, _) in loss_series.items():
+        lower = name.lower()
+        if "val" in lower and "loss" in lower:
+            epoch_steps.update(steps)
+    return sorted(epoch_steps)
+
+
+def downsample_to_epochs(
+    series: Dict[str, Tuple[List[int], List[float]]], epoch_steps: Sequence[int] | None = None
+) -> Dict[str, Tuple[List[int], List[float]]]:
+    """Group metrics by epoch using last value per epoch.
+
+    If epoch_steps are provided, steps are bucketed by the nearest epoch boundary
+    (validation steps) to ensure batching is collapsed correctly.
+    """
     out: Dict[str, Tuple[List[int], List[float]]] = {}
+    use_steps = list(epoch_steps) if epoch_steps else []
     for name, (steps, vals) in series.items():
         epoch_map = {}
-        for s, v in zip(steps, vals):
-            epoch_map[int(s)] = v  # last value wins
-        epochs = sorted(epoch_map.keys())
+        if use_steps:
+            for s, v in zip(steps, vals):
+                idx = bisect_right(use_steps, s)
+                epoch_idx = idx - 1 if idx > 0 else 0
+                epoch_map[epoch_idx] = v  # last value wins per epoch
+            epochs = sorted(epoch_map.keys())
+        else:
+            for s, v in zip(steps, vals):
+                epoch_map[int(s)] = v  # last value wins
+            epochs = sorted(epoch_map.keys())
         out[name] = (epochs, [epoch_map[e] for e in epochs])
     return out
+
+
+def plot_epoch_loss(series: Dict[str, Tuple[List[int], List[float]]], epoch_steps: List[int], out_path: Path):
+    epoch_series = downsample_to_epochs(series, epoch_steps=epoch_steps)
+    if not epoch_series:
+        return
+
+    if not epoch_steps:
+        # Fall back to sequential epochs if we cannot infer explicit epoch boundaries.
+        epoch_series = {name: (list(range(len(vals))), vals) for name, (_, vals) in epoch_series.items()}
+
+    def legend_sort_key(name: str) -> Tuple[int, str]:
+        lower = name.lower()
+        if "train" in lower:
+            return (0, name)
+        if "val" in lower and "best" not in lower:
+            return (1, name)
+        if "best" in lower:
+            return (2, name)
+        return (3, name)
+
+    fig, ax = plt.subplots(figsize=(12, 5), dpi=300)
+    for name in sorted(epoch_series.keys(), key=legend_sort_key):
+        epochs, vals = epoch_series[name]
+        lower = name.lower()
+        if "best" in lower and "val" in lower and "loss" in lower:
+            ax.scatter(epochs, vals, label=name, marker="*", zorder=10, color="red", s=50)
+            # ymin, ymax = ax.get_ylim()
+            # center = (ymin + ymax)/2
+            # ax.vlines(epochs, center - 1, center + 1, color="red")
+        else:
+            ax.plot(epochs, vals, label=name)
+    ax.set_title("Loss Curves")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
 
 
 def main():
@@ -171,20 +241,51 @@ def main():
     rec_series = fetch_metric_series(client, run_id, rec_metrics)
 
     # Step-based plots
-    plot_lines(loss_series, "Loss curves (step)", "Loss", out_dir / "loss_step.png")
-    plot_lines(lr_series, "Learning rate (step)", "LR", out_dir / "learning_rate_step.png")
-    plot_lines(sigma_series, "Sigma parameters (step)", "Sigma", out_dir / "sigma_step.png")
-    plot_lines(iou_series, "Per-class IoU (step)", "IoU", out_dir / "iou_step.png")
-    plot_lines(prec_series, "Per-class Precision (step)", "Precision", out_dir / "precision_step.png")
-    plot_lines(rec_series, "Per-class Recall (step)", "Recall", out_dir / "recall_step.png")
-
+    # plot_lines(loss_series, "Loss curves (step)", "Loss", out_dir / "loss_step.png")
+    # plot_lines(lr_series, "Learning rate (step)", "LR", out_dir / "learning_rate_step.png")
+    # plot_lines(sigma_series, "Sigma parameters (step)", "Sigma", out_dir / "sigma_step.png")
+    # plot_lines(iou_series, "Per-class IoU (step)", "IoU", out_dir / "iou_step.png")
+    # plot_lines(prec_series, "Per-class Precision (step)", "Precision", out_dir / "precision_step.png")
+    # plot_lines(rec_series, "Per-class Recall (step)", "Recall", out_dir / "recall_step.png")
+    #
     # Epoch-based plots
-    plot_lines(downsample_to_epochs(loss_series), "Loss curves (epoch)", "Loss", out_dir / "loss_epoch.png")
-    plot_lines(downsample_to_epochs(lr_series), "Learning rate (epoch)", "LR", out_dir / "learning_rate_epoch.png")
-    plot_lines(downsample_to_epochs(sigma_series), "Sigma parameters (epoch)", "Sigma", out_dir / "sigma_epoch.png")
-    plot_lines(downsample_to_epochs(iou_series), "Per-class IoU (epoch)", "IoU", out_dir / "iou_epoch.png")
-    plot_lines(downsample_to_epochs(prec_series), "Per-class Precision (epoch)", "Precision", out_dir / "precision_epoch.png")
-    plot_lines(downsample_to_epochs(rec_series), "Per-class Recall (epoch)", "Recall", out_dir / "recall_epoch.png")
+    epoch_steps = extract_epoch_steps(loss_series)
+    plot_epoch_loss(loss_series, epoch_steps, out_dir / "loss_epoch.png")
+    # plot_lines(
+    #     downsample_to_epochs(lr_series, epoch_steps=epoch_steps),
+    #     "Learning rate (epoch)",
+    #     "LR",
+    #     out_dir / "learning_rate_epoch.png",
+    #     xlabel="Epoch",
+    # )
+    # plot_lines(
+    #     downsample_to_epochs(sigma_series, epoch_steps=epoch_steps),
+    #     "Sigma parameters (epoch)",
+    #     "Sigma",
+    #     out_dir / "sigma_epoch.png",
+    #     xlabel="Epoch",
+    # )
+    # plot_lines(
+    #     downsample_to_epochs(iou_series, epoch_steps=epoch_steps),
+    #     "Per-class IoU (epoch)",
+    #     "IoU",
+    #     out_dir / "iou_epoch.png",
+    #     xlabel="Epoch",
+    # )
+    # plot_lines(
+    #     downsample_to_epochs(prec_series, epoch_steps=epoch_steps),
+    #     "Per-class Precision (epoch)",
+    #     "Precision",
+    #     out_dir / "precision_epoch.png",
+    #     xlabel="Epoch",
+    # )
+    # plot_lines(
+    #     downsample_to_epochs(rec_series, epoch_steps=epoch_steps),
+    #     "Per-class Recall (epoch)",
+    #     "Recall",
+    #     out_dir / "recall_epoch.png",
+    #     xlabel="Epoch",
+    # )
 
     logger.info("Saved plots to %s", out_dir)
 

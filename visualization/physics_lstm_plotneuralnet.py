@@ -13,7 +13,9 @@ import sys
 import os
 
 sys.path.append(
-    os.path.join(os.path.dirname(__file__), "..", "..", "temp_plotneuralnet")
+    os.path.join(
+        os.path.dirname(__file__), "..", "..", "temp_plotneuralnet", "PlotNeuralNet"
+    )
 )
 
 from PlotNeuralNet.PyCore.Blocks import Block2ConvPool, BlockRes
@@ -51,8 +53,6 @@ def create_physics_lstm_architecture():
             name="input_sequence",
             sFilter=256,
             nFilter=(3, 3),  # RGB input
-            offset="(0,0,0)",
-            to="(0,0,0)",
             width=(6, 6),
             height=40,
             depth=40,

@@ -18,13 +18,13 @@
 
 \begin{document}
 \begin{tikzpicture}
-\tikzstyle{connection}=[ultra thick,every node/.style={sloped,allow upside down},draw={rgb:blue,4;red,1;green,4;black,3},opacity=0.7]
+\tikzstyle{connection}=[ultra thick,every node/.style={sloped,allow upside down},draw=\edgecolor,opacity=0.7]
 \tikzstyle{copyconnection}=[ultra thick,every node/.style={sloped,allow upside down},draw={rgb:blue,4;red,1;green,1;black,3},opacity=0.7]
 
-\pic{
+\pic[shift=(0,0,0)] at (0,0,0) {
     RightBandedBox={
         name=input_sequence,
-        caption=Input Sequence$\mathbf{X}_{t-T:t}$,
+        caption=Input Sequence\$\mathbf{X}_{t-T:t}$,
         xlabel={ 3, 3 },
         zlabel=256,
         fill=\ConvColor,
@@ -35,10 +35,10 @@
     }
 };
 
-\pic{
+\pic[shift=(1.5,0,0)] at (input_sequence-east) {
     RightBandedBox={
         name=cnn_conv1,
-        caption=CNN Conv1$\mathbf{F}_{\theta}$,
+        caption=CNN Conv1\$\mathbf{F}_{\theta}$,
         xlabel={ 64, 64 },
         zlabel=256,
         fill=\ConvColor,
@@ -49,7 +49,7 @@
     }
 };
 
-\pic{
+\pic[shift=(0.8,0,0)] at (cnn_conv1-east) {
     Box={
         name=cnn_pool1,
         caption= ,
@@ -61,10 +61,10 @@
     }
 };
 
-\pic{
+\pic[shift=(1.2,0,0)] at (cnn_pool1-east) {
     RightBandedBox={
         name=cnn_conv2,
-        caption=CNN Conv2$\mathbf{G}_{\phi}$,
+        caption=CNN Conv2\$\mathbf{G}_{\phi}$,
         xlabel={ 128, 128 },
         zlabel=128,
         fill=\ConvColor,
@@ -75,7 +75,7 @@
     }
 };
 
-\pic{
+\pic[shift=(0.8,0,0)] at (cnn_conv2-east) {
     Box={
         name=cnn_pool2,
         caption= ,
@@ -87,10 +87,10 @@
     }
 };
 
-\pic{
+\pic[shift=(1.2,0,0)] at (cnn_pool2-east) {
     RightBandedBox={
         name=cnn_conv3,
-        caption=CNN Conv3$\mathbf{H}_{\psi}$,
+        caption=CNN Conv3\$\mathbf{H}_{\psi}$,
         xlabel={ 256, 256 },
         zlabel=64,
         fill=\ConvColor,
@@ -101,10 +101,10 @@
     }
 };
 
-\pic{
+\pic[shift=(0,-4,0)] at (input_sequence-south) {
     RightBandedBox={
         name=lstm_input,
-        caption=LSTM Input$\mathbf{x}_t$,
+        caption=LSTM Input\$\mathbf{x}_t$,
         xlabel={ 32, 32 },
         zlabel=256,
         fill=\ConvColor,
@@ -115,10 +115,10 @@
     }
 };
 
-\pic{
+\pic[shift=(2.5,0,0)] at (lstm_input-east) {
     RightBandedBox={
         name=lstm_cell1,
-        caption=LSTM Cell 1$\mathbf{h}_1$,
+        caption=LSTM Cell 1\$\mathbf{h}_1$,
         xlabel={ 64, 64 },
         zlabel=128,
         fill=\ConvColor,
@@ -129,10 +129,10 @@
     }
 };
 
-\pic{
+\pic[shift=(2.5,0,0)] at (lstm_cell1-east) {
     RightBandedBox={
         name=lstm_cell2,
-        caption=LSTM Cell 2$\mathbf{h}_2$,
+        caption=LSTM Cell 2\$\mathbf{h}_2$,
         xlabel={ 64, 64 },
         zlabel=64,
         fill=\ConvColor,
@@ -143,10 +143,10 @@
     }
 };
 
-\pic{
+\pic[shift=(2.5,0,0)] at (lstm_cell2-east) {
     RightBandedBox={
         name=lstm_cell3,
-        caption=LSTM Cell 3$\mathbf{h}_3$,
+        caption=LSTM Cell 3\$\mathbf{h}_3$,
         xlabel={ 64, 64 },
         zlabel=32,
         fill=\ConvColor,
@@ -157,10 +157,10 @@
     }
 };
 
-\pic{
+\pic[shift=(1.5,2,0)] at (lstm_cell3-north) {
     RightBandedBox={
         name=physics_constraint,
-        caption=Physics Layer: $\nabla \cdot \mathbf{v} = 0$, $\frac{\partial \mathbf{v}}{\partial t} + (\mathbf{v} \cdot \nabla)\mathbf{v} = -\nabla p + \nu \nabla^2 \mathbf{v}$,
+        caption=Physics Layer\$\nabla \cdot \mathbf{v} = 0$\$\frac{\partial \mathbf{v}}{\partial t} + (\mathbf{v} \cdot \nabla)\mathbf{v} = -\nabla p + \nu \nabla^2 \mathbf{v}$,
         xlabel={ 128, 128 },
         zlabel=32,
         fill=\ConvColor,
@@ -171,10 +171,10 @@
     }
 };
 
-\pic{
+\pic[shift=(1.5,1.5,0)] at (physics_constraint-north) {
     RightBandedBox={
         name=feature_fusion,
-        caption=Fusion Layer: $\mathbf{z} = [\mathbf{f}_{cnn}, \mathbf{h}_{lstm}, \mathbf{p}_{physics}]$,
+        caption=Fusion Layer\$\mathbf{z} = [\mathbf{f}_{cnn}, \mathbf{h}_{lstm}, \mathbf{p}_{physics}]$,
         xlabel={ 256, 256 },
         zlabel=32,
         fill=\ConvColor,
@@ -185,10 +185,10 @@
     }
 };
 
-\pic{
+\pic[shift=(2,0,0)] at (feature_fusion-east) {
     RightBandedBox={
         name=seg_head,
-        caption=Seg Head: $\mathbf{y}_{seg}$,
+        caption=Seg Head\$\mathbf{y}_{seg}$,
         xlabel={ 128, 128 },
         zlabel=64,
         fill=\ConvColor,
@@ -199,10 +199,10 @@
     }
 };
 
-\pic{
+\pic[shift=(0,-2,0)] at (seg_head-south) {
     RightBandedBox={
         name=vel_head,
-        caption=Vel Head: $\mathbf{v}_{pred}$,
+        caption=Vel Head\$\mathbf{v}_{pred}$,
         xlabel={ 64, 64 },
         zlabel=64,
         fill=\ConvColor,
@@ -213,10 +213,10 @@
     }
 };
 
-\pic{
+\pic[shift=(2,0,0)] at (seg_head-east) {
     RightBandedBox={
         name=seg_output,
-        caption=Output: $\hat{\mathbf{y}}$,
+        caption=Output\$\hat{\mathbf{y}}$,
         xlabel={ 3, 3 },
         zlabel=128,
         fill=\ConvColor,

@@ -1,14 +1,13 @@
+# Test a lower learning rate for finer tuning
 training_opts:
-  run_name: "gen17_dci_baseline_lowlr_es10"
+  run_name: "gen18_dci_baseline_lowerlr_es10_gpu0"
   dataset_name: "bibek_w512_o64_f1_v2"
   epochs: 120
   early_stopping: 10
-
 optim_opts:
   args:
-    lr: 0.0002
+    lr: 0.00005
     weight_decay: 0.0001
-
 scheduler_opts:
   args:
-    max_lr: 0.0006
+    max_lr: 0.00015

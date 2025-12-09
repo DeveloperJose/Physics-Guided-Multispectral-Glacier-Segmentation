@@ -13,35 +13,6 @@ from torchvision import transforms
 
 import glacier_mapping.utils.logging as fn
 
-# Legacy hardcoded band names (for backward compatibility)
-# BAND_NAMES_LEGACY = np.array(
-#     [
-#         "B1",  # 0
-#         "B2",  # 1
-#         "B3",  # 2
-#         "B4",  # 3
-#         "B5",  # 4
-#         "B6_VCID1",  # 5
-#         "B6_VCID2",  # 6
-#         "B7",  # 7
-#         "elevation",  # 8  (raw meters)
-#         "slope_deg",  # 9  (raw degrees)
-#         "NDVI",  # 10
-#         "NDWI",  # 11
-#         "NDSI",  # 12
-#         "H",  # 13
-#         "S",  # 14
-#         "V",  # 15
-#         "flow_accumulation",  # 16
-#         "tpi",  # 17
-#         "roughness",  # 18
-#         "plan_curvature",  # 19
-#     ]
-# )
-#
-# # Global BAND_NAMES loaded dynamically
-# BAND_NAMES = BAND_NAMES_LEGACY.copy()
-
 # Channel group definitions for semantic selection
 # NOTE: Indices are resolved dynamically from band_metadata.json at runtime.
 # The "names" field is the source of truth - indices are looked up by name.
@@ -338,128 +309,6 @@ def resolve_channel_selection(
     return selected_channels
 
 
-def fetch_loaders(
-    processed_dir,
-    batch_size=32,
-    landsat_channels=True,
-    dem_channels=True,
-    spectral_indices_channels=True,
-    hsv_channels=True,
-    physics_channels=False,
-    velocity_channels=True,
-    output_classes=[1],
-    class_names=["BG", "CleanIce", "Debris"],
-    normalize="mean-std",
-    train_folder="train",
-    val_folder="val",
-    test_folder="test",
-    shuffle=True,
-    num_workers=8,
-):
-    """
-    Build train/val/test dataloaders.
-
-    Args:
-        processed_dir: Root of prepared dataset (contains train/val/test subfolders)
-        batch_size: Batch size for DataLoader
-        landsat_channels: Channel selection for Landsat bands (true/false/list)
-        dem_channels: Channel selection for DEM features (true/false/list)
-        spectral_indices_channels: Channel selection for spectral indices (true/false/list)
-        hsv_channels: Channel selection for HSV channels (true/false/list)
-        physics_channels: Channel selection for physics features (true/false/list)
-        velocity_channels: Channel selection for velocity data (true/false/list)
-        output_classes: 0=BG, 1=CleanIce, 2=Debris. If len==1 → binary (NOT~cls vs cls)
-        normalize: "min-max" or "mean-std"
-    """
-    # Resolve semantic channel groups to numerical indices
-    use_channels = resolve_channel_selection(
-        processed_dir,
-        landsat_channels=landsat_channels,
-        dem_channels=dem_channels,
-        spectral_indices_channels=spectral_indices_channels,
-        hsv_channels=hsv_channels,
-        physics_channels=physics_channels,
-        velocity_channels=velocity_channels,
-    )
-
-    # Load band names dynamically
-    global BAND_NAMES
-    BAND_NAMES = load_band_names(processed_dir)
-
-    fn.log(
-        logging.INFO,
-        f"fetch_loaders() | Output classes: {[class_names[cl] for cl in output_classes]} | raw={output_classes}",
-    )
-    fn.log(logging.INFO, f"fetch_loaders() | Using channels {BAND_NAMES[use_channels]}")
-
-    if isinstance(processed_dir, str):
-        processed_dir = pathlib.Path(processed_dir)
-
-    train_dataset = GlacierDataset(
-        processed_dir / train_folder,
-        use_channels,
-        output_classes,
-        normalize,
-        transforms=transforms.Compose(
-            [
-                # DropoutChannels(0.5),
-                FlipHorizontal(0.15),
-                FlipVertical(0.15),
-                Rot270(0.15),
-                # ElasticDeform(1),
-            ]
-        ),
-    )
-    val_dataset = GlacierDataset(
-        processed_dir / val_folder,
-        use_channels,
-        output_classes,
-        normalize,
-    )
-    test_dataset = GlacierDataset(
-        processed_dir / test_folder,
-        use_channels,
-        output_classes,
-        normalize,
-    )
-
-    def seed_worker(worker_id):
-        worker_seed = torch.initial_seed() % 2**32
-        np.random.seed(worker_seed)
-        random.seed(worker_seed)
-
-    g = torch.Generator()
-    g.manual_seed(42)
-
-    common_loader_kwargs = dict(
-        worker_init_fn=seed_worker,
-        num_workers=num_workers,
-    )
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        generator=g,
-        **common_loader_kwargs,
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        generator=g,
-        **common_loader_kwargs,
-    )
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        generator=g,
-        **common_loader_kwargs,
-    )
-    return train_loader, val_loader, test_loader
-
-
 class GlacierDataset(Dataset):
     """
     Custom Dataset for Glacier Data.
@@ -560,60 +409,17 @@ class GlacierDataset(Dataset):
             )
 
         if self.transforms:
-            sample = {"image": data, "mask": label}
-            sample = self.transforms(sample)
-            data = torch.from_numpy(sample["image"].copy()).float()
-            label = torch.from_numpy(sample["mask"].copy()).float()
-        else:
-            data = torch.from_numpy(data).float()
-            label = torch.from_numpy(label).float()
+            transformed = self.transforms(image=data, mask=label)
+            data = transformed["image"]
+            label = transformed["mask"]
+
+        data = torch.from_numpy(data).float()
+        label = torch.from_numpy(label).float()
 
         return data, label, torch.from_numpy(label_int).long()
 
     def __len__(self):
         return len(self.img_files)
-
-
-class FlipHorizontal(object):
-    def __init__(self, p):
-        if (p < 0) or (p > 1):
-            raise ValueError("Probability should be between 0 and 1")
-        self.p = p
-
-    def __call__(self, sample):
-        data, label = sample["image"], sample["mask"]
-        if torch.rand(1) < self.p:
-            data = data[:, ::-1, :]
-            label = label[:, ::-1, :]
-        return {"image": data, "mask": label}
-
-
-class FlipVertical(object):
-    def __init__(self, p):
-        if (p < 0) or (p > 1):
-            raise ValueError("Probability should be between 0 and 1")
-        self.p = p
-
-    def __call__(self, sample):
-        data, label = sample["image"], sample["mask"]
-        if torch.rand(1) < self.p:
-            data = data[::-1, :, :]
-            label = label[::-1, :, :]
-        return {"image": data, "mask": label}
-
-
-class Rot270(object):
-    def __init__(self, p):
-        if (p < 0) or (p > 1):
-            raise ValueError("Probability should be between 0 and 1")
-        self.p = p
-
-    def __call__(self, sample):
-        data, label = sample["image"], sample["mask"]
-        if torch.rand(1) < self.p:
-            data = data.transpose((1, 0, 2))
-            label = label.transpose((1, 0, 2))
-        return {"image": data, "mask": label}
 
 
 class DropoutChannels(object):

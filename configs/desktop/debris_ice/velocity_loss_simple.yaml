@@ -1,6 +1,6 @@
 training_opts:
   dataset_name: "bibek_w256_o64_f1_comprehensive_phys64_s1"
-  run_name: "velocity_loss_postfix_nowarm"
+  run_name: "velocity_loss_simple"
   epochs: 40
 
 loader_opts:
@@ -10,8 +10,9 @@ loader_opts:
 loss_opts:
   use_velocity_loss: true
   velocity_confidence_threshold: 0.6
-  velocity_low_speed_threshold: 0.3
-  velocity_loss_weight: 0.03
+  velocity_low_speed_threshold: 0.35
+  velocity_high_speed_threshold: 1.0
+  velocity_loss_weight: 0.02
   velocity_loss_warmup_epochs: 0
   velocity_loss_ramp_epochs: 0
   velocity_loss_clip: 1.0
