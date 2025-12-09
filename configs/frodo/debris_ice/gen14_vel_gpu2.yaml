@@ -1,0 +1,7 @@
+training_opts:
+  run_name: "gen14_dci_vel_gpu2"
+  dataset_name: "bibek_w512_o64_f1_velocity"
+
+loader_opts:
+  physics_channels: false
+  velocity_channels: true
