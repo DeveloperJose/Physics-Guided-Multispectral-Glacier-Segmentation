@@ -5,22 +5,22 @@
 training_opts:
   dataset_name: "nameless_run" # Default run name (override in experiment configs)
   run_name: "" # Optional run identifier (appended to dataset_name)
-  epochs: 150 # Reduced from 500 based on Gen1/Gen2 analysis (best models converge at 130-140)
+  epochs: 200 # Reduced from 500 based on Gen1/Gen2 analysis (best models converge at 130-140)
   fine_tune: false
   find_lr: false
   early_stopping: 75 # Reduced from 100 to prevent overfitting
   # Validation visualizations (periodic, every N epochs)
-  val_viz_n: 2 # Number per third (top, middle, bottom). n=2 → 6 total (2+2+2). 0=disable
+  val_viz_n: 4 # Number per third (top, middle, bottom). n=4 → 12 total (4+4+4). 0=disable
   val_viz_every_n_epochs: 50
   val_viz_selection: "iou" # Selection method: "iou" or "random"
   # Test evaluation (on best model only)
   run_test_eval: true # Run test set evaluation on best model
-  test_eval_n: 2 # Number per third for visualization. n=2 → 6 total (2+2+2). 0=metrics only
+  test_eval_n: 4 # Number per third for visualization. n=4 → 12 total (4+4+4). 0=metrics only
   viz_scale_factor: 1 # Scale factor for visualization panels (0.5=256x256, 1.0=full resolution)
   # Test evaluation optimization (3-phase strategy to reduce training time)
-  test_eval_baseline_epoch: 50 # Single baseline evaluation at this epoch
+  test_eval_baseline_epoch: 25 # Single baseline evaluation at this epoch
   test_eval_aggressive_threshold: 0.1 # Improvement threshold during phase 2 (reduced frequency)
-  test_eval_transition_epoch: 100 # Switch from phase 2 to phase 3 at this epoch
+  test_eval_transition_epoch: 125 # Switch from phase 2 to phase 3 at this epoch
 
 loader_opts:
   batch_size: 16 # Default batch size (can be overridden by server config or experiment)
@@ -55,7 +55,7 @@ loss_opts:
   label_smoothing: 0
   use_unified: false
   use_velocity_loss: false
-  class_weights: [0, 1]  # Default for binary: ignore background (0), focus on foreground (1)
+  class_weights: [0, 1] # Default for binary: ignore background (0), focus on foreground (1)
 
 model_opts:
   args:
