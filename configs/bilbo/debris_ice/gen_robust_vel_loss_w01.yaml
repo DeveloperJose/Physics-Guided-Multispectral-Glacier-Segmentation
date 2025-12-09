@@ -1,0 +1,13 @@
+training_opts:
+  dataset_name: "gen_robust_comprehensive"
+
+loader_opts:
+  batch_size: 16
+  velocity_channels: true
+  physics_channels: false
+
+loss_opts:
+  use_velocity_loss: true
+  velocity_loss_weight: 0.1
+  velocity_loss_warmup_epochs: 10
+  velocity_loss_ramp_epochs: 10

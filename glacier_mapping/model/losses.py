@@ -215,7 +215,9 @@ class customloss(nn.Module):
             valid_count = combined_mask.sum()
             base_velocity_loss = torch.tensor(0.0, device=device)
             if valid_count > 0:
-                base_velocity_loss += (per_pixel_penalty * combined_mask).sum() / valid_count
+                base_velocity_loss += (
+                    per_pixel_penalty * combined_mask
+                ).sum() / valid_count
 
             # Penalize BG predictions in high-speed regions (optional)
             if self.velocity_high_speed_threshold is not None:
@@ -230,13 +232,17 @@ class customloss(nn.Module):
                 high_mask = velocity_mask * ignore_mask_exp
                 high_valid = high_mask.sum()
                 if high_valid > 0:
-                    base_velocity_loss += (per_pixel_bg_penalty * high_mask).sum() / high_valid
+                    base_velocity_loss += (
+                        per_pixel_bg_penalty * high_mask
+                    ).sum() / high_valid
 
             if base_velocity_loss > 0:
-                velocity_loss = base_velocity_loss * self.velocity_loss_weight
+                current_weight = self._compute_velocity_weight(current_epoch)
+                velocity_loss = base_velocity_loss * current_weight
+
                 self.last_velocity_base = base_velocity_loss.detach()
                 self.last_velocity_loss = velocity_loss.detach()
-                self.last_velocity_weight = float(self.velocity_loss_weight)
+                self.last_velocity_weight = float(current_weight)
                 self.last_velocity_valid = True
             else:
                 velocity_loss = torch.tensor(0.0, device=device)
@@ -244,5 +250,19 @@ class customloss(nn.Module):
         return [dice_loss_scalar, boundary_loss, velocity_loss]
 
     def _compute_velocity_weight(self, current_epoch: Optional[int]) -> float:
-        # Simplified: always return full weight (warmup/ramp disabled)
-        return self.velocity_loss_weight
+        """Compute velocity loss weight based on warmup schedule."""
+        if current_epoch is None:
+            return self.velocity_loss_weight
+
+        if current_epoch < self.velocity_loss_warmup_epochs:
+            return 0.0
+
+        # Calculate progress through ramp period (0.0 to 1.0)
+        ramp_progress = (current_epoch - self.velocity_loss_warmup_epochs) / max(
+            1, self.velocity_loss_ramp_epochs
+        )
+
+        if ramp_progress >= 1.0:
+            return self.velocity_loss_weight
+
+        return self.velocity_loss_weight * ramp_progress
