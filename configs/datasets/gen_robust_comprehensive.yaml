@@ -16,6 +16,6 @@ add_ndvi: true
 add_ndwi: true
 add_ndsi: true
 add_hsv: true
-physics_res: 64
+physics_res: 8
 physics_scale: 1.0
 save_skipped_visualizations: false

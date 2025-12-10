@@ -243,6 +243,12 @@ def get_tiff_np(
 
             # Ensure velocity mask is binary
             velocity_np[:, :, 3] = np.round(velocity_np[:, :, 3]).clip(0, 1)
+            # Zero-out velocities where mask is invalid to prevent leakage from resampling
+            invalid = velocity_np[:, :, 3] == 0
+            if np.any(invalid):
+                velocity_np[invalid, 0] = 0.0
+                velocity_np[invalid, 1] = 0.0
+                velocity_np[invalid, 2] = 0.0
 
             if verbose:
                 log.debug(f"Loaded velocity data: shape={velocity_np.shape}")

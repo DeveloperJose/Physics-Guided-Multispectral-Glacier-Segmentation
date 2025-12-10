@@ -89,12 +89,13 @@ def resize(arr: np.ndarray, new_rows: int, new_cols: int) -> np.ndarray:
     Resize a 2D float32 array to (new_rows, new_cols), preserving
     the original numeric scale (no normalization).
 
+    Uses nearest-neighbor to avoid smoothing accumulation counts.
     Requires OpenCV (cv2).
     """
     import cv2  # type: ignore
 
     arr = arr.astype(np.float32, copy=False)
-    resized = cv2.resize(arr, (new_cols, new_rows), interpolation=cv2.INTER_LINEAR)
+    resized = cv2.resize(arr, (new_cols, new_rows), interpolation=cv2.INTER_NEAREST)
     return resized.astype(np.float32)
 
 

@@ -308,6 +308,7 @@ def resample_to_target(
     dst_transform: object,
     dst_crs: str,
     fill_value: float = np.nan,
+    resampling: Resampling = Resampling.nearest,
 ) -> np.ndarray:
     """
     Resample velocity data to match target Landsat grid.
@@ -333,7 +334,8 @@ def resample_to_target(
         src_crs=src_crs,
         dst_transform=dst_transform,
         dst_crs=dst_crs,
-        resampling=Resampling.bilinear,
+        # Nearest preserves magnitude/validity better than bilinear for vectors/masks
+        resampling=resampling,
         src_nodata=np.nan,
         dst_nodata=fill_value,
     )
@@ -434,8 +436,12 @@ def try_extract_velocity(
         str(landsat_crs),
     )
 
-    # Create velocity mask (1=valid, 0=no_data)
+    # Create velocity mask (1=valid, 0=no_data) and zero-out invalid regions
     velocity_mask = (~np.isnan(v_resampled)).astype(np.float32)
+    velocity_mask = (velocity_mask > 0.5).astype(np.float32)
+    v_resampled = np.where(velocity_mask == 1, v_resampled, 0.0)
+    vx_resampled = np.where(velocity_mask == 1, vx_resampled, 0.0)
+    vy_resampled = np.where(velocity_mask == 1, vy_resampled, 0.0)
 
     return v_resampled, vx_resampled, vy_resampled, velocity_mask
 
