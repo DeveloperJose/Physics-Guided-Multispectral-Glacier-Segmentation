@@ -1,9 +1,0 @@
-training_opts:
-  dataset_name: "gen_robust_comprehensive"
-  run_name: "gen_robust_iter6_dci_vloss_default"
-
-loader_opts:
-  velocity_channels: true
-
-loss_opts:
-  use_velocity_loss: true

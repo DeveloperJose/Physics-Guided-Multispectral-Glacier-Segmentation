@@ -1,8 +1,0 @@
-training_opts:
-  dataset_name: "gen_robust_comprehensive"
-  run_name: "gen_robust_iter5_combined_bs32"
-
-loader_opts:
-  batch_size: 32
-  physics_channels: true
-  velocity_channels: true

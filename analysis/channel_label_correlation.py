@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Comprehensive correlation analysis between velocity/physics channels and glacier labels.
+Comprehensive correlation analysis between all available channels and glacier labels.
 
-Analyzes whether velocity and physics-based features provide discriminative information
-for glacier classification (Background, Clean Ice, Debris-covered Ice).
+Analyzes whether spectral, velocity, and physics-based features provide discriminative
+information for glacier classification (Background, Clean Ice, Debris-covered Ice).
 
 Key analyses:
 1. Per-class channel distribution statistics
@@ -23,17 +23,13 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import math
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional
 
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from scipy import stats
-from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve
-from sklearn.preprocessing import label_binarize
 
 from glacier_mapping.data.slice import IGNORE_LABEL
 from glacier_mapping.utils.config import load_server_config
@@ -42,13 +38,7 @@ matplotlib.use("Agg")
 logger = logging.getLogger(__name__)
 
 # Channel groups for analysis
-VELOCITY_CHANNELS = ["velocity", "velocity_x", "velocity_y", "velocity_mask"]
-PHYSICS_CHANNELS = ["flow_accumulation", "tpi", "roughness", "plan_curvature"]
-SPECTRAL_INDICES_CHANNELS = ["NDVI", "NDWI", "NDSI"]
-HSV_CHANNELS = ["H", "S", "V"]
-TARGET_CHANNELS = (
-    VELOCITY_CHANNELS + PHYSICS_CHANNELS + SPECTRAL_INDICES_CHANNELS + HSV_CHANNELS
-)
+VELOCITY_COMPONENT_CHANNELS = ["velocity", "velocity_x", "velocity_y"]
 
 # Class definitions
 CLASS_NAMES = ["Background", "Clean Ice", "Debris Ice"]
@@ -115,6 +105,7 @@ def load_paths(
 def sample_data_by_class(
     processed_dir: Path,
     band_names: List[str],
+    target_channels: List[str],
     max_slices: Optional[int],
     max_pixels_per_slice: int,
     random_seed: int = 42,
@@ -122,12 +113,13 @@ def sample_data_by_class(
     """Sample data organized by class for analysis."""
     rng = np.random.default_rng(random_seed)
     splits = ["train", "val", "test"]
+    channel_indices = {name: idx for idx, name in enumerate(band_names)}
 
     # Initialize data structure
     class_data = {}
     for class_name in CLASS_NAMES:
         class_data[class_name] = {}
-        for channel in TARGET_CHANNELS:
+        for channel in target_channels:
             class_data[class_name][channel] = []
 
     for split in splits:
@@ -177,16 +169,17 @@ def sample_data_by_class(
                     class_pixels = data_flat[class_mask]
 
                     # Extract target channels
-                    for channel in TARGET_CHANNELS:
-                        if channel in band_names:
-                            channel_idx = band_names.index(channel)
-                            channel_data = class_pixels[:, channel_idx]
+                    for channel in target_channels:
+                        channel_idx = channel_indices.get(channel)
+                        if channel_idx is None:
+                            continue
+                        channel_data = class_pixels[:, channel_idx]
 
-                            # Special handling for velocity mask (binary)
-                            if channel == "velocity_mask":
-                                class_data[class_name][channel].append(channel_data > 0)
-                            else:
-                                class_data[class_name][channel].append(channel_data)
+                        # Special handling for velocity mask (binary)
+                        if channel == "velocity_mask":
+                            class_data[class_name][channel].append(channel_data > 0)
+                        else:
+                            class_data[class_name][channel].append(channel_data)
 
             except Exception as e:
                 logger.warning(f"Error processing {tf}: {e}")
@@ -194,7 +187,7 @@ def sample_data_by_class(
 
     # Convert lists to arrays
     for class_name in CLASS_NAMES:
-        for channel in TARGET_CHANNELS:
+        for channel in target_channels:
             if class_data[class_name][channel]:
                 class_data[class_name][channel] = np.concatenate(
                     class_data[class_name][channel]
@@ -205,13 +198,13 @@ def sample_data_by_class(
     return class_data
 
 
-def compute_class_statistics(class_data):
+def compute_class_statistics(class_data, target_channels: List[str]):
     """Compute comprehensive statistics for each class and channel."""
     stats = {}
 
     for class_name in CLASS_NAMES:
         stats[class_name] = {}
-        for channel in TARGET_CHANNELS:
+        for channel in target_channels:
             data = class_data[class_name][channel]
             if data.size == 0:
                 stats[class_name][channel] = {
@@ -244,7 +237,7 @@ def compute_class_statistics(class_data):
                 }
             else:
                 # Remove invalid values for velocity channels
-                if channel in ["velocity", "velocity_x", "velocity_y"]:
+                if channel in VELOCITY_COMPONENT_CHANNELS:
                     valid_mask = np.isfinite(data) & (np.abs(data) < 1e6)
                     data = data[valid_mask]
 
@@ -275,7 +268,7 @@ def compute_class_statistics(class_data):
     return stats
 
 
-def compute_statistical_tests(class_data):
+def compute_statistical_tests(class_data, target_channels: List[str]):
     """Compute statistical tests between classes."""
     test_results = {}
 
@@ -286,7 +279,7 @@ def compute_statistical_tests(class_data):
         ("Clean Ice", "Debris Ice"),
     ]
 
-    for channel in TARGET_CHANNELS:
+    for channel in target_channels:
         test_results[channel] = {}
 
         for class1, class2 in test_pairs:
@@ -303,7 +296,7 @@ def compute_statistical_tests(class_data):
                 continue
 
             # Clean data for velocity channels
-            if channel in ["velocity", "velocity_x", "velocity_y"]:
+            if channel in VELOCITY_COMPONENT_CHANNELS:
                 valid_mask1 = np.isfinite(data1) & (np.abs(data1) < 1e6)
                 valid_mask2 = np.isfinite(data2) & (np.abs(data2) < 1e6)
                 data1 = data1[valid_mask1]
@@ -358,11 +351,13 @@ def compute_statistical_tests(class_data):
     return test_results
 
 
-def create_violin_plots(class_data, viz_dir: Path) -> List[str]:
+def create_violin_plots(
+    class_data, target_channels: List[str], viz_dir: Path
+) -> List[str]:
     """Create violin plots for channel distributions by class."""
     plot_paths = []
 
-    for channel in TARGET_CHANNELS:
+    for channel in target_channels:
         fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
 
         # Prepare data for violin plot
@@ -379,7 +374,7 @@ def create_violin_plots(class_data, viz_dir: Path) -> List[str]:
             if channel == "velocity_mask":
                 # Convert boolean to float for visualization
                 data = data.astype(float)
-            elif channel in ["velocity", "velocity_x", "velocity_y"]:
+            elif channel in VELOCITY_COMPONENT_CHANNELS:
                 valid_mask = np.isfinite(data) & (np.abs(data) < 1e6)
                 data = data[valid_mask]
 
@@ -485,44 +480,43 @@ def main():
     band_names = band_meta["band_names"]
 
     logger.info(f"Found {len(band_names)} bands: {band_names}")
-    logger.info(f"Target channels for analysis: {TARGET_CHANNELS}")
-
-    # Verify target channels exist
-    missing_channels = [ch for ch in TARGET_CHANNELS if ch not in band_names]
-    if missing_channels:
-        logger.error(f"Missing target channels: {missing_channels}")
-        return
+    target_channels = band_names
+    logger.info(f"Target channels for analysis: {target_channels}")
 
     # Sample data by class
     logger.info("Sampling data by class...")
     class_data = sample_data_by_class(
-        paths["processed"], band_names, args.max_slices, args.max_pixels_per_slice
+        paths["processed"],
+        band_names,
+        target_channels,
+        args.max_slices,
+        args.max_pixels_per_slice,
     )
 
     # Log sample sizes
     for class_name in CLASS_NAMES:
-        for channel in TARGET_CHANNELS:
+        for channel in target_channels:
             n_pixels = len(class_data[class_name][channel])
             logger.info(f"{class_name} - {channel}: {n_pixels:,} pixels")
 
     # Compute statistics
     logger.info("Computing class statistics...")
-    class_stats = compute_class_statistics(class_data)
+    class_stats = compute_class_statistics(class_data, target_channels)
 
     # Compute statistical tests
     logger.info("Computing statistical tests...")
-    test_results = compute_statistical_tests(class_data)
+    test_results = compute_statistical_tests(class_data, target_channels)
 
     # Create visualizations
     logger.info("Creating visualizations...")
-    violin_plots = create_violin_plots(class_data, viz_dir)
+    violin_plots = create_violin_plots(class_data, target_channels, viz_dir)
 
     # Compile results
     results = {
         "metadata": {
             "dataset": args.dataset_name,
             "server": args.server,
-            "target_channels": TARGET_CHANNELS,
+            "target_channels": target_channels,
             "classes": CLASS_NAMES,
             "max_slices": args.max_slices,
             "max_pixels_per_slice": args.max_pixels_per_slice,
@@ -547,7 +541,7 @@ def main():
     print("CHANNEL-LABEL CORRELATION ANALYSIS SUMMARY")
     print("=" * 80)
 
-    for channel in TARGET_CHANNELS:
+    for channel in target_channels:
         print(f"\n{get_channel_label(channel)}:")
         print("-" * 50)
 
