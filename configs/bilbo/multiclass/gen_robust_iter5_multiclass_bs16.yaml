@@ -1,0 +1,8 @@
+training_opts:
+  dataset_name: "gen_robust_comprehensive"
+  run_name: "gen_robust_iter5_multiclass_bs16"
+
+loader_opts:
+  batch_size: 16
+  physics_channels: true
+  velocity_channels: true

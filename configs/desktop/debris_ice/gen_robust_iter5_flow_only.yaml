@@ -1,0 +1,7 @@
+training_opts:
+  dataset_name: "gen_robust_comprehensive"
+  run_name: "gen_robust_iter5_flow_only"
+
+loader_opts:
+  physics_channels: [0]
+  velocity_channels: false
