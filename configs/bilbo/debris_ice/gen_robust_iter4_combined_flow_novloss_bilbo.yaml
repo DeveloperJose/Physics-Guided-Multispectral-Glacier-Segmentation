@@ -1,0 +1,11 @@
+training_opts:
+  run_name: "gen_robust_iter4_combined_flow_novloss_bilbo"
+  dataset_name: "gen_robust_comprehensive"
+
+loader_opts:
+  batch_size: 16  # GPU0 limit
+  velocity_channels: true
+  physics_channels: ["flow_accumulation", "tpi", "roughness", "plan_curvature"]
+
+loss_opts:
+  use_velocity_loss: false
