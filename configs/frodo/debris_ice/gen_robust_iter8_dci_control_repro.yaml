@@ -1,9 +1,6 @@
-# Frodo Control: Landsat + DEM + Spectral baseline.
+# Frodo 1: Reproduction of the 0.47 IoU SOTA Baseline (Linear Scaling)
 training_opts:
-  run_name: "gen_robust_iter7_dci_control_spectral"
-  epochs: 200
-  early_stopping: 75
-  test_eval_aggressive_threshold: 0.0
+  run_name: "gen_robust_iter8_dci_control_repro"
   dataset_name: "gen_robust_comprehensive"
 
 loader_opts:
@@ -11,6 +8,7 @@ loader_opts:
   landsat_channels: true
   dem_channels: true
   spectral_indices_channels: true
-  hsv_channels: false
+  hsv_channels: true
   physics_channels: false
   velocity_channels: false
+  robust_scaling: false

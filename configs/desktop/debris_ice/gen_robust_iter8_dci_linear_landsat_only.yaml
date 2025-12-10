@@ -1,9 +1,6 @@
-# Frodo Control: Pure Landsat baseline.
+# Desktop: Pure Landsat Linear Control
 training_opts:
-  run_name: "gen_robust_iter7_dci_control_landsat"
-  epochs: 200
-  early_stopping: 75
-  test_eval_aggressive_threshold: 0.0
+  run_name: "gen_robust_iter8_dci_linear_landsat_only"
   dataset_name: "gen_robust_comprehensive"
 
 loader_opts:
@@ -14,3 +11,4 @@ loader_opts:
   hsv_channels: false
   physics_channels: false
   velocity_channels: false
+  robust_scaling: false

@@ -1,9 +1,6 @@
-# Bilbo High-Priority: Test if linear scaling fixes the performance regression.
+# Bilbo 1: Low Velocity Threshold (Forces guidance even in slow debris)
 training_opts:
-  run_name: "gen_robust_iter7_dci_linear_scaled"
-  epochs: 200
-  early_stopping: 75
-  test_eval_aggressive_threshold: 0.0
+  run_name: "gen_robust_iter8_dci_vloss_thresh_1"
   dataset_name: "gen_robust_comprehensive"
 
 loader_opts:
@@ -15,3 +12,8 @@ loader_opts:
   physics_channels: true
   velocity_channels: true
   robust_scaling: false
+
+loss_opts:
+  use_velocity_loss: true
+  velocity_loss_weight: 0.05
+  velocity_high_speed_threshold: 1.0
