@@ -331,12 +331,14 @@ class GlacierDataset(Dataset):
         use_channels,
         output_classes,
         normalize,
+        robust_scaling=True,
         transforms=None,
     ):
         self.folder_path = folder_path
         self.use_channels = use_channels
         self.output_classes = np.array(output_classes, dtype=np.uint8)
         self.normalize = normalize
+        self.robust_scaling = robust_scaling
         self.transforms = transforms
 
         if isinstance(self.folder_path, str):
@@ -385,19 +387,33 @@ class GlacierDataset(Dataset):
         # 3. Build no_normalize mask (include binary masks AND special scaling channels)
         # The special scaling channels are handled separately, so we exclude them from
         # standard min-max/mean-std normalization loops.
-        self.no_normalize_mask = np.array(
-            [
-                (name in no_norm_names)
-                or (name in LOG_CHANNELS)
-                or (name in SYMLOG_CHANNELS)
-                for name in self.channel_names
-            ]
-        )
+        # IF robust_scaling is False, we do NOT exclude special channels (except strict no_norm ones)
+        # so they fall through to standard normalization.
+        if self.robust_scaling:
+            self.no_normalize_mask = np.array(
+                [
+                    (name in no_norm_names)
+                    or (name in LOG_CHANNELS)
+                    or (name in SYMLOG_CHANNELS)
+                    for name in self.channel_names
+                ]
+            )
+        else:
+            # Linear scaling mode: Only exclude strict no-norm channels (masks)
+            # Velocity/Physics channels will be treated as standard channels
+            self.no_normalize_mask = np.array(
+                [name in no_norm_names for name in self.channel_names]
+            )
 
-        if np.any(self.log_mask) or np.any(self.symlog_mask):
+        if self.robust_scaling and (np.any(self.log_mask) or np.any(self.symlog_mask)):
             fn.log(
                 logging.INFO,
                 f"Applied robust scaling to: {[n for n in self.channel_names if n in LOG_CHANNELS or n in SYMLOG_CHANNELS]}",
+            )
+        elif not self.robust_scaling:
+            fn.log(
+                logging.INFO,
+                "Robust scaling DISABLED. Using linear scaling for all physics/velocity channels.",
             )
 
         # 4. Pre-compute scaling factors for special channels
@@ -449,7 +465,7 @@ class GlacierDataset(Dataset):
             # But we can use boolean indexing on the last dim if we are careful
 
             # Apply Log Transform: log1p(x) / log_max -> [0, 1]
-            if np.any(self.log_mask):
+            if self.robust_scaling and np.any(self.log_mask):
                 # We need to act only on log_mask channels.
                 # Since data_no_norm contains ALL no_norm channels, we need to map
                 # global indices to no_norm indices? No.
@@ -465,7 +481,7 @@ class GlacierDataset(Dataset):
                         data[:, :, i] = np.log1p(val) / self.log_max[i]
 
             # Apply SymLog Transform: sign(x) * log1p(abs(x)) / symlog_max -> [-1, 1]
-            if np.any(self.symlog_mask):
+            if self.robust_scaling and np.any(self.symlog_mask):
                 for i in range(data.shape[2]):
                     if self.symlog_mask[i]:
                         val = data[:, :, i]

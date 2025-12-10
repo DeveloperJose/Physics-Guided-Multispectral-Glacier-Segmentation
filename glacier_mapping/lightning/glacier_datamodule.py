@@ -27,6 +27,7 @@ class GlacierDataModule(pl.LightningDataModule):
         output_classes: List[int] = [0, 1, 2],
         class_names: List[str] = ["BG", "CleanIce", "Debris"],
         normalize: str = "mean-std",
+        robust_scaling: bool = True,
         num_workers: int = 4,
         pin_memory: bool = True,
     ):
@@ -46,6 +47,7 @@ class GlacierDataModule(pl.LightningDataModule):
             output_classes: 0=BG, 1=CleanIce, 2=Debris. If len==1 → binary (NOT~cls vs cls)
             class_names: Names for each class
             normalize: "min-max" or "mean-std"
+            robust_scaling: Use log/symlog scaling for physics channels (True) or linear (False)
             num_workers: Number of worker processes for DataLoaders
             pin_memory: Whether to pin memory for faster GPU transfer
         """
@@ -64,6 +66,7 @@ class GlacierDataModule(pl.LightningDataModule):
         self.output_classes = output_classes
         self.class_names = class_names
         self.normalize = normalize
+        self.robust_scaling = robust_scaling
         self.num_workers = num_workers
         self.pin_memory = pin_memory
 
@@ -111,6 +114,7 @@ class GlacierDataModule(pl.LightningDataModule):
                 self.use_channels,
                 self.output_classes,
                 self.normalize,
+                robust_scaling=self.robust_scaling,
                 transforms=self.train_transform,
             )
 
@@ -119,6 +123,7 @@ class GlacierDataModule(pl.LightningDataModule):
                 self.use_channels,
                 self.output_classes,
                 self.normalize,
+                robust_scaling=self.robust_scaling,
                 transforms=self.val_transform,
             )
 

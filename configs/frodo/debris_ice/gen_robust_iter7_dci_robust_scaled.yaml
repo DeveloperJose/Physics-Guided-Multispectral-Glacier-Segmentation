@@ -1,0 +1,17 @@
+# Frodo Reproduction: Replicate the failure case with robust scaling.
+training_opts:
+  run_name: "gen_robust_iter7_dci_robust_scaled"
+  epochs: 200
+  early_stopping: 75
+  test_eval_aggressive_threshold: 0.0
+  dataset_name: "gen_robust_comprehensive"
+
+loader_opts:
+  batch_size: 8
+  landsat_channels: true
+  dem_channels: true
+  spectral_indices_channels: true
+  hsv_channels: true
+  physics_channels: true
+  velocity_channels: true
+  robust_scaling: true

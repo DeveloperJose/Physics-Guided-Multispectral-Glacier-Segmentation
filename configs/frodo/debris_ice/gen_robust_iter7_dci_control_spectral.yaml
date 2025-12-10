@@ -1,0 +1,16 @@
+# Frodo Control: Landsat + DEM + Spectral baseline.
+training_opts:
+  run_name: "gen_robust_iter7_dci_control_spectral"
+  epochs: 200
+  early_stopping: 75
+  test_eval_aggressive_threshold: 0.0
+  dataset_name: "gen_robust_comprehensive"
+
+loader_opts:
+  batch_size: 8
+  landsat_channels: true
+  dem_channels: true
+  spectral_indices_channels: true
+  hsv_channels: false
+  physics_channels: false
+  velocity_channels: false

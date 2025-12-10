@@ -357,6 +357,7 @@ def main():
         output_classes=loader_opts.get("output_classes", [1]),
         class_names=loader_opts.get("class_names", ["BG", "CleanIce", "Debris"]),
         normalize=loader_opts.get("normalize", "mean-std"),
+        robust_scaling=loader_opts.get("robust_scaling", True),
         num_workers=loader_opts.get("num_workers", 4),
     )
 
