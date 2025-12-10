@@ -149,12 +149,12 @@ class GlacierSegmentationModule(pl.LightningModule):
         # Initialize learnable sigma parameters for loss weighting
         # Fixed 3-sigma system: Dice, Boundary, Velocity
         # Based on original stable design from frame.py
-        self.sigma_dice = nn.Parameter(torch.tensor(0.5))
-        self.sigma_boundary = nn.Parameter(torch.tensor(0.5))
+        self.sigma_dice = nn.Parameter(torch.tensor(1.0))
+        self.sigma_boundary = nn.Parameter(torch.tensor(1.0))
         # Initialize all sigmas to 0.5 for equal initial weighting
         # The network will learn optimal weights through Kendall's uncertainty formulation
         self.sigma_velocity = (
-            nn.Parameter(torch.tensor(0.5)) if self.use_velocity_loss else None
+            nn.Parameter(torch.tensor(1.0)) if self.use_velocity_loss else None
         )
 
         # Keep sigma_list for backward compatibility

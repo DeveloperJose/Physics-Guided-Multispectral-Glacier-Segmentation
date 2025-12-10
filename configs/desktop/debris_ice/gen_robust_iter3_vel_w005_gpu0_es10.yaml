@@ -1,14 +1,14 @@
 training_opts:
-  run_name: "gen_robust_iter3_vel_w01_bilbo"
+  run_name: "gen_robust_iter3_vel_w005_gpu0_es10"
   dataset_name: "gen_robust_comprehensive"
+  early_stopping: 10
 
 loader_opts:
-  batch_size: 16  # GPU0 limit
   velocity_channels: true
   physics_channels: false
 
 loss_opts:
   use_velocity_loss: true
-  velocity_loss_weight: 0.1
+  velocity_loss_weight: 0.05
   velocity_loss_warmup_epochs: 5
   velocity_loss_ramp_epochs: 10
