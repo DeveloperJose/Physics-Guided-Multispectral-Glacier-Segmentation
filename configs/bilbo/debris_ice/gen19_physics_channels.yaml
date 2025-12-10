@@ -3,7 +3,7 @@
 training_opts:
   dataset_name: "gen_robust_comprehensive"
   run_name: "gen19_physics_channels"
-  batch_size: 8
 
 loader_opts:
+  batch_size: 8
   physics_channels: true
