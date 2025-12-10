@@ -1,0 +1,12 @@
+# Gen19 Variation: Heavy Augmentations
+# Goal: Test if stronger regularization reduces overfitting further.
+training_opts:
+  dataset_name: "gen19_heavy_augs"
+  run_name: "gen19_heavy_augs"
+
+loader_opts:
+  augmentations:
+    h_flip_prob: 0.8
+    v_flip_prob: 0.8
+    rotate_prob: 0.8
+    rotate_limit: 90

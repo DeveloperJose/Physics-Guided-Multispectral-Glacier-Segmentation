@@ -1,0 +1,8 @@
+# Gen19 Variation: Physics Channels
+# Goal: Re-evaluate value of curvature/flow features with the stable baseline.
+training_opts:
+  dataset_name: "gen19_physics_channels"
+  run_name: "gen19_physics_channels"
+
+loader_opts:
+  physics_channels: true

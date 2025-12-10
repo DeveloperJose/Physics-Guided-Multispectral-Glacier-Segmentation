@@ -1,0 +1,13 @@
+# Gen19 Variation: High Regularization
+# Goal: Test stronger dropout and weight decay.
+training_opts:
+  dataset_name: "gen19_high_reg"
+  run_name: "gen19_high_reg"
+
+model_opts:
+  args:
+    dropout: 0.2
+
+optim_opts:
+  args:
+    weight_decay: 1.0e-4

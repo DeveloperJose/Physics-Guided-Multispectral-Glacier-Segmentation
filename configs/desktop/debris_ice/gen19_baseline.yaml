@@ -1,0 +1,5 @@
+# Gen19 Desktop: Baseline Sanity Check
+# Goal: Reproducibility verification on different hardware.
+training_opts:
+  dataset_name: "gen19_desktop_baseline"
+  run_name: "gen19_desktop_baseline"
