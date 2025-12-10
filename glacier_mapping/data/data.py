@@ -505,6 +505,9 @@ class GlacierDataset(Dataset):
                 [label_int == x for x in self.output_classes], axis=2
             )
 
+        # Convert boolean mask to uint8 for OpenCV/Albumentations compatibility
+        label = label.astype(np.uint8)
+
         if self.transforms:
             transformed = self.transforms(image=data, mask=label)
             data = transformed["image"]

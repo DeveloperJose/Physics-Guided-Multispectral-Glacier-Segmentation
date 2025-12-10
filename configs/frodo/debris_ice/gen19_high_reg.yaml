@@ -1,7 +1,7 @@
 # Gen19 Variation: High Regularization
 # Goal: Test stronger dropout and weight decay.
 training_opts:
-  dataset_name: "gen19_high_reg"
+  dataset_name: "gen_robust_comprehensive"
   run_name: "gen19_high_reg"
 
 model_opts:

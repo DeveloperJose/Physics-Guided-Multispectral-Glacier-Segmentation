@@ -1,7 +1,7 @@
 # Gen19 Baseline: Golden State Recovery
 # Goal: Verify recovery of >0.48 IoU with restored augmentations, linear scaling, and sigma=1.0
 training_opts:
-  dataset_name: "gen19_baseline"
+  dataset_name: "gen_robust_comprehensive"
   run_name: "gen19_baseline"
 
 # Inherits:

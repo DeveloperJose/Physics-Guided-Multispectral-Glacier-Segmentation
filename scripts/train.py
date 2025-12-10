@@ -21,6 +21,7 @@ from glacier_mapping.lightning.callbacks import ValidationVisualizationCallback
 from glacier_mapping.lightning.best_model_callback import TestEvaluationCallback
 import glacier_mapping.utils.mlflow_utils as mlflow_utils
 from glacier_mapping.utils.error_handler import setup_error_handler
+import glacier_mapping.utils.logging as log
 
 MLFLOW_AVAILABLE = True
 ERROR_HANDLER_AVAILABLE = True
@@ -84,8 +85,8 @@ def load_config(config_path: str, server: str) -> Dict[str, Any]:
             )
     else:
         # Fallback for configs not following new structure
-        print(f"Warning: Config path doesn't follow new structure: {config_path}")
-        print("Loading as standalone config without hierarchy")
+        log.warning(f"Config path doesn't follow new structure: {config_path}")
+        log.info("Loading as standalone config without hierarchy")
         with open(config_path) as f:
             return yaml.safe_load(f)
 
@@ -239,10 +240,10 @@ def main():
     # Determine max_epochs: CLI argument overrides config, otherwise use config value
     if args.max_epochs is not None:
         max_epochs = args.max_epochs
-        print(f"Using max_epochs from CLI argument: {max_epochs}")
+        log.info(f"Using max_epochs from CLI argument: {max_epochs}")
     else:
         max_epochs = training_opts.get("epochs", 100)  # Default to 100 if not in config
-        print(f"Using max_epochs from config: {max_epochs}")
+        log.info(f"Using max_epochs from config: {max_epochs}")
 
     # Auto-construct processed_dir from server config + dataset_name
     # This matches the pattern used in ray_train.py and preprocess.py
@@ -260,7 +261,7 @@ def main():
         loader_opts["processed_dir"] = (
             f"{server_config['processed_data_path']}/{dataset_name}/"
         )
-        print(
+        log.info(
             f"✓ Auto-constructed data path from server config: {loader_opts['processed_dir']}"
         )
 
@@ -312,39 +313,46 @@ def main():
         run_name = base_run_name
         mlflow_tags = {}
 
-    print(f"Loaded config from: {config_path}")
-    print(f"Server: {args.server}")
-    print(f"MLflow enabled: {mlflow_enabled}")
+    # Setup file logging
+    config_output_dir = pathlib.Path(output_dir) / run_name
+    config_output_dir.mkdir(parents=True, exist_ok=True)
+
+    log_file_path = None
+    if not args.no_output:
+        log_file_path = config_output_dir / "training.log"
+        log.configure_file_logging(str(log_file_path))
+
+    log.info(f"Loaded config from: {config_path}")
+    log.info(f"Server: {args.server}")
+    log.info(f"MLflow enabled: {mlflow_enabled}")
     if mlflow_enabled and MLFLOW_AVAILABLE:
-        print(f"MLflow experiment: {experiment_name}")
-        print(f"MLflow run name: {run_name}")
-    print(f"Base run name: {base_run_name}")
-    print(f"Output directory: {output_dir} (source: {output_dir_source})")
-    print(f"Data path: {loader_opts.get('processed_dir', 'NOT_SET')}")
-    print("\nChannel Selection:")
-    print(f"  Landsat: {landsat_channels}")
-    print(f"  DEM: {dem_channels}")
-    print(f"  Spectral Indices: {spectral_indices_channels}")
-    print(f"  HSV: {hsv_channels}")
-    print(f"  Physics: {physics_channels}")
-    print(f"  Velocity: {velocity_channels}")
-    print(f"Output classes: {loader_opts.get('output_classes', 'NOT_SET')}")
+        log.info(f"MLflow experiment: {experiment_name}")
+        log.info(f"MLflow run name: {run_name}")
+    log.info(f"Base run name: {base_run_name}")
+    log.info(f"Output directory: {output_dir} (source: {output_dir_source})")
+    log.info(f"Data path: {loader_opts.get('processed_dir', 'NOT_SET')}")
+    log.info("\nChannel Selection:")
+    log.info(f"  Landsat: {landsat_channels}")
+    log.info(f"  DEM: {dem_channels}")
+    log.info(f"  Spectral Indices: {spectral_indices_channels}")
+    log.info(f"  HSV: {hsv_channels}")
+    log.info(f"  Physics: {physics_channels}")
+    log.info(f"  Velocity: {velocity_channels}")
+    log.info(f"Output classes: {loader_opts.get('output_classes', 'NOT_SET')}")
 
     # Save config as JSON for upload script (skip if --no-output)
     if not args.no_output:
         import json
 
-        config_output_dir = pathlib.Path(output_dir) / run_name
-        config_output_dir.mkdir(parents=True, exist_ok=True)
         config_json_path = config_output_dir / "conf.json"
         with open(config_json_path, "w") as f:
             json.dump(config, f, indent=2)
-        print(f"Config saved to: {config_json_path}")
+        log.info(f"Config saved to: {config_json_path}")
     else:
-        print("Skipping config save (--no-output mode)")
+        log.info("Skipping config save (--no-output mode)")
 
     # Create data module
-    print("Creating data module...")
+    log.info("Creating data module...")
     datamodule = GlacierDataModule(
         processed_dir=loader_opts.get("processed_dir", "/tmp"),
         batch_size=loader_opts.get("batch_size", 8),
@@ -363,7 +371,7 @@ def main():
     )
 
     # Create model
-    print("Creating model...")
+    log.info("Creating model...")
     model = GlacierSegmentationModule(
         model_opts=model_opts,
         loss_opts=loss_opts,
@@ -383,14 +391,14 @@ def main():
     )
 
     # Setup logging (skip if --no-output for Ray hyperparameter search)
-    print("Setting up logging...")
+    log.info("Setting up logging...")
     from pytorch_lightning.loggers import Logger
 
     mlflow_logger = None
     if args.no_output:
         # No output mode: no loggers, no callbacks
         loggers: list[Logger] = []
-        print("Skipping loggers (--no-output mode)")
+        log.info("Skipping loggers (--no-output mode)")
     else:
         loggers = [TensorBoardLogger(save_dir=f"{output_dir}/{run_name}/logs", name="")]
 
@@ -407,9 +415,11 @@ def main():
                     log_model=False,  # Disable automatic model logging to save MLflow storage
                 )
                 loggers.append(mlflow_logger)
-                print(f"MLflow logger setup complete for experiment: {experiment_name}")
+                log.info(
+                    f"MLflow logger setup complete for experiment: {experiment_name}"
+                )
             except Exception as e:
-                print(f"Warning: Failed to setup MLflow logger: {e}")
+                log.warning(f"Failed to setup MLflow logger: {e}")
                 mlflow_logger = None
 
     # Setup error handler (skip if --no-output)
@@ -423,6 +433,7 @@ def main():
 
     # Setup callbacks
     callbacks = []
+    viz_scale_factor = 1
 
     if not args.no_output:
         callbacks.extend(
@@ -450,7 +461,7 @@ def main():
                     verbose=True,
                 )
             )
-            print(
+            log.info(
                 f"✓ Early stopping enabled (patience={early_stopping_patience} epochs)"
             )
 
@@ -498,25 +509,25 @@ def main():
         )
 
     if not callbacks:
-        print("No callbacks enabled")
+        log.info("No callbacks enabled")
 
     # Create trainer
-    print("Creating trainer...")
+    log.info("Creating trainer...")
 
     # Handle GPU device selection
     if args.gpu is not None:
         # Explicit GPU specified
         devices = [args.gpu]
-        print(f"Using explicit GPU: {args.gpu}")
+        log.info(f"Using explicit GPU: {args.gpu}")
     else:
         # Auto-detect (for Ray or single-GPU systems)
         devices = 1  # Use 1 GPU (Ray sets CUDA_VISIBLE_DEVICES)
-        print("Using auto-detected GPU (Ray controlled)")
+        log.info("Using auto-detected GPU (Ray controlled)")
 
     # Set default_root_dir to ensure all Lightning outputs go to output/
     default_root = f"{output_dir}/{run_name}" if not args.no_output else None
     if default_root:
-        print(f"Lightning default_root_dir: {default_root}")
+        log.info(f"Lightning default_root_dir: {default_root}")
 
     trainer = pl.Trainer(
         default_root_dir=default_root,
@@ -532,35 +543,46 @@ def main():
         num_sanity_val_steps=2,  # Quick sanity check
     )
 
-    print(f"Starting training for {max_epochs} epochs...")
-    print(f"GPU available: {torch.cuda.is_available()}")
+    log.info(f"Starting training for {max_epochs} epochs...")
+    log.info(f"GPU available: {torch.cuda.is_available()}")
     if args.no_output:
-        print("No-output mode: skipping all disk writes (Ray hyperparameter search)")
+        log.info("No-output mode: skipping all disk writes (Ray hyperparameter search)")
     else:
-        print(f"TensorBoard logs: {output_dir}/{run_name}/logs")
-        print(f"Checkpoints: {output_dir}/{run_name}/checkpoints")
+        log.info(f"TensorBoard logs: {output_dir}/{run_name}/logs")
+        log.info(f"Checkpoints: {output_dir}/{run_name}/checkpoints")
 
     try:
         trainer.fit(
             model, datamodule=datamodule, ckpt_path=args.resume if args.resume else None
         )
 
-        print("Training completed successfully!")
+        log.info("Training completed successfully!")
 
         # Extract final validation loss for Ray Tune integration
         final_val_loss = float(trainer.callback_metrics.get("val_loss", 999.0))
-        print(f"Final validation loss: {final_val_loss:.4f}")
+        log.info(f"Final validation loss: {final_val_loss:.4f}")
+
+        # Upload training log to MLflow
+        if not args.no_output and mlflow_logger:
+            try:
+                mlflow_utils.log_artifact_safe(
+                    str(log_file_path), artifact_path="logs", logger_name="MLflow"
+                )
+                log.info(f"Uploaded training log to MLflow: {log_file_path}")
+            except Exception as e:
+                log.warning(f"Failed to upload training log to MLflow: {e}")
+
         return final_val_loss
 
     except KeyboardInterrupt as e:
-        print("Training interrupted by user")
+        log.info("Training interrupted by user")
         if error_handler:
             error_handler.log_error(
                 Exception(f"Training interrupted by user: {e}"),
                 {"message": "Training interrupted by user"},
             )
     except Exception as e:
-        print(f"Training failed with error: {e}")
+        log.error(f"Training failed with error: {e}")
         if error_handler:
             error_handler.log_error(
                 e,

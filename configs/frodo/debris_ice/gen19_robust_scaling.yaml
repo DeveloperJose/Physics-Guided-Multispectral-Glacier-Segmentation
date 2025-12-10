@@ -1,7 +1,7 @@
 # Gen19 Variation: Robust Scaling
 # Goal: Test robust scaling (log/symlog) with augmentations enabled to isolate its impact.
 training_opts:
-  dataset_name: "gen19_robust_scaling"
+  dataset_name: "gen_robust_comprehensive"
   run_name: "gen19_robust_scaling"
 
 loader_opts:

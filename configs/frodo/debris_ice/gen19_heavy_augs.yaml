@@ -1,7 +1,7 @@
 # Gen19 Variation: Heavy Augmentations
 # Goal: Test if stronger regularization reduces overfitting further.
 training_opts:
-  dataset_name: "gen19_heavy_augs"
+  dataset_name: "gen_robust_comprehensive"
   run_name: "gen19_heavy_augs"
 
 loader_opts:
