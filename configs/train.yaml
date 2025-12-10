@@ -45,6 +45,13 @@ loader_opts:
   robust_scaling: false # Use log/symlog for physics channels. Set false for linear scaling.
   class_names: ["BG", "CleanIce", "Debris"]
 
+  # Data Augmentation (restored from Gen3)
+  augmentations:
+    h_flip_prob: 0.5
+    v_flip_prob: 0.5
+    rotate_prob: 0.5
+    rotate_limit: 45
+
 metrics_opts:
   metrics: ["IoU", "precision", "recall"]
   threshold: [0.5, 0.5] # Per-class thresholds for binary classification

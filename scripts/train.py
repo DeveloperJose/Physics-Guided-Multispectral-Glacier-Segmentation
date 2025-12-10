@@ -354,6 +354,7 @@ def main():
         hsv_channels=hsv_channels,
         physics_channels=physics_channels,
         velocity_channels=velocity_channels,
+        augmentations=loader_opts.get("augmentations", None),
         output_classes=loader_opts.get("output_classes", [1]),
         class_names=loader_opts.get("class_names", ["BG", "CleanIce", "Debris"]),
         normalize=loader_opts.get("normalize", "mean-std"),
