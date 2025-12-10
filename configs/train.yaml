@@ -50,11 +50,12 @@ metrics_opts:
 
 loss_opts:
   name: "custom"
-  masked: false
-  gaussian_blur_sigma: null
   label_smoothing: 0
-  use_unified: false
   use_velocity_loss: false
+  velocity_high_speed_threshold: 3.16
+  velocity_loss_weight: 0.05
+  velocity_loss_warmup_epochs: 10
+  velocity_loss_ramp_epochs: 10
   class_weights: [0, 1] # Default for binary: ignore background (0), focus on foreground (1)
 
 model_opts:

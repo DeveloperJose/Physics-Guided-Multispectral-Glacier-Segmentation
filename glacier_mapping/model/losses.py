@@ -18,36 +18,27 @@ class customloss(nn.Module):
         act=nn.Softmax(dim=1),
         smooth=1.0,
         label_smoothing=0.0,
-        masked=True,
         theta0=3,
         theta=5,
-        alpha=0.9,  # compatibility with old code
         verbose=False,
         class_weights: Optional[List[float]] = None,  # New parameter
-        velocity_confidence_threshold: float = 0.6,
-        velocity_low_speed_threshold: float = 0.1,
-        velocity_high_speed_threshold: Optional[float] = None,
+        velocity_high_speed_threshold: float = 3.16,
         velocity_loss_weight: float = 0.05,
         velocity_loss_warmup_epochs: int = 10,
         velocity_loss_ramp_epochs: int = 10,
-        velocity_loss_clip: Optional[float] = 1.0,
     ):
         super().__init__()
         self.act = act
         self.smooth = smooth
         self.label_smoothing = label_smoothing
-        self.masked = masked
         self.theta0 = theta0
         self.theta = theta
         self.verbose = verbose
         self.class_weights = class_weights  # Store class weights
-        self.velocity_confidence_threshold = velocity_confidence_threshold
-        self.velocity_low_speed_threshold = velocity_low_speed_threshold
         self.velocity_high_speed_threshold = velocity_high_speed_threshold
         self.velocity_loss_weight = velocity_loss_weight
         self.velocity_loss_warmup_epochs = velocity_loss_warmup_epochs
         self.velocity_loss_ramp_epochs = velocity_loss_ramp_epochs
-        self.velocity_loss_clip = velocity_loss_clip
 
         # Flag for single-run debug logging
         self._first_call = True
@@ -199,42 +190,27 @@ class customloss(nn.Module):
                 ice_prob = pred_prob[:, 1:].sum(dim=1, keepdim=True)
                 bg_prob = pred_prob[:, :1]
 
-            # Simple penalty: confident ice on low-speed areas, averaged over valid mask
-            confidence_mask = (ice_prob > self.velocity_confidence_threshold).float()
-            low_speed_penalty = torch.clamp(
-                self.velocity_low_speed_threshold - velocity, min=0.0
+            # Data-driven "Moving Background" Penalty
+            # 1. Calculate Probability of Motion based on Physics
+            # Sigmoid centered at 3.16 m/yr (BG 75th percentile) with moderate steepness (0.5)
+            # This handles the high dynamic range of glacier speeds without exploding gradients.
+            p_moving_physics = torch.sigmoid(
+                (velocity - self.velocity_high_speed_threshold) * 0.5
             )
-            per_pixel_penalty = ice_prob * low_speed_penalty
 
-            if self.velocity_loss_clip is not None:
-                per_pixel_penalty = torch.clamp(
-                    per_pixel_penalty, max=self.velocity_loss_clip
-                )
+            # 2. Penalize Semantic Contradiction:
+            # Model predicts Background (bg_prob ~ 1.0) BUT Physics says Moving (p_moving_physics ~ 1.0)
+            # Loss is high when BOTH are high.
+            per_pixel_penalty = bg_prob * p_moving_physics
 
-            combined_mask = confidence_mask * velocity_mask * ignore_mask_exp
+            combined_mask = velocity_mask * ignore_mask_exp
             valid_count = combined_mask.sum()
             base_velocity_loss = torch.tensor(0.0, device=device)
+
             if valid_count > 0:
-                base_velocity_loss += (
+                base_velocity_loss = (
                     per_pixel_penalty * combined_mask
                 ).sum() / valid_count
-
-            # Penalize BG predictions in high-speed regions (optional)
-            if self.velocity_high_speed_threshold is not None:
-                high_speed_penalty = torch.clamp(
-                    velocity - self.velocity_high_speed_threshold, min=0.0
-                )
-                per_pixel_bg_penalty = bg_prob * high_speed_penalty
-                if self.velocity_loss_clip is not None:
-                    per_pixel_bg_penalty = torch.clamp(
-                        per_pixel_bg_penalty, max=self.velocity_loss_clip
-                    )
-                high_mask = velocity_mask * ignore_mask_exp
-                high_valid = high_mask.sum()
-                if high_valid > 0:
-                    base_velocity_loss += (
-                        per_pixel_bg_penalty * high_mask
-                    ).sum() / high_valid
 
             if base_velocity_loss > 0:
                 current_weight = self._compute_velocity_weight(current_epoch)

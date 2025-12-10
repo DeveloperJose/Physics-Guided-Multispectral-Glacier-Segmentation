@@ -125,17 +125,12 @@ class GlacierSegmentationModule(pl.LightningModule):
             "act",
             "smooth",
             "label_smoothing",
-            "masked",
             "theta0",
             "theta",
-            "alpha",
             "class_weights",
-            "velocity_confidence_threshold",
-            "velocity_low_speed_threshold",
             "velocity_loss_weight",
             "velocity_loss_warmup_epochs",
             "velocity_loss_ramp_epochs",
-            "velocity_loss_clip",
         }
         loss_args = {k: v for k, v in loss_opts.items() if k in supported_loss_args}
 
@@ -255,8 +250,8 @@ class GlacierSegmentationModule(pl.LightningModule):
             and self.velocity_mask_idx is not None
         ):
             vel_norm = x[:, self.velocity_idx : self.velocity_idx + 1, :, :]
-            # Keep velocity in normalized units so loss thresholds align with config
-            velocity = vel_norm
+            # Convert back to real m/yr so loss thresholds (e.g. 3.16) make physical sense
+            velocity = self._denormalize_velocity(vel_norm)
             velocity_mask = x[
                 :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
             ]
@@ -656,16 +651,22 @@ class GlacierSegmentationModule(pl.LightningModule):
         )
 
     def _denormalize_velocity(self, vel_norm):
-        # mean and std for velocity channel
+        # Velocity is Log-Normalized: y = log1p(x) / log1p(max)
+        # We must invert this: x = expm1(y * log1p(max))
         if self.velocity_idx is None:
             # Guard against misuse; should not happen when velocity loss is active
             raise ValueError("velocity_idx is None, cannot denormalize velocity.")
 
         channel_idx = self.use_channels[int(self.velocity_idx)]
-        mean = torch.tensor(self.norm_arr_full[0, channel_idx], device=vel_norm.device)
-        std = torch.tensor(self.norm_arr_full[1, channel_idx], device=vel_norm.device)
-
-        return vel_norm * std + mean
+        
+        # Get max value for this channel from the normalization array (row 3 is max)
+        max_val = torch.tensor(self.norm_arr_full[3, channel_idx], device=vel_norm.device)
+        
+        # Calculate the log scaling factor used during normalization
+        log_max = torch.log1p(torch.maximum(max_val, torch.tensor(1e-6, device=vel_norm.device)))
+        
+        # Invert: x = expm1(y * log_max)
+        return torch.expm1(vel_norm * log_max)
 
     def normalize(self, x):
         """Normalize input data (from Framework).
