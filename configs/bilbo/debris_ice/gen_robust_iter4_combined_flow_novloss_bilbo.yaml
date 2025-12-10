@@ -3,7 +3,6 @@ training_opts:
   dataset_name: "gen_robust_comprehensive"
 
 loader_opts:
-  batch_size: 16  # GPU0 limit
   velocity_channels: true
   physics_channels: ["flow_accumulation", "tpi", "roughness", "plan_curvature"]
 
