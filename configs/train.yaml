@@ -8,7 +8,7 @@ training_opts:
   epochs: 200 # Reduced from 500 based on Gen1/Gen2 analysis (best models converge at 130-140)
   fine_tune: false
   find_lr: false
-  early_stopping: 25 # Reduced from 100 to prevent overfitting
+  early_stopping: 55 # Allow longer convergence; was 25
   # Validation visualizations (periodic, every N epochs)
   val_viz_n: 4 # Number per third (top, middle, bottom). n=4 → 12 total (4+4+4). 0=disable
   val_viz_every_n_epochs: 50
