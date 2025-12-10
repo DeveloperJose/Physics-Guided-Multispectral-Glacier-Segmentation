@@ -8,7 +8,7 @@ training_opts:
   epochs: 200 # Reduced from 500 based on Gen1/Gen2 analysis (best models converge at 130-140)
   fine_tune: false
   find_lr: false
-  early_stopping: 55 # Allow longer convergence; was 25
+  early_stopping: 75 # Allow longer convergence; was 25
   # Validation visualizations (periodic, every N epochs)
   val_viz_n: 4 # Number per third (top, middle, bottom). n=4 → 12 total (4+4+4). 0=disable
   val_viz_every_n_epochs: 50
@@ -51,12 +51,15 @@ metrics_opts:
 loss_opts:
   name: "custom"
   label_smoothing: 0
+  class_weights: [0, 1] # Default for binary: ignore background (0), focus on foreground (1)
+
+  # Physics-Informed Velocity Loss Options
   use_velocity_loss: false
-  velocity_high_speed_threshold: 3.16
+  velocity_high_speed_threshold: 3.16 # m/yr (Background 75th percentile)
   velocity_loss_weight: 0.05
   velocity_loss_warmup_epochs: 10
   velocity_loss_ramp_epochs: 10
-  class_weights: [0, 1] # Default for binary: ignore background (0), focus on foreground (1)
+  velocity_loss_clip: null # Sigmoid loss is naturally bounded [0,1]
 
 model_opts:
   args:

@@ -1,0 +1,9 @@
+training_opts:
+  dataset_name: "gen_robust_comprehensive"
+
+loader_opts:
+  velocity_channels: true
+
+loss_opts:
+  use_velocity_loss: true
+  velocity_high_speed_threshold: 5.0
