@@ -1,9 +1,10 @@
 training_opts:
   dataset_name: "gen_robust_comprehensive"
+  run_name: "gen_robust_iter6_dci_vloss_bs32"
 
 loader_opts:
+  batch_size: 32
   velocity_channels: true
 
 loss_opts:
   use_velocity_loss: true
-  velocity_loss_weight: 0.20
