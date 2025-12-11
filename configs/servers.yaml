@@ -13,8 +13,8 @@ desktop:
   # Preprocessing output directory
   processed_data_path: /home/devj/local-debian/datasets/HKH
   # Training defaults
-  batch_size: 8
-  epochs: 150
+  # batch_size: 8
+  # epochs: 150
   num_workers: 4
 
 bilbo:
@@ -30,8 +30,8 @@ bilbo:
   # Preprocessing output directory
   processed_data_path: /home/jperez/datasets/HKH
   # Training defaults
-  batch_size: 8 # Standardized to 8 (was 32)
-  epochs: 150
+  # batch_size: 8 # Standardized to 8 (was 32)
+  # epochs: 150
   num_workers: 12
 
 frodo:
@@ -47,6 +47,6 @@ frodo:
   # Preprocessing output directory
   processed_data_path: /home/jperez/datasets/HKH
   # Training defaults
-  batch_size: 8 # Standardized to 8 (was 16)
-  epochs: 150
+  # batch_size: 8 # Standardized to 8 (was 16)
+  # epochs: 150
   num_workers: 8
