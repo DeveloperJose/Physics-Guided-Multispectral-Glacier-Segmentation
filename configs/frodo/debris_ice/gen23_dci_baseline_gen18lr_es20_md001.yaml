@@ -5,15 +5,10 @@ training_opts:
   run_name: "gen23_dci_baseline_gen18lr_es20_md001"
   early_stopping: 20
   early_stopping_min_delta: 0.001
-  # early_stopping: 20 (inherited from train.yaml)
-  # early_stopping_min_delta: 0.001 (inherited from train.yaml)
 
-loader_opts:
-  {} # inherit defaults
-
-optim_opts:
-  args:
-    # lr: 0.0003 (inherited from train.yaml)
+# optim_opts:
+#   args:
+#     # lr: 0.0003 (inherited from train.yaml)
 
 scheduler_opts:
   args:
