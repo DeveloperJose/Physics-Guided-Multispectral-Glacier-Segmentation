@@ -66,6 +66,8 @@ class ValidationVisualizationCallback(Callback):
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ):
         """Generate visualizations at end of validation epoch."""
+        if self.log_every_n_epochs == 0:
+            return
         if (trainer.current_epoch + 1) % self.log_every_n_epochs == 0:
             self._generate_visualizations(trainer, pl_module)
 
