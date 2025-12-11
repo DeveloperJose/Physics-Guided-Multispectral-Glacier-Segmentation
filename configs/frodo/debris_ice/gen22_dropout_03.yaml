@@ -1,5 +1,0 @@
-training_opts:
-  run_name: "gen22_dropout_03"
-model_opts:
-  args:
-    dropout: 0.3
