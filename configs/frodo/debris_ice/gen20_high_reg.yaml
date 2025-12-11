@@ -1,0 +1,14 @@
+# Gen20 Variation: High Regularization
+# Goal: Re-test stronger dropout/weight decay on the corrected baseline.
+training_opts:
+  run_name: "gen20_high_reg"
+loss_opts:
+  class_weights: [0.01, 1]
+loader_opts:
+  batch_size: 16
+model_opts:
+  args:
+    dropout: 0.2
+optim_opts:
+  args:
+    weight_decay: 1.0e-4

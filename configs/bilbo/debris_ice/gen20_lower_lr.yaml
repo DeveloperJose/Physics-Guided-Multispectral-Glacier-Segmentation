@@ -1,0 +1,11 @@
+# Gen20 Variation: Lower Learning Rate
+# Goal: Test if a less aggressive LR schedule reduces overfitting.
+training_opts:
+  run_name: "gen20_lower_lr"
+loss_opts:
+  class_weights: [0.01, 1]
+loader_opts:
+  batch_size: 16
+scheduler_opts:
+  args:
+    max_lr: 0.0005

@@ -1,0 +1,10 @@
+# Gen20 Class Weight Fix: Test hypothesis that class_weights=[0, 1] caused regression.
+# Goal: Restore Gen3 performance by re-introducing a small weight for the background class.
+# See gen3_run.json for original parameters.
+
+training_opts:
+  dataset_name: "gen_robust_comprehensive"
+  run_name: "gen20_class_weight_fix"
+
+loss_opts:
+  class_weights: [0.01, 1]
