@@ -38,17 +38,16 @@ def get_available_gpus() -> List[int]:
         return []
 
 
-def extract_generation_runs(generation_id: str) -> List[str]:
-    """Extract all run names for a generation from local output directory."""
-    print(f"Extracting {generation_id} runs from local output directory...")
+def extract_generation_runs(generation_id: str, output_path: Path) -> List[str]:
+    """Extract all run names for a generation from server output directory."""
+    print(f"Extracting {generation_id} runs from {output_path}...")
 
-    output_dir = Path("output")
-    if not output_dir.exists():
-        print(f"Output directory {output_dir} does not exist")
+    if not output_path.exists():
+        print(f"Output directory {output_path} does not exist")
         return []
 
     generation_runs = []
-    for item in output_dir.iterdir():
+    for item in output_path.iterdir():
         if item.is_dir() and generation_id in item.name:
             generation_runs.append(item.name)
 
@@ -264,8 +263,16 @@ def main():
     else:
         print(f"Detected server: {current_server}")
 
-    # Extract runs from MLflow
-    run_names = extract_generation_runs(args.generation)
+    # Get output path from server config
+    server_config = servers_config[current_server]
+    output_path = Path(server_config["output_path"])
+
+    # Define base for predictions matching predict.py logic
+    predictions_base_dir = output_path.parent / "output_predictions"
+    print(f"Predictions directory: {predictions_base_dir}")
+
+    # Extract runs from output directory
+    run_names = extract_generation_runs(args.generation, output_path)
     if not run_names:
         print(f"No runs found for generation: {args.generation}")
         return
@@ -296,7 +303,7 @@ def main():
             prediction_dir_name = clean_run_name(dci_run)
 
         # Create output directory
-        output_dir = Path("output_predictions") / prediction_dir_name
+        output_dir = predictions_base_dir / prediction_dir_name
         output_dir.mkdir(parents=True, exist_ok=True)
         output_dirs.append(output_dir)
 
@@ -416,9 +423,7 @@ def main():
     print(summary_df.to_string(index=False))
 
     # Save to CSV
-    output_csv = (
-        Path("output_predictions") / f"{args.generation}_prediction_summary.csv"
-    )
+    output_csv = predictions_base_dir / f"{args.generation}_prediction_summary.csv"
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     summary_df.to_csv(output_csv, index=False)
     print(f"\nSummary saved to: {output_csv}")
