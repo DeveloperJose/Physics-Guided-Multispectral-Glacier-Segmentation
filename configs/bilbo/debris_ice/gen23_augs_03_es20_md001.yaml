@@ -9,9 +9,7 @@ training_opts:
   # early_stopping_min_delta: 0.001 (inherited from train.yaml)
 
 loader_opts:
-  # batch_size: 8 (inherited from train.yaml)
-  # output_classes: [2] (inherited from train.yaml)
-  # robust_scaling: false (inherited from train.yaml)
+  {} # inherit defaults
   augmentations:
     h_flip_prob: 0.3
     v_flip_prob: 0.3
