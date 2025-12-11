@@ -40,7 +40,7 @@ loader_opts:
   # velocity_channels: [0, 1]                      # magnitude, vx → auto-adds mask → [16, 17, 19]
   # velocity_channels: false                       # Disable velocity entirely
 
-  output_classes: [1] # Binary segmentation: [1]=CleanIce, [2]=Debris, [1,2]=Multiclass
+  output_classes: [2] # Binary segmentation: [1]=CleanIce, [2]=Debris, [1,2]=Multiclass
   normalize: "mean-std" # "min-max" or "mean-std"
   robust_scaling: false # Use log/symlog for physics channels. Set false for linear scaling.
   class_names: ["BG", "CleanIce", "Debris"]

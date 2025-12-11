@@ -1,0 +1,23 @@
+# Gen23 Experiment: Early Stopping Validation Loss Baseline
+# Objective: Verify the effectiveness of the new early stopping parameters (patience=20, min_delta=0.001)
+#            with the "Golden Config" baseline.
+
+training_opts:
+  run_name: "gen23_es_val_loss_baseline"
+  early_stopping: 20
+  early_stopping_min_delta: 0.001
+  # early_stopping: 20 (inherited from train.yaml)
+  # early_stopping_min_delta: 0.001 (inherited from train.yaml)
+
+loader_opts:
+  # batch_size: 8 (inherited from train.yaml)
+  # output_classes: [2] (inherited from train.yaml)
+  # robust_scaling: false (inherited from train.yaml)
+
+optim_opts:
+  args:
+    # lr: 0.0003 (inherited from train.yaml)
+
+scheduler_opts:
+  args:
+    max_lr: 0.0005 # Golden Config max_lr

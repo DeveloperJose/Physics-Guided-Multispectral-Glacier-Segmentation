@@ -458,6 +458,7 @@ def main():
                     monitor="val_loss",
                     patience=early_stopping_patience,
                     mode="min",
+                    min_delta=training_opts.get("early_stopping_min_delta", 0.0),
                     verbose=True,
                 )
             )

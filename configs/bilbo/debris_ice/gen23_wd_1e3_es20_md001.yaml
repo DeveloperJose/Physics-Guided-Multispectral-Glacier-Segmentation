@@ -1,0 +1,23 @@
+# Gen23 Experiment: Weight Decay 1e-3 with Early Stopping
+# Objective: Re-evaluate weight decay (1e-3) with the new early stopping.
+
+training_opts:
+  run_name: "gen23_wd_1e3_es20_md001"
+  early_stopping: 20
+  early_stopping_min_delta: 0.001
+  # early_stopping: 20 (inherited from train.yaml)
+  # early_stopping_min_delta: 0.001 (inherited from train.yaml)
+
+loader_opts:
+  # batch_size: 8 (inherited from train.yaml)
+  # output_classes: [2] (inherited from train.yaml)
+  # robust_scaling: false (inherited from train.yaml)
+
+optim_opts:
+  args:
+    # lr: 0.0003 (inherited from train.yaml)
+    weight_decay: 1e-3
+
+scheduler_opts:
+  args:
+    max_lr: 0.0005 # Current baseline max_lr
