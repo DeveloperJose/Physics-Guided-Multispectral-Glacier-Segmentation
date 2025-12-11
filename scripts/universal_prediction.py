@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import yaml
@@ -59,21 +60,39 @@ def extract_generation_runs(generation_id: str) -> List[str]:
     return sorted(generation_runs)
 
 
+def clean_run_name_for_grouping(run_name: str) -> str:
+    """Clean run name for grouping (remove prefixes AND timestamp suffixes)."""
+    # First clean prefix (e.g. ablation_ci_)
+    cleaned = clean_run_name(run_name)
+
+    # Then clean suffix like _desktop_20251211_005021
+    # Matches _server_YYYYMMDD_HHMMSS
+    # server can be desktop, frodo, bilbo, etc.
+    # Regex: _[a-z0-9]+_\d{8}_\d{6}$
+    match = re.search(r"(.*)_[a-z0-9]+_\d{8}_\d{6}$", cleaned)
+    if match:
+        return match.group(1)
+
+    return cleaned
+
+
 def group_runs_by_base_name(run_names: List[str]) -> Dict[str, Dict[str, str]]:
     """Group runs by base name (after removing ci_/dci_ prefixes)."""
     grouped = {}
 
     for run_name in run_names:
-        base_name = clean_run_name(run_name)
+        # Use cleaner that strips timestamps for grouping
+        base_name = clean_run_name_for_grouping(run_name)
 
         if base_name not in grouped:
             grouped[base_name] = {"ci": None, "dci": None}
 
         # Determine if this is CI or DCI run
-        if "_ci_" in run_name or "ci_" in run_name:
-            grouped[base_name]["ci"] = run_name
-        elif "_dci_" in run_name or "dci_" in run_name:
+        # Check DCI first because "dci" contains "ci"
+        if "_dci_" in run_name or "dci_" in run_name:
             grouped[base_name]["dci"] = run_name
+        elif "_ci_" in run_name or "ci_" in run_name:
+            grouped[base_name]["ci"] = run_name
 
     return grouped
 
@@ -90,9 +109,11 @@ def parse_prediction_metrics(csv_path: Path) -> Dict[str, float]:
         # Look for TOTAL row which contains summary metrics
         total_rows = df[df["tile"] == "TOTAL"]
         if total_rows.empty:
+            print(f"No TOTAL row found in {csv_path}")
             return {}
 
         total_row = total_rows.iloc[-1]  # Use last TOTAL row
+        print(f"Found TOTAL row: {dict(total_row)}")
 
         metrics = {}
         for col in total_row.index:
@@ -113,6 +134,7 @@ def parse_prediction_metrics(csv_path: Path) -> Dict[str, float]:
                 elif "debris" in col_str:
                     metrics["Deb_IoU"] = float(total_row[col])
 
+        print(f"Parsed metrics: {metrics}")
         return metrics
 
     except Exception as e:
@@ -161,7 +183,20 @@ def run_single_prediction(
             return base_name, {"status": "FAILED"}
 
         # Parse metrics from generated CSV
-        metrics_csv = output_base / base_name / "preds" / "metrics.csv"
+        # predict.py outputs to output_base / "metrics.csv"
+        metrics_csv = output_base / "metrics.csv"
+
+        # Check if file exists - predict.py might have failed silently or output elsewhere
+        if not metrics_csv.exists():
+            print(f"FAILED: {base_name} - metrics.csv not found at {metrics_csv}")
+            # Try to find it in case logic differs
+            found_csvs = list(output_base.glob("**/metrics.csv"))
+            if found_csvs:
+                metrics_csv = found_csvs[0]
+                print(f"  Found it at: {metrics_csv}")
+            else:
+                return base_name, {"status": "FAILED"}
+
         metrics = parse_prediction_metrics(metrics_csv)
         metrics["status"] = "SUCCESS"  # type: ignore
 
@@ -252,8 +287,16 @@ def main():
             print(f"Skipping {base_name}: no CI or DCI runs found")
             continue
 
+        # Determine output directory based on what predict.py will use
+        # predict.py uses clean_run_name(ci_run_name) if available, else clean_run_name(deb_run_name)
+        # NOTE: This keeps the timestamp/suffix of the PRIMARY run (CI if available)
+        if ci_run:
+            prediction_dir_name = clean_run_name(ci_run)
+        else:
+            prediction_dir_name = clean_run_name(dci_run)
+
         # Create output directory
-        output_dir = Path("output_predictions") / base_name
+        output_dir = Path("output_predictions") / prediction_dir_name
         output_dir.mkdir(parents=True, exist_ok=True)
         output_dirs.append(output_dir)
 
