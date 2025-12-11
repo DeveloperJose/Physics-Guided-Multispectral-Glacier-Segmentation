@@ -138,8 +138,8 @@ def extract_mlflow_params(config: dict, server_config: dict) -> dict:
     )
 
     # Optimizer configuration
-    optim_opts = config.get("optim_opts", {})
-    optim_args = optim_opts.get("args", {})
+    optim_opts = config.get("optim_opts") or {}
+    optim_args = optim_opts.get("args") or {}
     params.update(
         {
             "optimizer_name": optim_opts.get("name"),
@@ -149,8 +149,8 @@ def extract_mlflow_params(config: dict, server_config: dict) -> dict:
     )
 
     # Scheduler configuration
-    scheduler_opts = config.get("scheduler_opts", {})
-    scheduler_args = scheduler_opts.get("args", {})
+    scheduler_opts = config.get("scheduler_opts") or {}
+    scheduler_args = scheduler_opts.get("args") or {}
     params.update(
         {
             "scheduler_name": scheduler_opts.get("name"),
