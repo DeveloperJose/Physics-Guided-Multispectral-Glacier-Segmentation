@@ -23,7 +23,7 @@ training_opts:
   test_eval_transition_epoch: 75 # Switch from phase 2 to phase 3 at this epoch
 
 loader_opts:
-  batch_size: 8 # Default batch size (can be overridden by server config or experiment)
+  batch_size: 16 # Default batch size (can be overridden by server config or experiment)
 
   # Channel groups (semantic selection)
   landsat_channels: true # [0-7] Landsat B1-B7
@@ -59,7 +59,7 @@ metrics_opts:
 loss_opts:
   name: "custom"
   label_smoothing: 0
-  class_weights: [0, 1] # Default for binary: ignore background (0), focus on foreground (1)
+  class_weights: [0.01, 1] # Default for binary: ignore background (0), focus on foreground (1)
 
   # Physics-Informed Velocity Loss Options
   use_velocity_loss: false
@@ -85,6 +85,6 @@ optim_opts:
 scheduler_opts:
   name: "OneCycleLR"
   args:
-    max_lr: 0.001 # Peak LR (3.3x base lr)
+    max_lr: 0.0005 # Peak LR (3.3x base lr)
     pct_start: 0.3 # 30% warmup, 70% annealing
     anneal_strategy: "cos"

@@ -1,0 +1,14 @@
+# Gen21 Strict Gen3 Control
+# Goal: Perfectly mimic Gen3 code behavior
+# - Class Weights: [0, 1] (Zero BG weight)
+# - Augs: Transpose only (No Rot90)
+training_opts:
+  run_name: "gen21_strict_gen3"
+loss_opts:
+  class_weights: [0, 1]
+loader_opts:
+  augmentations:
+    h_flip_prob: 0.15
+    v_flip_prob: 0.15
+    rotate90_prob: 0.0  # Disable modern rotation
+    transpose_prob: 0.15 # Keep Gen3 "Rot270" equivalent

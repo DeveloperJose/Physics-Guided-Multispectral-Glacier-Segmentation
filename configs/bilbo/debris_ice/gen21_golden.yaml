@@ -1,0 +1,3 @@
+# Gen21 Golden Standard (Bilbo)
+training_opts:
+  run_name: "gen21_golden"

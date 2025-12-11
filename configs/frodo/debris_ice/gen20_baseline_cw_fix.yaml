@@ -1,8 +1,0 @@
-# Gen20 Baseline (Class Weight Fix)
-# Goal: Primary test to see if class_weights=[0.01, 1] recovers Gen3 performance.
-training_opts:
-  run_name: "gen20_baseline_cw_fix"
-loss_opts:
-  class_weights: [0.01, 1]
-loader_opts:
-  batch_size: 16

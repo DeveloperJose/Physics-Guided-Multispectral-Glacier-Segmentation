@@ -1,0 +1,7 @@
+# Gen21 Conservative
+# Goal: Test if even lower LR helps stability
+training_opts:
+  run_name: "gen21_conservative"
+scheduler_opts:
+  args:
+    max_lr: 0.0003
