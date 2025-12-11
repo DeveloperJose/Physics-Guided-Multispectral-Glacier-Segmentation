@@ -3,13 +3,11 @@ import json
 import logging
 import os
 import pathlib
-import random
 
 import elasticdeform
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
+from torch.utils.data import Dataset
 
 import glacier_mapping.utils.logging as fn
 

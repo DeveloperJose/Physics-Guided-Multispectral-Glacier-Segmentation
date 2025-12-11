@@ -44,10 +44,10 @@ loader_opts:
 
   # Data Augmentation (restored from Gen3)
   augmentations:
-    h_flip_prob: 0.15
-    v_flip_prob: 0.15
-    rotate90_prob: 0.15
-    transpose_prob: 0.15
+    h_flip_prob: 0.5
+    v_flip_prob: 0.5
+    rotate90_prob: 0.5
+    transpose_prob: 0.5
 
 metrics_opts:
   metrics: ["IoU", "precision", "recall"]
@@ -69,7 +69,7 @@ loss_opts:
 model_opts:
   args:
     net_depth: 4
-    dropout: 0.1
+    dropout: 0.3
     spatial: true
     first_channel_output: 32
 
@@ -77,7 +77,7 @@ optim_opts:
   name: "AdamW"
   args:
     lr: 0.0003
-    weight_decay: 5e-5
+    weight_decay: 1e-4
 
 scheduler_opts:
   name: "OneCycleLR"

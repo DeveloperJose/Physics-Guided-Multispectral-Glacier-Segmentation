@@ -1,0 +1,16 @@
+training_opts:
+  run_name: ablation2_ci_landsat_velocity_channels_loss_gpu2
+  early_stopping: 30
+  early_stopping_min_delta: 0.001
+loader_opts:
+  landsat_channels: true
+  dem_channels: false
+  spectral_indices_channels: false
+  hsv_channels: false
+  physics_channels: false
+  velocity_channels: true
+scheduler_opts:
+  args:
+    max_lr: 0.0005
+loss_opts:
+  use_velocity_loss: true

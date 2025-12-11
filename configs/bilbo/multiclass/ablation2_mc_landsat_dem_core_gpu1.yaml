@@ -1,0 +1,14 @@
+training_opts:
+  run_name: ablation2_mc_landsat_dem_core_gpu1
+  early_stopping: 30
+  early_stopping_min_delta: 0.001
+loader_opts:
+  landsat_channels: true
+  dem_channels: true
+  spectral_indices_channels: false
+  hsv_channels: false
+  physics_channels: false
+  velocity_channels: false
+scheduler_opts:
+  args:
+    max_lr: 0.0005
