@@ -135,6 +135,100 @@ def load_config(config_path: str, server: str) -> Dict[str, Any]:
     return merged
 
 
+class TrainingLogUploadCallback(pl.Callback):
+    """Upload the training log file (and best checkpoint) to MLflow before run end."""
+
+    def __init__(self, log_file_path: pathlib.Path, upload_best_model: bool = True):
+        super().__init__()
+        self.log_file_path = pathlib.Path(log_file_path)
+        self.upload_best_model = upload_best_model
+
+    def _get_mlflow_logger(self, trainer: pl.Trainer):
+        # Handle both single-logger and multi-logger setups
+        loggers = []
+        if hasattr(trainer, "loggers") and trainer.loggers:
+            loggers.extend(trainer.loggers)
+        elif getattr(trainer, "logger", None):
+            loggers.append(trainer.logger)
+
+        for logger in loggers:
+            if hasattr(logger, "experiment") and hasattr(logger, "run_id"):
+                return logger
+        return None
+
+    def on_fit_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        # Flush file handlers so the log is up to date before uploading
+        for handler in log.LOGGER.handlers:
+            if hasattr(handler, "flush"):
+                handler.flush()
+
+        if not self.log_file_path.exists():
+            log.warning(f"Training log not found for MLflow upload: {self.log_file_path}")
+            return
+
+        mlflow_logger = self._get_mlflow_logger(trainer)
+        if mlflow_logger is None:
+            log.warning("MLflow logger missing; skipping training log upload")
+            return
+
+        try:
+            mlflow_logger.experiment.log_artifact(
+                mlflow_logger.run_id,
+                str(self.log_file_path),
+                artifact_path="logs",
+            )
+            log.info(f"Uploaded training log to MLflow: {self.log_file_path}")
+        except Exception as e:
+            log.warning(f"Failed to upload training log to MLflow: {e}")
+
+        if not self.upload_best_model:
+            return
+
+        best_checkpoint = self._get_best_checkpoint(trainer)
+        if not best_checkpoint:
+            log.warning("Best checkpoint path not found; skipping MLflow upload")
+            return
+
+        # Temporarily disable checkpoint upload (too slow on current setup).
+        # To re-enable, uncomment the block below.
+        # try:
+        #     mlflow_logger.experiment.log_artifact(
+        #         mlflow_logger.run_id,
+        #         str(best_checkpoint),
+        #         artifact_path="checkpoints",
+        #     )
+        #     log.info(f"Uploaded best checkpoint to MLflow: {best_checkpoint}")
+        # except Exception as e:
+        #     log.warning(f"Failed to upload best checkpoint to MLflow: {e}")
+
+    def _get_best_checkpoint(self, trainer: pl.Trainer) -> pathlib.Path | None:
+        """Locate the best checkpoint path among ModelCheckpoint callbacks."""
+        from pytorch_lightning.callbacks import ModelCheckpoint
+
+        best_path: pathlib.Path | None = None
+        # Prefer callbacks that track best_model_path
+        for cb in getattr(trainer, "callbacks", []):
+            if isinstance(cb, ModelCheckpoint):
+                candidate = getattr(cb, "best_model_path", "")
+                if candidate:
+                    best_path = pathlib.Path(candidate)
+                    break
+
+        # Fallback to trainer.checkpoint_callback
+        if best_path is None:
+            checkpoint_cb = getattr(trainer, "checkpoint_callback", None)
+            if (
+                checkpoint_cb
+                and isinstance(checkpoint_cb, ModelCheckpoint)
+                and getattr(checkpoint_cb, "best_model_path", "")
+            ):
+                best_path = pathlib.Path(checkpoint_cb.best_model_path)
+
+        if best_path and best_path.exists():
+            return best_path
+        return None
+
+
 def main():
     """Main training function."""
     parser = argparse.ArgumentParser(description="Train glacier mapping with Lightning")
@@ -481,6 +575,12 @@ def main():
                 )
             )
 
+        # Upload the training log and best checkpoint to MLflow before the run finalizes
+        if mlflow_logger and log_file_path:
+            callbacks.append(
+                TrainingLogUploadCallback(log_file_path, upload_best_model=False)
+            )
+
     # Test evaluation (skip entirely when --no-output to avoid disk writes)
     run_test_eval = (
         training_opts.get("run_test_eval", True)
@@ -550,16 +650,6 @@ def main():
         # Extract final validation loss for Ray Tune integration
         final_val_loss = float(trainer.callback_metrics.get("val_loss", 999.0))
         log.info(f"Final validation loss: {final_val_loss:.4f}")
-
-        # Upload training log to MLflow
-        if not args.no_output and mlflow_logger:
-            try:
-                mlflow_utils.log_artifact_safe(
-                    str(log_file_path), artifact_path="logs", logger_name="MLflow"
-                )
-                log.info(f"Uploaded training log to MLflow: {log_file_path}")
-            except Exception as e:
-                log.warning(f"Failed to upload training log to MLflow: {e}")
 
         return final_val_loss
 

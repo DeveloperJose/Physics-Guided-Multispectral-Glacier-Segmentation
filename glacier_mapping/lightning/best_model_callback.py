@@ -64,6 +64,33 @@ class TestEvaluationCallback(Callback):
         # Cache for metadata to avoid reloading
         self._metadata_cache: Optional[Tuple[Dict, Tuple[int, int], int, Dict]] = None
 
+    def _get_loggers(self, trainer: pl.Trainer) -> List:
+        """Return all configured loggers, handling single-logger setups."""
+        loggers: List = []
+        if hasattr(trainer, "loggers") and trainer.loggers:
+            loggers.extend(trainer.loggers)
+        elif getattr(trainer, "logger", None):
+            loggers.append(trainer.logger)
+        return loggers
+
+    def _log_metrics_to_all_loggers(
+        self, trainer: pl.Trainer, metrics: Dict[str, float], step: int
+    ) -> None:
+        """Log metrics dictionary to every attached logger (MLflow, TensorBoard, etc.)."""
+        if not metrics:
+            return
+
+        for logger in self._get_loggers(trainer):
+            try:
+                if hasattr(logger, "log_metrics"):
+                    logger.log_metrics(metrics, step=step)
+                elif hasattr(logger, "experiment") and hasattr(
+                    logger.experiment, "log_metrics"
+                ):
+                    logger.experiment.log_metrics(logger.run_id, metrics, step=step)  # type: ignore[arg-type]
+            except Exception as e:
+                log.warning(f"Failed to log metrics to logger {logger}: {e}")
+
     def on_validation_epoch_end(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ):
@@ -285,15 +312,16 @@ class TestEvaluationCallback(Callback):
         df.to_csv(csv_dir / f"epoch{trainer.current_epoch + 1:04d}.csv", index=False)
 
         # Log metrics to both loggers
+        metrics_to_log: Dict[str, float] = {}
         for ci, cname in enumerate(class_names):
             tp_, fp_, fn_ = tp_sum[ci], fp_sum[ci], fn_sum[ci]
             prec = precision(tp_, fp_, fn_)
             rec = recall(tp_, fp_, fn_)
             iou = IoU(tp_, fp_, fn_)
 
-            pl_module.log(f"test_{cname}_precision", prec, on_step=False, on_epoch=True)
-            pl_module.log(f"test_{cname}_recall", rec, on_step=False, on_epoch=True)
-            pl_module.log(f"test_{cname}_iou", iou, on_step=False, on_epoch=True)
+            metrics_to_log[f"test_{cname}_precision"] = float(prec)
+            metrics_to_log[f"test_{cname}_recall"] = float(rec)
+            metrics_to_log[f"test_{cname}_iou"] = float(iou)
 
             # Track best test metrics (IoU as main comparison metric)
             if cname in self.best_test_metrics:
@@ -304,22 +332,9 @@ class TestEvaluationCallback(Callback):
                         "precision": prec,
                         "recall": rec,
                     }
-                    # Log new best metrics
-                    pl_module.log(
-                        f"best_test_{cname}_iou", iou, on_step=False, on_epoch=True
-                    )
-                    pl_module.log(
-                        f"best_test_{cname}_precision",
-                        prec,
-                        on_step=False,
-                        on_epoch=True,
-                    )
-                    pl_module.log(
-                        f"best_test_{cname}_recall",
-                        rec,
-                        on_step=False,
-                        on_epoch=True,
-                    )
+                    metrics_to_log[f"best_test_{cname}_iou"] = float(iou)
+                    metrics_to_log[f"best_test_{cname}_precision"] = float(prec)
+                    metrics_to_log[f"best_test_{cname}_recall"] = float(rec)
             else:
                 # Initialize tracking for this class
                 self.best_test_metrics[cname] = {
@@ -327,19 +342,19 @@ class TestEvaluationCallback(Callback):
                     "precision": prec,
                     "recall": rec,
                 }
-                # Log initial best metrics
-                pl_module.log(
-                    f"best_test_{cname}_iou", iou, on_step=False, on_epoch=True
-                )
-                pl_module.log(
-                    f"best_test_{cname}_precision",
-                    prec,
-                    on_step=False,
-                    on_epoch=True,
-                )
-                pl_module.log(
-                    f"best_test_{cname}_recall", rec, on_step=False, on_epoch=True
-                )
+                metrics_to_log[f"best_test_{cname}_iou"] = float(iou)
+                metrics_to_log[f"best_test_{cname}_precision"] = float(prec)
+                metrics_to_log[f"best_test_{cname}_recall"] = float(rec)
+
+        # Push current and best metrics to all configured loggers (MLflow/TensorBoard)
+        self._log_metrics_to_all_loggers(
+            trainer, metrics_to_log, step=trainer.current_epoch + 1
+        )
+
+        # Always log metrics CSVs to loggers (MLflow artifacts) even when no viz
+        log_visualizations_to_all_loggers(
+            trainer, output_dir, trainer.current_epoch + 1, "test_evaluations"
+        )
 
         # Generate visualizations for selected tiles (only if viz_n >= 1)
         if self.viz_n >= 1 and num_samples >= 1:
@@ -360,7 +375,7 @@ class TestEvaluationCallback(Callback):
             # GPU cleanup after visualization generation to prevent OOM
             cleanup_gpu_memory()
 
-            # Log PNG files to both TensorBoard and MLflow
+            # Log PNG files to both TensorBoard and MLflow (CSV already logged above)
             log_visualizations_to_all_loggers(
                 trainer, output_dir, trainer.current_epoch + 1, "test_evaluations"
             )

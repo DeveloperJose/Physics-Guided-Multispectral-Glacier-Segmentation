@@ -716,7 +716,13 @@ def log_visualizations_to_all_loggers(
     viz_type: str,  # "val_visualizations" or "test_evaluations"
 ):
     """Log visualizations to both MLflow and TensorBoard."""
-    for logger in trainer.loggers:
+    loggers = []
+    if hasattr(trainer, "loggers") and trainer.loggers:
+        loggers.extend(trainer.loggers)
+    elif getattr(trainer, "logger", None):
+        loggers.append(trainer.logger)
+
+    for logger in loggers:
         try:
             # MLflow logging
             if (
