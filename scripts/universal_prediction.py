@@ -161,6 +161,7 @@ def run_single_prediction(
 
     cmd.extend(["--gpu", str(gpu_id)])
     cmd.extend(["--server", server_name])
+    cmd.extend(["--output-dir", str(output_base)])
 
     # Set environment variable for GPU
     env = os.environ.copy()
@@ -229,6 +230,12 @@ def main():
     )
     parser.add_argument("generation", help="Generation name (e.g., ablation)")
     parser.add_argument(
+        "--server",
+        type=str,
+        required=True,
+        help="Server name from servers.yaml (REQUIRED)",
+    )
+    parser.add_argument(
         "--no-cleanup",
         action="store_true",
         help="Don't clean up intermediate output directories",
@@ -247,21 +254,14 @@ def main():
 
     # Detect current server
     servers_config = yaml.safe_load(Path("configs/servers.yaml").read_text())
-    current_server = None
-    import socket
 
-    hostname = socket.gethostname()
-    for server_name, server_config in servers_config.items():
-        if hostname == server_config.get("hostname", ""):
-            current_server = server_name
-            break
+    if args.server not in servers_config:
+        print(f"Error: Server '{args.server}' not found in configs/servers.yaml")
+        print(f"Available servers: {list(servers_config.keys())}")
+        return
 
-    if current_server is None:
-        # Fallback to desktop for local development
-        current_server = "desktop"
-        print(f"Could not detect server, defaulting to: {current_server}")
-    else:
-        print(f"Detected server: {current_server}")
+    current_server = args.server
+    print(f"Using server: {current_server}")
 
     # Get output path from server config
     server_config = servers_config[current_server]
@@ -294,20 +294,29 @@ def main():
             print(f"Skipping {base_name}: no CI or DCI runs found")
             continue
 
-        # Determine output directory based on what predict.py will use
-        # predict.py uses clean_run_name(ci_run_name) if available, else clean_run_name(deb_run_name)
-        # NOTE: This keeps the timestamp/suffix of the PRIMARY run (CI if available)
+        # 1. CI Only Job
         if ci_run:
-            prediction_dir_name = clean_run_name(ci_run)
-        else:
-            prediction_dir_name = clean_run_name(dci_run)
+            job_name = f"{base_name} [CI Only]"
+            output_dir = predictions_base_dir / f"{base_name}_CI_only"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_dirs.append(output_dir)
+            jobs.append((job_name, ci_run, None, output_dir, current_server))
 
-        # Create output directory
-        output_dir = predictions_base_dir / prediction_dir_name
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_dirs.append(output_dir)
+        # 2. DCI Only Job
+        if dci_run:
+            job_name = f"{base_name} [DCI Only]"
+            output_dir = predictions_base_dir / f"{base_name}_DCI_only"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_dirs.append(output_dir)
+            jobs.append((job_name, None, dci_run, output_dir, current_server))
 
-        jobs.append((base_name, ci_run, dci_run, output_dir, current_server))
+        # 3. Combined Job (only if both exist)
+        if ci_run and dci_run:
+            job_name = f"{base_name} [Combined]"
+            output_dir = predictions_base_dir / f"{base_name}_Combined"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_dirs.append(output_dir)
+            jobs.append((job_name, ci_run, dci_run, output_dir, current_server))
 
     if not jobs:
         print("No valid prediction jobs found")

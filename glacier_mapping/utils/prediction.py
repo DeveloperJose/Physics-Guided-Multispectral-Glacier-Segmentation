@@ -265,6 +265,8 @@ def merge_ci_debris(
     H, W = ci_mask.shape
     merged = np.zeros((H, W), dtype=np.uint8)
     merged[ci_mask] = 1
+    # Overwrite CleanIce with Debris where they overlap (DCG priority)
+    # "for the pixels where DCG labels overlapped with CIG labels... the output label was set as DCG"
     merged[deb_mask] = 2
 
     # probability cube (3-class)

@@ -19,6 +19,7 @@ import pathlib
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from scipy.ndimage import binary_fill_holes
 from tqdm import tqdm
 import yaml
 
@@ -369,19 +370,25 @@ def main_prediction_logic(args) -> dict:
             )
             print(f"Found DCI checkpoint: {deb_checkpoint_path}")
 
-        # Create output directory - use run name without ci/dci prefixes
-        if args.ci_run_name and args.deb_run_name:
-            # For merged runs, use the CI run name cleaned
-            base_run_name = clean_run_name(args.ci_run_name)
-        elif args.ci_run_name:
-            base_run_name = clean_run_name(args.ci_run_name)
+        # Create output directory
+        if hasattr(args, "output_dir") and args.output_dir:
+            out_root = Path(args.output_dir)
         else:
-            base_run_name = clean_run_name(args.deb_run_name)
+            # Use run name without ci/dci prefixes
+            if args.ci_run_name and args.deb_run_name:
+                # For merged runs, use the CI run name cleaned
+                base_run_name = clean_run_name(args.ci_run_name)
+            elif args.ci_run_name:
+                base_run_name = clean_run_name(args.ci_run_name)
+            else:
+                base_run_name = clean_run_name(args.deb_run_name)
 
-        # Use server's output path for predictions
-        server_output_path = Path(server_config["output_path"])
-        out_root = server_output_path.parent / "output_predictions" / base_run_name
+            # Use server's output path for predictions
+            server_output_path = Path(server_config["output_path"])
+            out_root = server_output_path.parent / "output_predictions" / base_run_name
+
         out_root.mkdir(parents=True, exist_ok=True)
+        print(f"Output directory: {out_root}")
 
         # Use the correct processed data path that has band_metadata.json
         processed_data_path = server_config["processed_data_path"]
@@ -766,7 +773,10 @@ def run_prediction(
             probs = get_probabilities(frame, x_full)  # (H,W,2)
             np.save(prob_path, probs)
 
-            pred_bin = (probs[:, :, 1] >= thr).astype(np.uint8)
+            # Apply threshold and fill holes to match merge_ci_debris logic
+            pred_mask = probs[:, :, 1] >= thr
+            pred_filled = binary_fill_holes(pred_mask)
+            pred_bin = pred_filled.astype(np.uint8)
 
             # GT comparison using unified metrics
             P, R, iou, tp, fp, fn = calculate_binary_metrics(
@@ -917,6 +927,11 @@ if __name__ == "__main__":
         "--server",
         type=str,
         help="Server name from servers.yaml (default: auto-detect)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        help="Explicit output directory for predictions (overrides default naming)",
     )
 
     args = parser.parse_args()
