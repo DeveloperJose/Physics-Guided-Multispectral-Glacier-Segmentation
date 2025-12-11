@@ -3,7 +3,7 @@
 # Override any parameter in child configs for experiment-specific settings.
 
 training_opts:
-  dataset_name: "nameless_run" # Default run name (override in experiment configs)
+  dataset_name: "gen_robust_comprehensive" # Default run name (override in experiment configs)
   run_name: "" # Optional run identifier (appended to dataset_name)
   epochs: 200 # Reduced from 500 based on Gen1/Gen2 analysis (best models converge at 130-140)
   fine_tune: false

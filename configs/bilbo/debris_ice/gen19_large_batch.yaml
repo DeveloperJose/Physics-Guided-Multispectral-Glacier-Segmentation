@@ -1,8 +1,0 @@
-# Gen19 Variation: Large Batch
-# Goal: Test stability and batch norm performance with larger batch size.
-training_opts:
-  dataset_name: "gen_robust_comprehensive"
-  run_name: "gen19_large_batch"
-
-loader_opts:
-  batch_size: 32
