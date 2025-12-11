@@ -86,10 +86,10 @@ class GlacierDataModule(pl.LightningDataModule):
             transforms.append(A.HorizontalFlip(p=aug_opts["h_flip_prob"]))
         if aug_opts.get("v_flip_prob", 0) > 0:
             transforms.append(A.VerticalFlip(p=aug_opts["v_flip_prob"]))
-        if aug_opts.get("rotate_prob", 0) > 0:
-            transforms.append(
-                A.Rotate(limit=aug_opts["rotate_limit"], p=aug_opts["rotate_prob"])
-            )
+        if aug_opts.get("rotate90_prob", 0) > 0:
+            transforms.append(A.RandomRotate90(p=aug_opts["rotate90_prob"]))
+        if aug_opts.get("transpose_prob", 0) > 0:
+            transforms.append(A.Transpose(p=aug_opts["transpose_prob"]))
         return A.Compose(transforms)
 
     def setup(self, stage: Optional[str] = None):
