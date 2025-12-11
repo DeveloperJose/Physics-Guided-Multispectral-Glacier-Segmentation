@@ -67,33 +67,38 @@ class TestEvaluationCallback(Callback):
     def on_validation_epoch_end(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ):
-        """Trigger full-tile evaluation using 3-phase optimization strategy."""
-        # Skip evaluation during sanity check to prevent OOM
+        """Track best val loss during training; defer test eval to train_end."""
         if trainer.sanity_checking:
-            log.info("Skipping full-tile evaluation during sanity check")
             return
 
         current_val_loss = trainer.callback_metrics.get("val_loss", float("inf"))
-        current_epoch = trainer.current_epoch
-
-        # Check if we should evaluate based on 3-phase strategy
-        should_evaluate, reason = self._should_evaluate(current_epoch, current_val_loss)
-
-        if should_evaluate:
-            # Update best tracking
-            if current_val_loss < self.best_val_loss:
-                self.best_val_loss = current_val_loss
-
-            # Always update last_val_loss for improvement calculations
+        if current_val_loss < self.best_val_loss:
+            self.best_val_loss = current_val_loss
+        if current_val_loss < self.last_val_loss:
             self.last_val_loss = current_val_loss
 
-            log.info(f"🎯 Running test set evaluation ({reason})")
-            log.info(f"   Epoch: {current_epoch}, Val Loss: {current_val_loss:.4f}")
-            self._run_full_evaluation(trainer, pl_module)
-        else:
-            # Update last_val_loss for next improvement calculation
-            if current_val_loss < self.last_val_loss:
-                self.last_val_loss = current_val_loss
+    def on_train_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule):
+        """Run a single test evaluation on the best checkpoint (or last weights)."""
+        checkpoint_callback = trainer.checkpoint_callback
+        best_model_path = None
+        if checkpoint_callback is not None and hasattr(
+            checkpoint_callback, "best_model_path"
+        ):
+            best_model_path = getattr(checkpoint_callback, "best_model_path", None)
+
+        module_to_eval = pl_module
+        if best_model_path and Path(best_model_path).exists():
+            try:
+                module_to_eval = pl_module.__class__.load_from_checkpoint(
+                    best_model_path
+                )
+                module_to_eval.to(pl_module.device)
+                module_to_eval.eval()
+                log.info(f"Loaded best checkpoint for final test eval: {best_model_path}")
+            except Exception as e:
+                log.warning(f"Failed to load best checkpoint; using current model: {e}")
+
+        self._run_full_evaluation(trainer, module_to_eval)
 
     def _run_full_evaluation(self, trainer: pl.Trainer, pl_module: pl.LightningModule):
         """Test set evaluation using Lightning module directly."""
@@ -214,9 +219,9 @@ class TestEvaluationCallback(Callback):
                 else:  # Debris task (target_class == 2)
                     tp_sum[0] += tp_bg  # BG
                     fp_sum[0] += fp_bg
-                    fn_sum[0] += fn_bg
-                    # tp_sum[1] stays 0 (CleanIce not evaluated)
-                    tp_sum[2] += tp_target  # Debris
+            fn_sum[0] += fn_bg
+            # tp_sum[1] stays 0 (CleanIce not evaluated)
+            tp_sum[2] += tp_target  # Debris
                     fp_sum[2] += fp_target
                     fn_sum[2] += fn_target
 

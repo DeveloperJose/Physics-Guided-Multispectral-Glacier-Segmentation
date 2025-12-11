@@ -1,0 +1,10 @@
+# Gen24: baseline with looser early stopping
+
+training_opts:
+  run_name: "gen24_baseline_es30_md001"
+  early_stopping: 30
+  early_stopping_min_delta: 0.001
+
+scheduler_opts:
+  args:
+    max_lr: 0.0005
