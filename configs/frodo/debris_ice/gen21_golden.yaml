@@ -1,6 +1,0 @@
-# Gen21 Golden Standard
-# - LR: 0.0005 (Stable)
-# - Augs: 0.15 (Gen3 Standard)
-# - Class Weights: [0.01, 1] (Robust)
-training_opts:
-  run_name: "gen21_golden"

@@ -1,7 +1,0 @@
-# Gen21 Aggressive
-# Goal: Test if we can push LR slightly higher than 0.0005
-training_opts:
-  run_name: "gen21_aggressive"
-scheduler_opts:
-  args:
-    max_lr: 0.0007

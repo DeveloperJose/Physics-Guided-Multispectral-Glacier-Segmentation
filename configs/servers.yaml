@@ -30,7 +30,7 @@ bilbo:
   # Preprocessing output directory
   processed_data_path: /home/jperez/datasets/HKH
   # Training defaults
-  batch_size: 32
+  batch_size: 8 # Standardized to 8 (was 32)
   epochs: 150
   num_workers: 12
 
@@ -47,6 +47,6 @@ frodo:
   # Preprocessing output directory
   processed_data_path: /home/jperez/datasets/HKH
   # Training defaults
-  batch_size: 16
+  batch_size: 8 # Standardized to 8 (was 16)
   epochs: 150
   num_workers: 8
