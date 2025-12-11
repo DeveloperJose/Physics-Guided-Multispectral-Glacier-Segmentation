@@ -520,7 +520,7 @@ class GlacierSegmentationModule(pl.LightningModule):
         """Configure optimizers and learning rate schedulers."""
         # Setup optimizer
         optimizer_name = self.optim_opts.get("name", "AdamW")
-        optimizer_args = self.optim_opts.get("args", {})
+        optimizer_args = self.optim_opts.get("args") or {}
 
         # Convert string values to proper types (fix for YAML parsing issues)
         if "weight_decay" in optimizer_args and isinstance(

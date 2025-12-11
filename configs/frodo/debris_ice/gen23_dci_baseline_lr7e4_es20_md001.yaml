@@ -6,9 +6,9 @@ training_opts:
   early_stopping: 20
   early_stopping_min_delta: 0.001
 
-optim_opts:
-  args:
-    # lr: 0.0003 (inherited from train.yaml)
+# optim_opts:
+#   args:
+#     # lr: 0.0003 (inherited from train.yaml)
 
 scheduler_opts:
   args:
