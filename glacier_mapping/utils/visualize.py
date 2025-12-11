@@ -30,7 +30,7 @@ DEFAULT_CLASS_COLORMAP = {
 # -----------------------------
 
 
-def scale_image(img, scale_factor=1):
+def scale_image(img, scale_factor: float = 1.0):
     """Scale image by factor using cv2.resize.
 
     Args:
@@ -53,7 +53,7 @@ def scale_image(img, scale_factor=1):
         raise ValueError(f"Unsupported image shape: {img.shape}")
 
 
-def make_rgb_preview(x, scale_factor=1):
+def make_rgb_preview(x, scale_factor: float = 1.0):
     """Convert multispectral tile into normalized RGB preview."""
     import glacier_mapping.utils.logging as log
 
@@ -173,7 +173,7 @@ def _viridis_from_scalar(scalar_01):
     return (rgba[..., :3] * 255).astype(np.uint8)
 
 
-def make_confidence_map(prob, invalid_mask=None, scale_factor=1):
+def make_confidence_map(prob, invalid_mask=None, scale_factor: float = 1.0):
     rgb = _viridis_from_scalar(prob)
     if invalid_mask is not None:
         rgb[invalid_mask] = 0
@@ -236,7 +236,9 @@ def make_confidence_colorbar(width, height=40, font_scale=0.4):
     return colorbar
 
 
-def make_overlay(tiff_rgb, labels, cmap, alpha=0.5, mask=None, scale_factor=1):
+def make_overlay(
+    tiff_rgb, labels, cmap, alpha=0.5, mask=None, scale_factor: float = 1.0
+):
     H, W = labels.shape
     overlay = np.zeros((H, W, 3), dtype=np.uint8)
     for cls, col in cmap.items():
@@ -292,7 +294,7 @@ def make_combined_error_mask(tp_mask, fp_mask, fn_mask, mask=None):
 
 
 def make_errors_overlay(
-    tiff_rgb, tp_mask, fp_mask, fn_mask, alpha=0.5, mask=None, scale_factor=1
+    tiff_rgb, tp_mask, fp_mask, fn_mask, alpha=0.5, mask=None, scale_factor: float = 1.0
 ):
     H, W = tiff_rgb.shape[:2]
     overlay = np.zeros((H, W, 3), dtype=np.uint8)
@@ -356,7 +358,7 @@ def make_tp_fp_fn_masks(tp_mask, fp_mask, fn_mask):
     return tp_rgb, fp_rgb, fn_rgb
 
 
-def create_legend_row(labels_dict, width, height=40, scale_factor=1):
+def create_legend_row(labels_dict, width, height=40, scale_factor: float = 1.0):
     """
     Create a vertical legend with color boxes and labels stacked.
 
@@ -829,7 +831,7 @@ def make_redesigned_panel(
     metrics_text=None,
     conf_rgb=None,
     mask=None,
-    scale_factor=1,
+    scale_factor: float = 1,
 ):
     """
     Creates a redesigned, optimized visualization panel for model predictions.
@@ -892,8 +894,8 @@ def make_redesigned_panel(
 
     for _, label_value in class_label_pairs:
         tp_mask |= (gt_labels == label_value) & (pr_labels == label_value)
-        fp_mask |= (gt_labels != label_value) & (pr_labels == label_value) & (
-            gt_labels != 255
+        fp_mask |= (
+            (gt_labels != label_value) & (pr_labels == label_value) & (gt_labels != 255)
         )
         fn_mask |= (gt_labels == label_value) & (pr_labels != label_value)
 

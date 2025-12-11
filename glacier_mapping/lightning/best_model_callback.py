@@ -1,7 +1,7 @@
 """Test set evaluation callback for glacier mapping (triggered on best model)."""
 
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pytorch_lightning as pl
@@ -62,7 +62,7 @@ class TestEvaluationCallback(Callback):
         self.last_val_loss = float("inf")
 
         # Cache for metadata to avoid reloading
-        self._metadata_cache = None
+        self._metadata_cache: Optional[Tuple[Dict, Tuple[int, int], int, Dict]] = None
 
     def on_validation_epoch_end(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
@@ -71,7 +71,8 @@ class TestEvaluationCallback(Callback):
         if trainer.sanity_checking:
             return
 
-        current_val_loss = trainer.callback_metrics.get("val_loss", float("inf"))
+        current_val_loss = float(trainer.callback_metrics.get("val_loss", float("inf")))
+
         if current_val_loss < self.best_val_loss:
             self.best_val_loss = current_val_loss
         if current_val_loss < self.last_val_loss:
@@ -94,7 +95,9 @@ class TestEvaluationCallback(Callback):
                 )
                 module_to_eval.to(pl_module.device)
                 module_to_eval.eval()
-                log.info(f"Loaded best checkpoint for final test eval: {best_model_path}")
+                log.info(
+                    f"Loaded best checkpoint for final test eval: {best_model_path}"
+                )
             except Exception as e:
                 log.warning(f"Failed to load best checkpoint; using current model: {e}")
 
@@ -145,9 +148,9 @@ class TestEvaluationCallback(Callback):
         output_classes = getattr(pl_module, "output_classes", [1])
 
         rows = []
-        tp_sum = [0] * n_classes
-        fp_sum = [0] * n_classes
-        fn_sum = [0] * n_classes
+        tp_sum = [0.0] * n_classes
+        fp_sum = [0.0] * n_classes
+        fn_sum = [0.0] * n_classes
 
         # Evaluate all test tiles (reuse cached predictions when available)
         from tqdm import tqdm
@@ -219,9 +222,9 @@ class TestEvaluationCallback(Callback):
                 else:  # Debris task (target_class == 2)
                     tp_sum[0] += tp_bg  # BG
                     fp_sum[0] += fp_bg
-            fn_sum[0] += fn_bg
-            # tp_sum[1] stays 0 (CleanIce not evaluated)
-            tp_sum[2] += tp_target  # Debris
+                    fn_sum[0] += fn_bg
+                    # tp_sum[1] stays 0 (CleanIce not evaluated)
+                    tp_sum[2] += tp_target  # Debris
                     fp_sum[2] += fp_target
                     fn_sum[2] += fn_target
 
@@ -249,9 +252,9 @@ class TestEvaluationCallback(Callback):
                     t = (y_true_valid_raw == label).astype(np.uint8)
 
                     tp_, fp_, fn_ = tp_fp_fn(torch.from_numpy(p), torch.from_numpy(t))
-                    tp_sum[ci] += tp_
-                    fp_sum[ci] += fp_
-                    fn_sum[ci] += fn_
+                    tp_sum[ci] += float(tp_)
+                    fp_sum[ci] += float(fp_)
+                    fn_sum[ci] += float(fn_)
 
                     row += [
                         precision(tp_, fp_, fn_),

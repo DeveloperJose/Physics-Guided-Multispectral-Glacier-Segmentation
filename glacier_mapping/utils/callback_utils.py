@@ -35,15 +35,15 @@ import torch
 MAX_TIFF_CACHE_ENTRIES = 16  # Prevent unbounded memory growth
 
 # Import MLflow utilities with error handling
-try:
-    import importlib.util
+from pytorch_lightning.loggers import TensorBoardLogger
 
-    MLFLOW_AVAILABLE = importlib.util.find_spec("mlflow") is not None
+MLFlowLogger = None
+try:
+    from pytorch_lightning.loggers import MLFlowLogger
+
+    MLFLOW_AVAILABLE = True
 except ImportError:
     MLFLOW_AVAILABLE = False
-
-if MLFLOW_AVAILABLE:
-    from pytorch_lightning.loggers import MLFlowLogger, TensorBoardLogger
 
 
 def load_dataset_metadata(
@@ -215,7 +215,7 @@ def generate_single_visualization(
     output_dir: Path,
     epoch: int,
     title_prefix: str = "",
-    metadata_cache: Optional[Dict] = None,
+    metadata_cache: Optional[Tuple[Dict, Tuple[int, int], int, Dict]] = None,
     image_dir: Optional[Path] = None,
     scale_factor: float = 0.5,
     tile_rank_map: Optional[Dict[Path, int]] = None,
@@ -719,7 +719,11 @@ def log_visualizations_to_all_loggers(
     for logger in trainer.loggers:
         try:
             # MLflow logging
-            if MLFLOW_AVAILABLE and isinstance(logger, MLFlowLogger):
+            if (
+                MLFLOW_AVAILABLE
+                and hasattr(logger, "experiment")
+                and hasattr(logger.experiment, "log_artifacts")
+            ):
                 # Log CSV metrics directory if it exists
                 csv_dir = output_dir / "csv_metrics"
                 if csv_dir.exists():
@@ -740,7 +744,7 @@ def log_visualizations_to_all_loggers(
                         )
 
             # TensorBoard logging
-            elif isinstance(logger, TensorBoardLogger):
+            elif isinstance(logger, TensorBoardLogger):  # type: ignore
                 import cv2
                 import torch
 
