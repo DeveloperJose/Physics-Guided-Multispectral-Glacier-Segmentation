@@ -35,6 +35,8 @@ glacier_mapping/
 ├── data/          # Data loading, preprocessing
 └── utils/         # Visualization, utilities
 
+google_earth_scripts/  # Google Earth Engine scripts
+
 scripts/
 ├── train.py
 ├── predict.py
