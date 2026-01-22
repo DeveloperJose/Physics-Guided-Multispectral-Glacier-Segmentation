@@ -6,13 +6,6 @@ import glacier_mapping.utils.logging as log
 
 
 class ConvBlock(nn.Module):
-    """
-    Single Encoder Block
-
-    Transforms large image with small inchannels into smaller image with larger
-    outchannels, via two convolution / relu pairs.
-    """
-
     def __init__(
         self, inchannels, outchannels, dropout, spatial, kernel_size=3, padding=1
     ):
@@ -41,13 +34,6 @@ class ConvBlock(nn.Module):
 
 
 class UpBlock(nn.Module):
-    """
-    Single Decoder Block
-
-    Transforms small image with large inchannels into larger image with smaller
-    outchannels, via two convolution / relu pairs.
-    """
-
     def __init__(
         self, inchannels, outchannels, dropout, spatial, kernel_size=2, stride=2
     ):
@@ -64,13 +50,6 @@ class UpBlock(nn.Module):
 
 
 class Unet(nn.Module):
-    """
-    U-Net Model
-
-    Combines the encoder and decoder blocks with skip connections, to arrive at
-    a U-Net model.
-    """
-
     def __init__(
         self,
         inchannels,

@@ -26,7 +26,6 @@ import glacier_mapping.utils.logging as log
 MLFLOW_AVAILABLE = True
 ERROR_HANDLER_AVAILABLE = True
 
-# Suppress "scheduler.step() before optimizer.step()" warning (benign in this Lightning+OneCycleLR context)
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,
@@ -35,16 +34,6 @@ warnings.filterwarnings(
 
 
 def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Deep merge two dictionaries, override takes precedence.
-
-    Args:
-        base: Base dictionary
-        override: Override dictionary (takes precedence)
-
-    Returns:
-        Merged dictionary
-    """
     result = base.copy()
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
@@ -55,42 +44,23 @@ def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]
 
 
 def load_config(config_path: str, server: str) -> Dict[str, Any]:
-    """
-    Load YAML configuration with 4-level hierarchy:
-    1. train.yaml (global defaults)
-    2. servers.yaml[server] -> loader_opts/training_opts
-    3. tasks/{task}.yaml (inferred from path)
-    4. {experiment_path} (specific experiment)
-
-    Args:
-        config_path: Path to experiment config (e.g., "configs/frodo/clean_ice/base.yaml")
-        server: Server name (e.g., "frodo")
-
-    Returns:
-        Merged configuration dictionary
-    """
     config_path_obj = pathlib.Path(config_path)
-
-    # Parse task from path structure
     path_parts = config_path_obj.parts
     if len(path_parts) >= 3 and path_parts[0] == "configs":
-        server_from_path = path_parts[1]  # e.g., "frodo"
-        task = path_parts[2]  # e.g., "clean_ice"
+        server_from_path = path_parts[1]
+        task = path_parts[2]
 
-        # Validate server consistency
         if server != server_from_path:
             raise ValueError(
                 f"Server mismatch: CLI arg '{server}' != path '{server_from_path}'\n"
                 f"Config path: {config_path}"
             )
     else:
-        # Fallback for configs not following new structure
         log.warning(f"Config path doesn't follow new structure: {config_path}")
         log.info("Loading as standalone config without hierarchy")
         with open(config_path) as f:
             return yaml.safe_load(f)
 
-    # 1. Load train.yaml (global base config)
     base_config_path = pathlib.Path("configs/train.yaml")
     if not base_config_path.exists():
         raise FileNotFoundError(f"Base config not found: {base_config_path}")
@@ -98,7 +68,6 @@ def load_config(config_path: str, server: str) -> Dict[str, Any]:
     with open(base_config_path) as f:
         merged = yaml.safe_load(f)
 
-    # 2. Load server-specific training settings from servers.yaml
     servers_yaml_path = pathlib.Path("configs/servers.yaml")
     if servers_yaml_path.exists():
         with open(servers_yaml_path) as f:
@@ -106,7 +75,6 @@ def load_config(config_path: str, server: str) -> Dict[str, Any]:
 
         if server in servers:
             server_config = servers[server]
-            # Extract training-relevant fields (batch_size, epochs, num_workers)
             if "batch_size" in server_config:
                 if "loader_opts" not in merged:
                     merged["loader_opts"] = {}
@@ -120,14 +88,12 @@ def load_config(config_path: str, server: str) -> Dict[str, Any]:
                     merged["loader_opts"] = {}
                 merged["loader_opts"]["num_workers"] = server_config["num_workers"]
 
-    # 3. Load task config
     task_config_path = pathlib.Path(f"configs/tasks/{task}.yaml")
     if task_config_path.exists():
         with open(task_config_path) as f:
             task_config = yaml.safe_load(f)
         merged = deep_merge(merged, task_config)
 
-    # 4. Load experiment-specific config
     with open(config_path) as f:
         experiment_config = yaml.safe_load(f)
     merged = deep_merge(merged, experiment_config)
@@ -136,15 +102,12 @@ def load_config(config_path: str, server: str) -> Dict[str, Any]:
 
 
 class TrainingLogUploadCallback(pl.Callback):
-    """Upload the training log file (and best checkpoint) to MLflow before run end."""
-
     def __init__(self, log_file_path: pathlib.Path, upload_best_model: bool = True):
         super().__init__()
         self.log_file_path = pathlib.Path(log_file_path)
         self.upload_best_model = upload_best_model
 
     def _get_mlflow_logger(self, trainer: pl.Trainer):
-        # Handle both single-logger and multi-logger setups
         loggers = []
         if hasattr(trainer, "loggers") and trainer.loggers:
             loggers.extend(trainer.loggers)
@@ -157,7 +120,6 @@ class TrainingLogUploadCallback(pl.Callback):
         return None
 
     def on_fit_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
-        # Flush file handlers so the log is up to date before uploading
         for handler in log.LOGGER.handlers:
             if hasattr(handler, "flush"):
                 handler.flush()
@@ -189,24 +151,10 @@ class TrainingLogUploadCallback(pl.Callback):
             log.warning("Best checkpoint path not found; skipping MLflow upload")
             return
 
-        # Temporarily disable checkpoint upload (too slow on current setup).
-        # To re-enable, uncomment the block below.
-        # try:
-        #     mlflow_logger.experiment.log_artifact(
-        #         mlflow_logger.run_id,
-        #         str(best_checkpoint),
-        #         artifact_path="checkpoints",
-        #     )
-        #     log.info(f"Uploaded best checkpoint to MLflow: {best_checkpoint}")
-        # except Exception as e:
-        #     log.warning(f"Failed to upload best checkpoint to MLflow: {e}")
-
     def _get_best_checkpoint(self, trainer: pl.Trainer) -> pathlib.Path | None:
-        """Locate the best checkpoint path among ModelCheckpoint callbacks."""
         from pytorch_lightning.callbacks import ModelCheckpoint
 
         best_path: pathlib.Path | None = None
-        # Prefer callbacks that track best_model_path
         for cb in getattr(trainer, "callbacks", []):
             if isinstance(cb, ModelCheckpoint):
                 candidate = getattr(cb, "best_model_path", "")
@@ -214,7 +162,6 @@ class TrainingLogUploadCallback(pl.Callback):
                     best_path = pathlib.Path(candidate)
                     break
 
-        # Fallback to trainer.checkpoint_callback
         if best_path is None:
             checkpoint_cb = getattr(trainer, "checkpoint_callback", None)
             if (
@@ -230,7 +177,6 @@ class TrainingLogUploadCallback(pl.Callback):
 
 
 def main():
-    """Main training function."""
     parser = argparse.ArgumentParser(description="Train glacier mapping with Lightning")
     parser.add_argument("--config", type=str, required=True, help="Path to config file")
     parser.add_argument(
@@ -246,7 +192,6 @@ def main():
         "--resume", type=str, default=None, help="Path to checkpoint to resume from"
     )
 
-    # MLflow arguments
     parser.add_argument(
         "--server",
         type=str,
@@ -292,29 +237,24 @@ def main():
 
     args = parser.parse_args()
 
-    # Load configuration with hierarchical merging
     config_path = pathlib.Path(args.config)
 
     config = load_config(str(config_path), args.server)
 
-    # Parse MLflow arguments
     mlflow_enabled = args.mlflow_enabled.lower() == "true"
 
-    # Load server configuration (explicit, no defaults)
     servers_yaml_path = pathlib.Path("configs") / "servers.yaml"
     if MLFLOW_AVAILABLE:
         server_config = mlflow_utils.load_server_config(
             str(servers_yaml_path), args.server
-        )  # type: ignore[arg-type]
+        )
     else:
-        # Fallback server config for when MLflow unavailable
         with open(servers_yaml_path, "r") as f:
             servers = yaml.safe_load(f)
         if args.server not in servers:
             raise ValueError(f"Server '{args.server}' not found in {servers_yaml_path}")
         server_config = servers[args.server]
 
-    # Extract configuration sections
     training_opts = config.get("training_opts", {})
     loader_opts = config.get("loader_opts", {})
     model_opts = config.get("model_opts", {})
@@ -323,7 +263,6 @@ def main():
     scheduler_opts = config.get("scheduler_opts", {})
     metrics_opts = config.get("metrics_opts", {})
 
-    # Extract channel group selections from loader_opts
     landsat_channels = loader_opts.get("landsat_channels", True)
     dem_channels = loader_opts.get("dem_channels", True)
     spectral_indices_channels = loader_opts.get("spectral_indices_channels", True)
@@ -331,16 +270,13 @@ def main():
     physics_channels = loader_opts.get("physics_channels", False)
     velocity_channels = loader_opts.get("velocity_channels", True)
 
-    # Determine max_epochs: CLI argument overrides config, otherwise use config value
     if args.max_epochs is not None:
         max_epochs = args.max_epochs
         log.info(f"Using max_epochs from CLI argument: {max_epochs}")
     else:
-        max_epochs = training_opts.get("epochs", 100)  # Default to 100 if not in config
+        max_epochs = training_opts.get("epochs", 100)
         log.info(f"Using max_epochs from config: {max_epochs}")
 
-    # Auto-construct processed_dir from server config + dataset_name
-    # This matches the pattern used in ray_train.py and preprocess.py
     if "processed_dir" not in loader_opts or not loader_opts["processed_dir"]:
         dataset_name = training_opts.get("dataset_name")
         if not dataset_name:
@@ -356,10 +292,9 @@ def main():
             f"{server_config['processed_data_path']}/{dataset_name}/"
         )
         log.info(
-            f"✓ Auto-constructed data path from server config: {loader_opts['processed_dir']}"
+            f"Auto-constructed data path from server config: {loader_opts['processed_dir']}"
         )
 
-    # Validate that the constructed/specified path exists
     data_path = pathlib.Path(loader_opts["processed_dir"])
     if not data_path.exists():
         raise FileNotFoundError(
@@ -367,7 +302,6 @@ def main():
             f"Please run preprocessing first or check your server config."
         )
 
-    # Check for required normalization file
     norm_file = data_path / "normalize_train.npy"
     if not norm_file.exists():
         raise FileNotFoundError(
@@ -375,9 +309,7 @@ def main():
             f"Please run preprocessing to generate normalization statistics."
         )
 
-    # Get run name and output directory
     base_run_name = training_opts.get("run_name", "experiment")
-    # Priority: CLI arg > config file > server config > fallback
     output_dir_source: str
     if args.output_dir:
         output_dir: str = args.output_dir
@@ -392,22 +324,20 @@ def main():
         output_dir = "output/"
         output_dir_source = "default fallback"
 
-    # Generate MLflow experiment name and run name
     if mlflow_enabled and MLFLOW_AVAILABLE:
         experiment_name = args.experiment_name or mlflow_utils.categorize_experiment(
             config
-        )  # type: ignore[assignment]
-        run_name = mlflow_utils.generate_run_name(base_run_name, args.server)  # type: ignore[assignment]
-        mlflow_utils.extract_mlflow_params(config, server_config)  # type: ignore[assignment]
+        )
+        run_name = mlflow_utils.generate_run_name(base_run_name, args.server)
+        mlflow_utils.extract_mlflow_params(config, server_config)
         mlflow_tags = mlflow_utils.generate_run_tags(
             config, server_config, str(config_path)
-        )  # type: ignore[assignment]
+        )
     else:
         experiment_name = None
         run_name = base_run_name
         mlflow_tags = {}
 
-    # Setup file logging
     config_output_dir = pathlib.Path(output_dir) / run_name
     config_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -434,7 +364,6 @@ def main():
     log.info(f"  Velocity: {velocity_channels}")
     log.info(f"Output classes: {loader_opts.get('output_classes', 'NOT_SET')}")
 
-    # Save config as JSON for upload script (skip if --no-output)
     if not args.no_output:
         import json
 
@@ -445,7 +374,6 @@ def main():
     else:
         log.info("Skipping config save (--no-output mode)")
 
-    # Create data module
     log.info("Creating data module...")
     datamodule = GlacierDataModule(
         processed_dir=loader_opts.get("processed_dir", "/tmp"),
@@ -464,7 +392,6 @@ def main():
         num_workers=loader_opts.get("num_workers", 4),
     )
 
-    # Create model
     log.info("Creating model...")
     model = GlacierSegmentationModule(
         model_opts=model_opts,
@@ -484,19 +411,16 @@ def main():
         class_names=loader_opts.get("class_names", ["BG", "CleanIce", "Debris"]),
     )
 
-    # Setup logging (skip if --no-output for Ray hyperparameter search)
     log.info("Setting up logging...")
     from pytorch_lightning.loggers import Logger
 
     mlflow_logger = None
     if args.no_output:
-        # No output mode: no loggers, no callbacks
         loggers: list[Logger] = []
         log.info("Skipping loggers (--no-output mode)")
     else:
         loggers = [TensorBoardLogger(save_dir=f"{output_dir}/{run_name}/logs", name="")]
 
-        # Add MLflow logger if enabled and available
         if mlflow_enabled and MLFLOW_AVAILABLE and experiment_name:
             try:
                 from pytorch_lightning.loggers import MLFlowLogger
@@ -506,7 +430,7 @@ def main():
                     run_name=run_name,
                     tracking_uri=args.tracking_uri,
                     tags=mlflow_tags,
-                    log_model=False,  # Disable automatic model logging to save MLflow storage
+                    log_model=False,
                 )
                 loggers.append(mlflow_logger)
                 log.info(
@@ -516,7 +440,6 @@ def main():
                 log.warning(f"Failed to setup MLflow logger: {e}")
                 mlflow_logger = None
 
-    # Setup error handler (skip if --no-output)
     error_handler = None
     if not args.no_output and ERROR_HANDLER_AVAILABLE:
         error_handler = setup_error_handler(
@@ -525,7 +448,6 @@ def main():
             mlflow_logger=mlflow_logger,
         )
 
-    # Setup callbacks
     callbacks = []
     viz_scale_factor = 1
 
@@ -536,7 +458,7 @@ def main():
                     dirpath=f"{output_dir}/{run_name}/checkpoints",
                     monitor="val_loss",
                     mode="min",
-                    save_top_k=3,  # Keep only the best checkpoint
+                    save_top_k=3,
                     save_last=True,
                     filename=f"{run_name}_{{epoch:03d}}_{{val_loss:.4f}}",
                 ),
@@ -544,7 +466,6 @@ def main():
             ]
         )
 
-        # Early stopping callback (Lightning only - no manual logic)
         early_stopping_patience = training_opts.get("early_stopping", None)
         if early_stopping_patience and early_stopping_patience > 0:
             callbacks.append(
@@ -557,10 +478,9 @@ def main():
                 )
             )
             log.info(
-                f"✓ Early stopping enabled (patience={early_stopping_patience} epochs)"
+                f"Early stopping enabled (patience={early_stopping_patience} epochs)"
             )
 
-        # Validation visualization callback (only if output enabled and viz_n >= 1)
         val_viz_n = training_opts.get("val_viz_n", 4)
         viz_scale_factor = training_opts.get("viz_scale_factor", 1)
         if val_viz_n >= 1:
@@ -575,13 +495,11 @@ def main():
                 )
             )
 
-        # Upload the training log and best checkpoint to MLflow before the run finalizes
         if mlflow_logger and log_file_path:
             callbacks.append(
                 TrainingLogUploadCallback(log_file_path, upload_best_model=False)
             )
 
-    # Test evaluation (skip entirely when --no-output to avoid disk writes)
     run_test_eval = (
         training_opts.get("run_test_eval", True)
         and not args.skip_test_eval
@@ -600,20 +518,15 @@ def main():
     if not callbacks:
         log.info("No callbacks enabled")
 
-    # Create trainer
     log.info("Creating trainer...")
 
-    # Handle GPU device selection
     if args.gpu is not None:
-        # Explicit GPU specified
         devices = [args.gpu]
         log.info(f"Using explicit GPU: {args.gpu}")
     else:
-        # Auto-detect (for Ray or single-GPU systems)
-        devices = 1  # Use 1 GPU (Ray sets CUDA_VISIBLE_DEVICES)
+        devices = 1
         log.info("Using auto-detected GPU (Ray controlled)")
 
-    # Set default_root_dir to ensure all Lightning outputs go to output/
     default_root = f"{output_dir}/{run_name}" if not args.no_output else None
     if default_root:
         log.info(f"Lightning default_root_dir: {default_root}")
@@ -623,13 +536,13 @@ def main():
         accelerator="gpu",
         devices=devices,
         max_epochs=max_epochs,
-        logger=loggers,  # Support multiple loggers
+        logger=loggers,
         callbacks=callbacks,
         precision="16-mixed",
         log_every_n_steps=10,
         val_check_interval=1.0,
         enable_progress_bar=True,
-        num_sanity_val_steps=2,  # Quick sanity check
+        num_sanity_val_steps=2,
     )
 
     log.info(f"Starting training for {max_epochs} epochs...")
@@ -647,7 +560,6 @@ def main():
 
         log.info("Training completed successfully!")
 
-        # Extract final validation loss for Ray Tune integration
         final_val_loss = float(trainer.callback_metrics.get("val_loss", 999.0))
         log.info(f"Final validation loss: {final_val_loss:.4f}")
 

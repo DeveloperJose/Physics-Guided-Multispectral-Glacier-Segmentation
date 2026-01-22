@@ -26,16 +26,12 @@ matplotlib.use("Agg")
 
 
 def remove_and_create(dirpath):
-    """Remove and recreate directory."""
     if os.path.exists(dirpath) and os.path.isdir(dirpath):
         shutil.rmtree(dirpath)
     os.makedirs(dirpath)
 
 
-# Inline istarmap helper for progress tracking with multiprocessing
-# Source: https://stackoverflow.com/questions/57354700/starmap-combined-with-tqdm
 def istarmap(pool_self, func, iterable, chunksize=1):
-    """starmap-version of imap for progress tracking."""
     pool_self._check_running()
     if chunksize < 1:
         raise ValueError("Chunksize must be 1+, not {0:n}".format(chunksize))
@@ -53,26 +49,20 @@ def istarmap(pool_self, func, iterable, chunksize=1):
     return (item for chunk in result for item in chunk)
 
 
-# Monkey patch istarmap into multiprocessing.Pool
 multiprocessing.pool.Pool.istarmap = istarmap
 
 
 def load_config_with_server_paths(config_path, server_name="desktop"):
-    """Load config and construct absolute paths from servers.yaml"""
-    # Load slice config
     slice_config = Dict(yaml.safe_load(open(config_path)))
 
-    # Load server paths
     servers_cfg = Dict(yaml.safe_load(Path("configs/servers.yaml").read_text()))
-    server = servers_cfg[server_name]  # defaults to desktop
+    server = servers_cfg[server_name]
 
-    # Use absolute paths directly from servers.yaml
     slice_config.image_dir = server.image_dir
     slice_config.dem_dir = server.dem_dir
     slice_config.labels_dir = server.labels_dir
     slice_config.out_dir = f"{server.processed_data_path}/{slice_config.output_name}"
 
-    # Add velocity_dir if available
     if hasattr(server, "velocity_dir"):
         slice_config.velocity_dir = server.velocity_dir
 
@@ -104,14 +94,11 @@ if __name__ == "__main__":
     np.random.seed(42)
     warnings.filterwarnings("ignore")
 
-    # Load config with server paths
     conf = load_config_with_server_paths(args.config, args.server)
 
-    # Override config with CLI argument if provided
     if args.save_skipped_visualizations:
         conf.save_skipped_visualizations = True
     else:
-        # Use config value, default to False if not specified
         conf.save_skipped_visualizations = conf.get(
             "save_skipped_visualizations", False
         )
@@ -175,7 +162,7 @@ if __name__ == "__main__":
     labels = fn.read_shp(Path(conf.labels_dir) / "HKH_CIDC_5basins_all.shp")
     remove_and_create(conf.out_dir)
 
-    band_names_metadata = None  # Capture from first image processing
+    band_names_metadata = None
 
     with tqdm(total=1, desc="temp") as pbar:
         for split, meta in splits.items():
@@ -203,7 +190,6 @@ if __name__ == "__main__":
                     for row in skipped_rows:
                         skipped_df.loc[len(skipped_df.index)] = row
 
-                    # Capture band names from first image
                     if band_names_metadata is None and band_names is not None:
                         band_names_metadata = band_names
 
@@ -277,7 +263,6 @@ if __name__ == "__main__":
             },
         }
 
-        # Print statistics
         print(f"\n{split.upper()} SET:")
         print(f"  Images: {statistics[split]['images']}")
         print(f"  Slices: {statistics[split]['slices']}")
@@ -292,9 +277,6 @@ if __name__ == "__main__":
         print(f"    Clean Ice:         {pct_ci_valid:5.2f}%")
         print(f"    Debris Ice:        {pct_debris_valid:5.2f}%")
 
-    # ============================================================================
-    # Compute statistics for SKIPPED slices
-    # ============================================================================
     statistics["skipped"] = {}
 
     print("\n" + "=" * 80)
@@ -310,7 +292,6 @@ if __name__ == "__main__":
         if len(split_skipped_df) == 0:
             continue
 
-        # Calculate total pixels in skipped slices
         total_bg = split_skipped_df["Background"].sum()
         total_ci = split_skipped_df["Clean Ice"].sum()
         total_debris = split_skipped_df["Debris"].sum()
@@ -318,7 +299,6 @@ if __name__ == "__main__":
         total_valid = total_bg + total_ci + total_debris
         total_all = total_valid + total_masked
 
-        # Percentages
         pct_bg = (total_bg / total_all) * 100 if total_all > 0 else 0
         pct_ci = (total_ci / total_all) * 100 if total_all > 0 else 0
         pct_debris = (total_debris / total_all) * 100 if total_all > 0 else 0
@@ -328,7 +308,6 @@ if __name__ == "__main__":
         pct_debris_valid = (total_debris / total_valid) * 100 if total_valid > 0 else 0
         pct_bg_valid = (total_bg / total_valid) * 100 if total_valid > 0 else 0
 
-        # Store statistics
         statistics["skipped"][split] = {
             "slices": int(len(split_skipped_df)),
             "total_pixels": int(total_all),
@@ -351,7 +330,6 @@ if __name__ == "__main__":
             },
         }
 
-        # Print statistics
         print(f"\n{split.upper()} SET (SKIPPED):")
         print(f"  Skipped slices: {len(split_skipped_df)}")
         print(f"  Total pixels: {total_all:,}")
@@ -365,7 +343,6 @@ if __name__ == "__main__":
         print(f"    Clean Ice:         {pct_ci_valid:5.2f}%")
         print(f"    Debris Ice:        {pct_debris_valid:5.2f}%")
 
-    # Add summary statistics
     total_kept_slices = sum(
         stats["slices"]
         for stats in statistics.values()
@@ -416,12 +393,10 @@ if __name__ == "__main__":
     )
     print("=" * 80)
 
-    # Save statistics to JSON
     stats_path = Path(conf["out_dir"]) / "dataset_statistics.json"
     with open(stats_path, "w") as f:
         json.dump(statistics, f, indent=2)
 
-    # Save band metadata for dynamic loading
     band_metadata_path = None
     if band_names_metadata is not None:
         band_metadata = {

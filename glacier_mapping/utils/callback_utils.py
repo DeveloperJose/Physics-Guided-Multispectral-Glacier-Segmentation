@@ -1,14 +1,10 @@
-"""Callback-specific utilities that complement glacier_mapping.utils.visualize.
-
-This module contains utilities for Lightning callbacks that handle visualization
-generation, dataset metadata loading, and selection strategies. It uses functions
-from glacier_mapping.utils.visualize for core visualization operations.
-"""
-
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 import numpy as np
 import pandas as pd
+import torch
+
+from pytorch_lightning.loggers import TensorBoardLogger
 
 from glacier_mapping.utils.visualize import (
     calculate_slice_position,
@@ -30,20 +26,16 @@ from glacier_mapping.utils.prediction import (
 
 from glacier_mapping.model.metrics import IoU, precision, recall, tp_fp_fn
 from glacier_mapping.utils import cleanup_gpu_memory
-import torch
-
-MAX_TIFF_CACHE_ENTRIES = 16  # Prevent unbounded memory growth
-
-# Import MLflow utilities with error handling
-from pytorch_lightning.loggers import TensorBoardLogger
 
 MLFlowLogger = None
 try:
-    from pytorch_lightning.loggers import MLFlowLogger
+    from pytorch_lightning.loggers import MLFlowLogger  # noqa: F401
 
     MLFLOW_AVAILABLE = True
 except ImportError:
     MLFLOW_AVAILABLE = False
+
+MAX_TIFF_CACHE_ENTRIES = 16
 
 
 def load_dataset_metadata(

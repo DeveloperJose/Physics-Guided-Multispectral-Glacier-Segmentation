@@ -186,7 +186,6 @@ def get_tiff_np(
     tiff_np = np.transpose(tiff.read(), (1, 2, 0)).astype(np.float32)
     tiff_np = np.nan_to_num(tiff_np)
 
-    # Track band names dynamically for metadata generation
     band_names = ["B1", "B2", "B3", "B4", "B5", "B6_VCID1", "B6_VCID2", "B7"]
 
     use_dem = not (dem_fname is None or not dem_fname.exists())
@@ -196,41 +195,29 @@ def get_tiff_np(
         dem = read_tiff(dem_fname)
         dem_np = np.transpose(dem.read(), (1, 2, 0)).astype(np.float32)
         dem_np = np.nan_to_num(dem_np)
-        dem_np = compute_dems(dem_np)  # [elevation_raw, slope_deg_raw]
+        dem_np = compute_dems(dem_np)
         tiff_np = np.concatenate((tiff_np, dem_np), axis=2)
         band_names.extend(["elevation", "slope_deg"])
     tiff_np = np.nan_to_num(tiff_np.astype(np.float32))
 
-    # Load velocity data (4 bands: v, vx, vy, mask)
-    # If add_velocity is requested, ALWAYS add 4 velocity channels
-    # If file missing or doesn't exist, zero-fill with mask=0 (invalid)
     add_velocity_to_output = velocity_fname is not None
     velocity_np = None
 
     if add_velocity_to_output:
         if velocity_fname.exists():
-            # Explicitly reproject velocity data to match the main TIFF's grid
             from rasterio.warp import reproject, Resampling
 
             velocity = read_tiff(velocity_fname)
 
-            # Create a destination array with the same shape as the tiff, but with 4 bands for velocity
             destination = np.zeros((4, tiff.height, tiff.width), dtype=np.float32)
 
-            # Reproject velocity data with different resampling methods
-            # Bands 1-3 (v, vx, vy): bilinear interpolation for continuous velocity values
-            # Band 4 (mask): nearest neighbor to preserve binary nature
             for band_idx in range(4):
                 resampling_method = (
                     Resampling.nearest if band_idx == 3 else Resampling.bilinear
                 )
                 reproject(
-                    source=rasterio.band(
-                        velocity, band_idx + 1
-                    ),  # rasterio bands are 1-based
-                    destination=destination[
-                        band_idx : band_idx + 1
-                    ],  # Slice to maintain shape
+                    source=rasterio.band(velocity, band_idx + 1),
+                    destination=destination[band_idx : band_idx + 1],
                     src_transform=velocity.transform,
                     src_crs=velocity.crs,
                     dst_transform=tiff.transform,
@@ -239,11 +226,9 @@ def get_tiff_np(
                 )
 
             velocity_np = np.transpose(destination, (1, 2, 0)).astype(np.float32)
-            velocity_np = np.nan_to_num(velocity_np)  # NaN → 0
+            velocity_np = np.nan_to_num(velocity_np)
 
-            # Ensure velocity mask is binary
             velocity_np[:, :, 3] = np.round(velocity_np[:, :, 3]).clip(0, 1)
-            # Zero-out velocities where mask is invalid to prevent leakage from resampling
             invalid = velocity_np[:, :, 3] == 0
             if np.any(invalid):
                 velocity_np[invalid, 0] = 0.0
@@ -253,7 +238,6 @@ def get_tiff_np(
             if verbose:
                 log.debug(f"Loaded velocity data: shape={velocity_np.shape}")
         else:
-            # Zero-fill missing velocity data with mask=0 (no valid data)
             velocity_np = np.zeros(
                 (tiff_np.shape[0], tiff_np.shape[1], 4), dtype=np.float32
             )
@@ -264,8 +248,6 @@ def get_tiff_np(
 
         tiff_np = np.concatenate((tiff_np, velocity_np), axis=2)
         band_names.extend(["velocity", "velocity_x", "velocity_y", "velocity_mask"])
-
-    # tiff_np = np.nan_to_num(tiff_np.astype(np.float32))
 
     if add_ndvi:
         tiff_np = add_index(tiff_np, index1=3, index2=2)
@@ -288,10 +270,8 @@ def get_tiff_np(
         and isinstance(physics_scale, (float, int))
     )
     if use_physics and use_dem:
-        # Physics v4: 4-channel RAW physics tensor
-        #   [flow_raw, tpi_raw, roughness_raw, plan_curvature_raw]
         phys_np = physics.compute_phys_v4(
-            dem_np[:, :, 0:1],  # elevation as [H, W, 1]
+            dem_np[:, :, 0:1],
             physics_res,
             physics_scale,
         )
@@ -313,14 +293,11 @@ def get_tiff_np(
 def save_slices(
     filenum, fname, labels, savepath, save_skipped_visualizations=False, **conf
 ):
-    # Ensure fname is treated as a filename, not an absolute path
-    # If fname is absolute path (e.g. from glob), extracting .name fixes the issue
     fname_str = pathlib.Path(fname).name
 
     tiff_fname = pathlib.Path(conf["image_dir"]) / fname_str
     dem_fname = pathlib.Path(conf["dem_dir"]) / fname_str
 
-    # Build velocity filename if velocity is enabled
     velocity_fname = None
     if conf.get("add_velocity", False) and "velocity_dir" in conf:
         velocity_fname = pathlib.Path(conf["velocity_dir"]) / fname_str
@@ -338,7 +315,6 @@ def save_slices(
             or slice.shape[1] != conf["window_size"][1]
         ):
             if len(slice.shape) == 2:
-                # Use np.full with explicit dtype to avoid uninitialized memory in multiprocessing
                 temp = np.full(
                     (conf["window_size"][0], conf["window_size"][1]),
                     0.0,
@@ -346,7 +322,6 @@ def save_slices(
                 )
                 temp[0 : slice.shape[0], 0 : slice.shape[1]] = slice
             else:
-                # Use np.full with explicit dtype to avoid uninitialized memory in multiprocessing
                 temp = np.full(
                     (conf["window_size"][0], conf["window_size"][1], slice.shape[2]),
                     0.0,
@@ -354,15 +329,12 @@ def save_slices(
                 )
                 temp[0 : slice.shape[0], 0 : slice.shape[1], :] = slice
 
-                # Validation: Check for extreme values that indicate memory corruption
-                # Velocity channels should be < 10000 m/yr, elevation < 10000m, etc.
                 max_abs = np.max(np.abs(temp))
                 if max_abs > 1e6:
                     log.error(
                         f"Detected extreme values in padded slice (max_abs={max_abs:.2e}). "
                         f"This indicates memory corruption. Re-initializing with zeros."
                     )
-                    # Force re-initialization
                     temp.fill(0.0)
                     temp[0 : slice.shape[0], 0 : slice.shape[1], :] = slice
             slice = temp
@@ -392,7 +364,6 @@ def save_slices(
         frac = num_labels / num_valid
 
         if frac < percentage:
-            # Only save visualization PNG if flag is enabled
             if save_visualization:
                 ci = np.sum(slice == 1)
                 dci = np.sum(slice == 2)
@@ -429,7 +400,6 @@ def save_slices(
 
     os.makedirs(conf["out_dir"], exist_ok=True)
 
-    # On first file, get band names for metadata
     if filenum == 0:
         result = get_tiff_np(
             tiff_fname,
@@ -445,7 +415,6 @@ def save_slices(
             verbose=True,
         )
         tiff_np, band_names = result
-        # Store band names in conf for preprocess.py to access
         conf["_band_names"] = band_names
     else:
         tiff_np = get_tiff_np(
@@ -549,8 +518,6 @@ def save_slices(
             mask_fname = f"mask_{filenum}_slice_{slicenum}"
             tiff_fname_out = f"tiff_{filenum}_slice_{slicenum}"
 
-            # Validation: Check for data corruption before saving
-            # This catches any extreme values that may have been introduced during processing
             max_abs_val = np.max(np.abs(final_save_slice))
             if max_abs_val > 1e6:
                 log.warning(
@@ -564,7 +531,6 @@ def save_slices(
 
             slicenum += 1
 
-    # Return band names if available (from first file processing)
     band_names = conf.get("_band_names", None)
 
     return (

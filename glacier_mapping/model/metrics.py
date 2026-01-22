@@ -9,7 +9,6 @@ def tp_fp_fn(pred, true, label=1):
     tp = ((pred == label) & (true == label)).sum().item()
     fp = ((pred == label) & (true != label)).sum().item()
     fn = ((pred != label) & (true == label)).sum().item()
-
     return tp, fp, fn
 
 
@@ -26,7 +25,6 @@ def IoU(tp, fp, fn):
 
 
 def l1_reg(params, lambda_reg, device):
-    """Compute L1 regularization penalty."""
     penalty = torch.tensor(0.0).to(device)
     for param in params:
         penalty += lambda_reg * torch.sum(abs(param))
@@ -34,7 +32,6 @@ def l1_reg(params, lambda_reg, device):
 
 
 def l2_reg(params, lambda_reg, device):
-    """Compute L2 regularization penalty."""
     penalty = torch.tensor(0.0).to(device)
     for param in params:
         penalty += lambda_reg * torch.norm(param, 2) ** 2

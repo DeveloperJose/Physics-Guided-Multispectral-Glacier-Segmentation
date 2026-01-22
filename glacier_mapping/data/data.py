@@ -314,15 +314,6 @@ def resolve_channel_selection(
 
 
 class GlacierDataset(Dataset):
-    """
-    Custom Dataset for Glacier Data.
-
-    Returns:
-        x        : float32 tensor (H, W, C_in) (normalized, except mask channels)
-        y_onehot: float32 tensor (H, W, C_out) (one-hot)
-        y_int   : int64   tensor (H, W, 1) with values {0,1,2,255}
-    """
-
     def __init__(
         self,
         folder_path,
@@ -343,50 +334,32 @@ class GlacierDataset(Dataset):
             self.folder_path = pathlib.Path(self.folder_path)
 
         assert isinstance(output_classes, list), "output_classes must be a list"
-        assert len(set(output_classes)) == len(output_classes), (
-            "output_classes cannot have duplicates"
-        )
+        assert len(set(output_classes)) == len(output_classes), "output_classes cannot have duplicates"
         assert all(self.output_classes >= 0) and all(self.output_classes < 3), (
             "output_classes must be either 0 (BG), 1 (CleanIce), or 2 (Debris)"
         )
 
-        # Find image + mask files
         self.img_files = glob.glob(os.path.join(folder_path, "*tiff*"))
         self.mask_files = [s.replace("tiff", "mask") for s in self.img_files]
 
-        # Normalization stats
         arr = np.load(folder_path.parent / "normalize_train.npy")
         if self.normalize == "min-max":
             self.min, self.max = arr[2][use_channels], arr[3][use_channels]
         elif self.normalize == "mean-std":
             self.mean, self.std = arr[0], arr[1]
             self.mean, self.std = self.mean[use_channels], self.std[use_channels]
-            # We still need min/max for robust scaling of special channels
             self.min, self.max = arr[2][use_channels], arr[3][use_channels]
         else:
             raise ValueError("normalize must be 'min-max' or 'mean-std'")
 
-        # Identify channels that should NOT be normalized (e.g., binary masks)
-        # These channels retain their original values (typically 0/1)
         band_names = load_band_names(folder_path.parent)
         no_norm_names = get_no_normalize_channel_names()
 
-        # --- Enhanced Channel Handling for Physics/Velocity ---
-
-        # 1. Map use_channels indices to names
         self.channel_names = [band_names[ch] for ch in use_channels]
 
-        # 2. Build masks for special scaling types
         self.log_mask = np.array([name in LOG_CHANNELS for name in self.channel_names])
-        self.symlog_mask = np.array(
-            [name in SYMLOG_CHANNELS for name in self.channel_names]
-        )
+        self.symlog_mask = np.array([name in SYMLOG_CHANNELS for name in self.channel_names])
 
-        # 3. Build no_normalize mask (include binary masks AND special scaling channels)
-        # The special scaling channels are handled separately, so we exclude them from
-        # standard min-max/mean-std normalization loops.
-        # IF robust_scaling is False, we do NOT exclude special channels (except strict no_norm ones)
-        # so they fall through to standard normalization.
         if self.robust_scaling:
             self.no_normalize_mask = np.array(
                 [
@@ -397,8 +370,6 @@ class GlacierDataset(Dataset):
                 ]
             )
         else:
-            # Linear scaling mode: Only exclude strict no-norm channels (masks)
-            # Velocity/Physics channels will be treated as standard channels
             self.no_normalize_mask = np.array(
                 [name in no_norm_names for name in self.channel_names]
             )
@@ -414,11 +385,8 @@ class GlacierDataset(Dataset):
                 "Robust scaling DISABLED. Using linear scaling for all physics/velocity channels.",
             )
 
-        # 4. Pre-compute scaling factors for special channels
-        # LOG: log1p(x) / log1p(max) -> [0, 1]
         self.log_max = np.log1p(np.maximum(self.max, 1e-6))
 
-        # SYMLOG: sign(x)*log1p(abs(x)) / log1p(max_abs) -> [-1, 1]
         max_abs = np.maximum(np.abs(self.min), np.abs(self.max))
         self.symlog_max = np.log1p(np.maximum(max_abs, 1e-6))
 
@@ -428,10 +396,7 @@ class GlacierDataset(Dataset):
                 for ch, skip in zip(use_channels, self.no_normalize_mask)
                 if skip
             ]
-            fn.log(
-                logging.INFO,
-                f"Channels excluded from standard normalization: {skip_names}",
-            )
+            fn.log(logging.INFO, f"Channels excluded from standard normalization: {skip_names}")
 
     def __getitem__(self, index):
         file_data = np.load(self.img_files[index])

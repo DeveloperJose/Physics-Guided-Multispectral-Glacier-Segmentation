@@ -1,18 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, List  # Added imports
+from typing import Optional, List
 
 
 class customloss(nn.Module):
-    """
-    Custom loss combining Dice and boundary (BF1) losses with learned uncertainty weighting.
-
-    Returns [dice_loss_scalar, boundary_loss_scalar, velocity_loss_scalar] for sigma-weighted combination.
-    Velocity loss is optional and will return 0.0 if not enabled or velocity data is not provided.
-    Uses target_int==255 as ignore mask.
-    """
-
     def __init__(
         self,
         act=nn.Softmax(dim=1),
@@ -21,7 +13,7 @@ class customloss(nn.Module):
         theta0=3,
         theta=5,
         verbose=False,
-        class_weights: Optional[List[float]] = None,  # New parameter
+        class_weights: Optional[List[float]] = None,
         velocity_high_speed_threshold: float = 3.16,
         velocity_loss_weight: float = 0.05,
         velocity_loss_warmup_epochs: int = 10,
@@ -34,15 +26,12 @@ class customloss(nn.Module):
         self.theta0 = theta0
         self.theta = theta
         self.verbose = verbose
-        self.class_weights = class_weights  # Store class weights
+        self.class_weights = class_weights
         self.velocity_high_speed_threshold = velocity_high_speed_threshold
         self.velocity_loss_weight = velocity_loss_weight
         self.velocity_loss_warmup_epochs = velocity_loss_warmup_epochs
         self.velocity_loss_ramp_epochs = velocity_loss_ramp_epochs
 
-        # Flag for single-run debug logging
-        self._first_call = True
-        # Telemetry for logging loss magnitudes
         self.last_velocity_loss: Optional[torch.Tensor] = None
         self.last_velocity_base: Optional[torch.Tensor] = None
         self.last_velocity_weight: float = 0.0
@@ -57,31 +46,13 @@ class customloss(nn.Module):
         velocity_mask=None,
         current_epoch: Optional[int] = None,
     ):
-        """
-        pred:       (N,C,H,W) raw logits
-        target:     (N,C,H,W) one-hot labels
-        target_int: (N,H,W)   integer labels, 255 = ignore
-        velocity:   (N,1,H,W) velocity magnitude (optional)
-        velocity_mask: (N,1,H,W) velocity validity mask (optional)
-        """
         n, c, h, w = pred.shape
         device = pred.device
 
-        # Reset telemetry
         self.last_velocity_loss = torch.tensor(0.0, device=device)
         self.last_velocity_base = torch.tensor(0.0, device=device)
         self.last_velocity_weight = 0.0
         self.last_velocity_valid = False
-
-        # Log classification type for debugging (only on first call)
-        if self._first_call:
-            if c == 2:
-                print(f"[LOSS DEBUG] Binary classification mode (c={c})")
-            elif c == 3:
-                print(f"[LOSS DEBUG] Multi-class classification mode (c={c})")
-            else:
-                print(f"[LOSS DEBUG] Unknown classification mode (c={c})")
-            self._first_call = False
 
         target = target.detach()
 
@@ -91,19 +62,17 @@ class customloss(nn.Module):
             ignore_mask = target.sum(dim=1) == 1
         ignore_mask_exp = ignore_mask.unsqueeze(1).float().to(device)
 
-        # Validate channel count
         if c <= 1:
             raise ValueError(
                 f"Invalid channel count: {c}. Binary requires 2 channels, multi-class requires 3+ channels."
             )
 
-        # Always train both logits; use softmax for binary too so BG receives gradients
         if c == 2:
             pred_prob = torch.softmax(pred, dim=1)
             target_prob = target
             C_eff = 2
         else:
-            pred_prob = self.act(pred)  # Softmax
+            pred_prob = self.act(pred)
             target_prob = target
             C_eff = c
 
@@ -112,10 +81,8 @@ class customloss(nn.Module):
             target_prob = (
                 target_prob * (1 - self.label_smoothing) + self.label_smoothing / C_eff
             )
-        # Reapply ignore mask after label smoothing so ignored pixels stay zeroed
         target_prob = target_prob * ignore_mask_exp
 
-        # Prepare optional class weights once to share between dice and boundary losses
         weights_tensor = None
         if self.class_weights is not None:
             if len(self.class_weights) != C_eff:
@@ -140,7 +107,6 @@ class customloss(nn.Module):
             if weights_tensor is not None:
                 dice_loss_scalar = (dice_per_class * weights_tensor).sum()
             else:
-                # Fallback to equal weighting if no class_weights are provided
                 dice_loss_scalar = dice_per_class.mean()
 
         pred_b_in = pred_prob
@@ -177,30 +143,17 @@ class customloss(nn.Module):
         else:
             boundary_loss = torch.mean(boundary_loss_unreduced)
 
-        # Velocity Consistency Loss
         velocity_loss = torch.tensor(0.0, device=device)
         if velocity is not None and velocity_mask is not None:
-            if self._first_call:
-                print(f"[LOSS DEBUG] Velocity loss enabled with c={c} channels")
-
             if C_eff == 2:
-                ice_prob = pred_prob[:, 1:2]
                 bg_prob = pred_prob[:, 0:1]
             else:
-                ice_prob = pred_prob[:, 1:].sum(dim=1, keepdim=True)
                 bg_prob = pred_prob[:, :1]
 
-            # Data-driven "Moving Background" Penalty
-            # 1. Calculate Probability of Motion based on Physics
-            # Sigmoid centered at 3.16 m/yr (BG 75th percentile) with moderate steepness (0.5)
-            # This handles the high dynamic range of glacier speeds without exploding gradients.
             p_moving_physics = torch.sigmoid(
                 (velocity - self.velocity_high_speed_threshold) * 0.5
             )
 
-            # 2. Penalize Semantic Contradiction:
-            # Model predicts Background (bg_prob ~ 1.0) BUT Physics says Moving (p_moving_physics ~ 1.0)
-            # Loss is high when BOTH are high.
             per_pixel_penalty = bg_prob * p_moving_physics
 
             combined_mask = velocity_mask * ignore_mask_exp
@@ -226,14 +179,12 @@ class customloss(nn.Module):
         return [dice_loss_scalar, boundary_loss, velocity_loss]
 
     def _compute_velocity_weight(self, current_epoch: Optional[int]) -> float:
-        """Compute velocity loss weight based on warmup schedule."""
         if current_epoch is None:
             return self.velocity_loss_weight
 
         if current_epoch < self.velocity_loss_warmup_epochs:
             return 0.0
 
-        # Calculate progress through ramp period (0.0 to 1.0)
         ramp_progress = (current_epoch - self.velocity_loss_warmup_epochs) / max(
             1, self.velocity_loss_ramp_epochs
         )

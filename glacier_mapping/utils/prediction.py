@@ -1,5 +1,3 @@
-"""Prediction utilities for glacier mapping."""
-
 import numpy as np
 import torch
 from typing import Tuple
