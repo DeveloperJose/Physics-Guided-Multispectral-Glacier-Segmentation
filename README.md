@@ -44,6 +44,6 @@ scripts/
 configs/
 ├── train.yaml           # Global defaults
 ├── servers.yaml         # Server configs
-tasks/               # Task configs
-└── {server}/{task}/     # Experiment configs
+├── tasks/               # Task configs
+    └── {server}/{task}/     # Experiment configs
 ```
