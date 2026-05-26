@@ -24,7 +24,6 @@ from glacier_mapping.lightning.glacier_module import (  # noqa: E402
 from glacier_mapping.utils.prediction import (  # noqa: E402
     create_invalid_mask,
     get_probabilities,
-    get_pr_iou,
     merge_ci_debris,
 )
 
@@ -106,7 +105,7 @@ class RunSpec:
     run_name_substring: str
 
 
-@dataclass(frozen=True)
+@dataclass
 class PatchRecord:
     label: str
     image_path: Path
@@ -117,6 +116,8 @@ RUN_SPECS = {
     "ci": RunSpec("Clean Ice", "ablation2_ci_full_physics_velocity_channels_loss"),
     "dci": RunSpec("Debris-Covered Ice", "ablation2_dci_full_physics_velocity_channels_loss"),
 }
+
+RANK_K = 3
 
 CUSTOM_CSS = """
 .app-shell {max-width: 1320px; margin: 0 auto;}
@@ -222,10 +223,25 @@ CUSTOM_CSS = """
   font-weight: 700;
   color: #0f1f2a;
 }
+.metric-card .sub {
+  color: #52636f;
+  font-size: 0.85rem;
+  margin-top: 4px;
+  line-height: 1.4;
+}
 .caption {
   color: #546672;
   font-size: 0.95rem;
   line-height: 1.45;
+}
+.metric-section-label {
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6e838f;
+  margin: 18px 0 6px 0;
+  border-bottom: 1px solid #d6e2e8;
+  padding-bottom: 4px;
 }
 """
 
@@ -235,13 +251,13 @@ class DemoBackend:
         self.config = config
         self.band_names = load_band_names(config.processed_dir)
         self.band_index = {name: idx for idx, name in enumerate(self.band_names.tolist())}
-        self.patch_records = self._discover_patch_records()
-        self.patch_label_to_index = {
-            record.label: idx for idx, record in enumerate(self.patch_records)
-        }
         self.models = {
             "ci": self._load_model_for_run(RUN_SPECS["ci"]),
             "dci": self._load_model_for_run(RUN_SPECS["dci"]),
+        }
+        self.patch_records = self._discover_patch_records()
+        self.patch_label_to_index = {
+            record.label: idx for idx, record in enumerate(self.patch_records)
         }
         self.has_reference_labels = any(
             record.mask_path is not None for record in self.patch_records
@@ -252,7 +268,7 @@ class DemoBackend:
         if demo_patches:
             return [
                 PatchRecord(
-                    label=f"Example {idx + 1}",
+                    label=f"Scene {idx + 1}",
                     image_path=path,
                     mask_path=None,
                 )
@@ -267,17 +283,70 @@ class DemoBackend:
             )
 
         records: list[PatchRecord] = []
-        for idx, path in enumerate(test_patches):
+        for path in test_patches:
             mask_name = path.name.replace("tiff_", "mask_", 1)
             mask_path = path.with_name(mask_name)
             records.append(
                 PatchRecord(
-                    label=f"Example {idx + 1}",
+                    label="",
                     image_path=path,
                     mask_path=mask_path if mask_path.exists() else None,
                 )
             )
+
+        labeled = [r for r in records if r.mask_path is not None]
+        if len(labeled) >= RANK_K * 3:
+            return self._rank_patches(records, labeled)
+
+        for idx, r in enumerate(records):
+            r.label = f"Scene {idx + 1}"
         return records
+
+    def _rank_patches(
+        self, all_records: list[PatchRecord], labeled: list[PatchRecord]
+    ) -> list[PatchRecord]:
+        import torch
+
+        with torch.no_grad():
+            ious: list[tuple[int, float]] = []
+            for idx, record in enumerate(labeled):
+                patch = np.load(record.image_path)
+                truth = np.load(record.mask_path)
+
+                ci_probs = get_probabilities(self.models["ci"], patch)
+                dci_probs = get_probabilities(self.models["dci"], patch)
+                merged, _ = merge_ci_debris(ci_probs, dci_probs, 0.5, 0.5)
+
+                invalid = create_invalid_mask(patch, truth)
+                valid = ~invalid
+                class_ious: list[float] = []
+                for cls_id in (1, 2):
+                    pred_mask = (merged == cls_id) & valid
+                    truth_mask = (truth == cls_id) & valid
+                    intersection = np.logical_and(pred_mask, truth_mask).sum()
+                    union = np.logical_or(pred_mask, truth_mask).sum()
+                    class_ious.append(float(intersection / union) if union else 1.0)
+                ious.append((idx, np.mean(class_ious)))
+
+        ious.sort(key=lambda x: x[1], reverse=True)
+        k = RANK_K
+        tiers = [
+            (ious[:k], "Top"),
+            (ious[len(ious) // 2 - k // 2 : len(ious) // 2 - k // 2 + k], "Mid"),
+            (ious[-k:], "Worst"),
+        ]
+        ranked: list[PatchRecord] = []
+        for group, tier_name in tiers:
+            for rank_in_tier, (orig_idx, _) in enumerate(group, 1):
+                record = labeled[orig_idx]
+                record.label = f"{tier_name} {rank_in_tier}"
+                ranked.append(record)
+
+        unlabeled = [r for r in all_records if r.mask_path is None]
+        for idx, r in enumerate(unlabeled, 1):
+            r.label = f"Unlabeled {idx}"
+
+        return ranked + unlabeled
 
     def _load_model_for_run(self, run_spec: RunSpec) -> GlacierSegmentationModule:
         ckpt_path = self._find_best_checkpoint(run_spec)
@@ -528,7 +597,7 @@ class DemoBackend:
             if record.mask_path is not None
             else "Curated demo example."
         )
-        return f"## Example {idx + 1}\n{subtitle}"
+        return f"## {record.label}\n{subtitle}"
 
     def format_summary_cards(
         self, prediction: np.ndarray, truth: np.ndarray | None, patch: np.ndarray
@@ -541,70 +610,93 @@ class DemoBackend:
   <div class="summary-card">
     <h3>Clean Ice Prediction</h3>
     <div class="big">{clean_pred:,} pixels</div>
-    <div class="small">Pixels the current model marked as clean ice</div>
   </div>
   <div class="summary-card">
     <h3>Debris-Ice Prediction</h3>
     <div class="big">{debris_pred:,} pixels</div>
-    <div class="small">Pixels the current model marked as debris-covered ice</div>
   </div>
 </div>
 """.format(clean_pred=clean_pred, debris_pred=debris_pred)
 
         invalid = create_invalid_mask(patch, truth)
         valid = ~invalid
-        clean_stats = self.class_overlap_stats(prediction, truth, valid, class_id=1)
-        debris_stats = self.class_overlap_stats(prediction, truth, valid, class_id=2)
+
+        def binary_metrics(cls_id: int) -> dict:
+            pred_cls = (prediction == cls_id) & valid
+            truth_cls = (truth == cls_id) & valid
+            tp = int(np.logical_and(pred_cls, truth_cls).sum())
+            fp = int(np.logical_and(pred_cls, ~truth_cls).sum())
+            fn = int(np.logical_and(~pred_cls, truth_cls).sum())
+            prec = tp / (tp + fp) if (tp + fp) else None
+            rec = tp / (tp + fn) if (tp + fn) else None
+            iou = tp / (tp + fp + fn) if (tp + fp + fn) else None
+            return {"precision": prec, "recall": rec, "iou": iou, "truth": int(truth_cls.sum()), "pred": int(pred_cls.sum()), "intersection": tp, "union": tp + fp + fn}
+
+        def fmt(val: float | None, suffix: str = "%") -> str:
+            return f"{val * 100:.1f}{suffix}" if val is not None else "N/A"
+
+        ci = binary_metrics(1)
+        deb = binary_metrics(2)
+
         return """
-<div class="summary-grid">
-  <div class="summary-card">
-    <h3>Clean Ice</h3>
-    <div class="hero-metric">{clean_iou:.1f}% IoU</div>
-    <div class="small">{clean_truth:,} human labeled pixels</div>
-    <div class="small">{clean_pred:,} predicted pixels</div>
-    <div class="small">{clean_intersection:,} matching pixels (intersection)</div>
-    <div class="small">{clean_union:,} total pixels in either set (union)</div>
+<div class="metric-section-label">Clean Ice</div>
+<div class="metric-grid">
+  <div class="metric-card">
+    <h4>IoU</h4>
+    <div class="score">{ci_iou}</div>
+    <div class="sub">Intersection &#247; Union</div>
   </div>
-  <div class="summary-card">
-    <h3>Debris-Covered Ice</h3>
-    <div class="hero-metric">{debris_iou:.1f}% IoU</div>
-    <div class="small">{debris_truth:,} human labeled pixels</div>
-    <div class="small">{debris_pred:,} predicted pixels</div>
-    <div class="small">{debris_intersection:,} matching pixels (intersection)</div>
-    <div class="small">{debris_union:,} total pixels in either set (union)</div>
+  <div class="metric-card">
+    <h4>Precision</h4>
+    <div class="score">{ci_prec}</div>
+    <div class="sub">Correct predictions &#247; total predictions</div>
+  </div>
+  <div class="metric-card">
+    <h4>Recall</h4>
+    <div class="score">{ci_rec}</div>
+    <div class="sub">Found pixels &#247; human-labeled pixels</div>
   </div>
 </div>
-<div class="caption" style="margin-top:10px;">
-IoU is intersection divided by union. Higher is better.
+<div style="color:#6e838f;font-size:0.85rem;margin:-6px 0 14px 0">
+Labeled: {ci_truth:,} px &middot; Predicted: {ci_pred:,} px &middot; Match: {ci_inter:,} px &middot; Union: {ci_union:,} px
+</div>
+<div class="metric-section-label">Debris-Covered Ice</div>
+<div class="metric-grid">
+  <div class="metric-card">
+    <h4>IoU</h4>
+    <div class="score">{deb_iou}</div>
+    <div class="sub">Intersection &#247; Union</div>
+  </div>
+  <div class="metric-card">
+    <h4>Precision</h4>
+    <div class="score">{deb_prec}</div>
+    <div class="sub">Correct predictions &#247; total predictions</div>
+  </div>
+  <div class="metric-card">
+    <h4>Recall</h4>
+    <div class="score">{deb_rec}</div>
+    <div class="sub">Found pixels &#247; human-labeled pixels</div>
+  </div>
+</div>
+<div style="color:#6e838f;font-size:0.85rem;margin:-6px 0 0 0">
+Labeled: {deb_truth:,} px &middot; Predicted: {deb_pred:,} px &middot; Match: {deb_inter:,} px &middot; Union: {deb_union:,} px
 </div>
 """.format(
-            clean_truth=clean_stats["truth"],
-            clean_pred=clean_stats["pred"],
-            clean_intersection=clean_stats["intersection"],
-            clean_union=clean_stats["union"],
-            clean_iou=clean_stats["iou"] * 100,
-            debris_truth=debris_stats["truth"],
-            debris_pred=debris_stats["pred"],
-            debris_intersection=debris_stats["intersection"],
-            debris_union=debris_stats["union"],
-            debris_iou=debris_stats["iou"] * 100,
+            ci_iou=fmt(ci["iou"]),
+            ci_prec=fmt(ci["precision"]),
+            ci_rec=fmt(ci["recall"]),
+            ci_truth=ci["truth"],
+            ci_pred=ci["pred"],
+            ci_inter=ci["intersection"],
+            ci_union=ci["union"],
+            deb_iou=fmt(deb["iou"]),
+            deb_prec=fmt(deb["precision"]),
+            deb_rec=fmt(deb["recall"]),
+            deb_truth=deb["truth"],
+            deb_pred=deb["pred"],
+            deb_inter=deb["intersection"],
+            deb_union=deb["union"],
         )
-
-    @staticmethod
-    def class_overlap_stats(
-        prediction: np.ndarray, truth: np.ndarray, valid: np.ndarray, class_id: int
-    ) -> dict[str, int | float]:
-        pred_mask = (prediction == class_id) & valid
-        truth_mask = (truth == class_id) & valid
-        intersection = int(np.logical_and(pred_mask, truth_mask).sum())
-        union = int(np.logical_or(pred_mask, truth_mask).sum())
-        return {
-            "truth": int(truth_mask.sum()),
-            "pred": int(pred_mask.sum()),
-            "intersection": intersection,
-            "union": union,
-            "iou": float(intersection / union) if union else 1.0,
-        }
 
     def format_reference_metrics(
         self, patch: np.ndarray, prediction: np.ndarray, truth: np.ndarray | None
@@ -615,30 +707,12 @@ IoU is intersection divided by union. Higher is better.
                 "Human-labeled reference masks are not available for this example."
                 "</div>"
             )
-        invalid = create_invalid_mask(patch, truth)
-        valid = ~invalid
-        clean_precision, clean_recall, clean_iou, _, _, _ = get_pr_iou(
-            (prediction[valid] == 1).astype(np.uint8),
-            (truth[valid] == 1).astype(np.uint8),
-        )
-        debris_precision, debris_recall, debris_iou, _, _, _ = get_pr_iou(
-            (prediction[valid] == 2).astype(np.uint8),
-            (truth[valid] == 2).astype(np.uint8),
-        )
-
         return """
 <div class="caption">
-Precision and recall for this example:
-Clean ice {clean_precision:.1f}% / {clean_recall:.1f}%,
-debris-covered ice {debris_precision:.1f}% / {debris_recall:.1f}%.
-Gray pixels in the human label are ignored.
+Gray pixels in the human label are ignored during metric computation (they correspond
+to areas where expert labelers could not confidently determine glacier boundaries).
 </div>
-""".format(
-            clean_precision=clean_precision * 100,
-            clean_recall=clean_recall * 100,
-            debris_precision=debris_precision * 100,
-            debris_recall=debris_recall * 100,
-        )
+"""
 
 
 def build_demo(backend: DemoBackend) -> gr.Blocks:
@@ -647,23 +721,20 @@ def build_demo(backend: DemoBackend) -> gr.Blocks:
             gr.HTML(
                 """
 <div class="hero">
-  <div class="kicker">HKH Glacier Demo</div>
-  <h1>See where the model thinks glacier ice is.</h1>
+  <div class="kicker">Ph.D. Dissertation &middot; UTEP Computer Science &middot; December 2025</div>
+  <h1>Glacier Segmentation with Physics-Guided Deep Learning</h1>
   <p>
-    This demo combines two satellite-image models to estimate clean glacier ice and
-    debris-covered glacier ice in Landsat-7 scenes from the Hindu Kush-Himalaya.
-    Pick an example, switch views, and compare the current model estimate directly
-    against the human test label.
+    <strong>Physics-Guided Strategies for Enhancing Neural Networks Trained With Limited Data</strong><br>
+    Jose Guadalupe Perez Zamora &middot;
+    <a href="https://github.com/DeveloperJose/Python-Glacier-Mapping-by-Segmentation" target="_blank" style="color:#b7d8ea">GitHub</a>
   </p>
-</div>
-"""
-            )
-            gr.HTML(
-                """
-<div class="note-box" style="margin-bottom: 18px;">
-This demo uses the current local checkpoints in this repo. The label comparison below
-uses held-out test examples only and is intended to debug current model behavior, not
-to claim the final dissertation benchmark.
+  <p style="margin-top:12px">
+    This demo runs two Boundary-Aware U-Net models (Clean Ice + Debris-Covered Ice) on Landsat-7
+    imagery from the Hindu Kush-Himalaya. The models use physics-informed data augmentation
+    (terrain features from DEM) and a physics-informed velocity loss — achieving <strong>46.07%</strong>
+    Debris-Covered Ice IoU (28.2% relative improvement over prior art).
+    Pick an example, switch satellite views, and compare predictions against expert human labels.
+  </p>
 </div>
 """
             )
@@ -687,8 +758,8 @@ to claim the final dissertation benchmark.
             scene_title = gr.Markdown()
             with gr.Row():
                 base_image = gr.Image(label="Satellite Image", height=380)
-                overlay_image = gr.Image(label="Model Estimate", height=380)
-                reference_image = gr.Image(label="Human Test Label", height=380)
+                overlay_image = gr.Image(label="Model Prediction", height=380)
+                reference_image = gr.Image(label="Human Label", height=380)
 
             gr.HTML(
                 """
@@ -715,14 +786,42 @@ to claim the final dissertation benchmark.
                     )
 
             with gr.Accordion("About this demo", open=False):
-                gr.Markdown(
+                gr.HTML(
                     """
-This is a viewer for example scenes rather than a full mapping workflow.
-
-- The main result is the colored overlay on top of the satellite image.
-- Clean ice is shown in blue and debris-covered ice in orange.
-- The human label shown beside the model output comes only from the held-out test split.
-- Advanced threshold controls are hidden by default because most visitors should not need them.
+<div style="margin-bottom:14px">
+<h3 style="margin:0 0 6px 0">Ph.D. Dissertation</h3>
+<p style="margin:0;color:#435a69;font-size:0.95rem;line-height:1.5">
+<strong>Physics-Guided Strategies for Enhancing Neural Networks Trained With Limited Data</strong><br>
+Jose Guadalupe Perez Zamora &mdash; Ph.D. in Computer Science, UTEP, December 2025<br>
+<a href="https://github.com/DeveloperJose/Python-Glacier-Mapping-by-Segmentation" target="_blank">GitHub</a>
+</p>
+</div>
+<div style="margin-bottom:14px">
+<h4 style="margin:0 0 4px 0">Dataset</h4>
+<p style="margin:0;color:#435a69;font-size:0.95rem;line-height:1.5">
+Hindu Kush-Himalaya (HKH) glacier dataset &mdash; 792 Landsat-7 ETM+ patches (512&times;512, 30m resolution),
+expert-delineated boundaries from ICIMOD. Three classes: background, clean ice, and debris-covered ice.
+Channels include 7 spectral bands, DEM derivatives, velocity from ITS&nbsp;LIVE, and physics-derived terrain
+features (flow accumulation, TPI, roughness, plan curvature).
+</p>
+</div>
+<div style="margin-bottom:14px">
+<h4 style="margin:0 0 4px 0">Model</h4>
+<p style="margin:0;color:#435a69;font-size:0.95rem;line-height:1.5">
+Boundary-Aware U-Net (Aryal et al. 2023) with uncertainty-weighted multi-task learning (Dice + boundary loss).
+Two binary models (clean ice, debris-covered ice) trained separately with physics-informed data augmentation
+and a physics-informed velocity loss. Debris-covered ice IoU: <strong>46.07%</strong> (28.2% relative improvement over prior art).
+</p>
+</div>
+<div>
+<h4 style="margin:0 0 4px 0">How to read the page</h4>
+<p style="margin:0;color:#435a69;font-size:0.95rem;line-height:1.5">
+The colored overlay on the satellite image shows the model prediction: blue is clean ice, orange is
+debris-covered ice. When a human-labeled reference is available, the metrics panel shows IoU, precision,
+and recall for each class. Examples are ranked by overall IoU (Top &rarr; Mid &rarr; Bottom) so you can see
+where the model performs well and where it struggles. Use the threshold sliders to adjust model sensitivity.
+</p>
+</div>
 """
                 )
                 ci_threshold = gr.Slider(
