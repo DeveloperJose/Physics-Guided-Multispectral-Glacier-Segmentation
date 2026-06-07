@@ -2,10 +2,13 @@
 """Simple Lightning training for glacier mapping."""
 
 import argparse
+import os
 import pathlib
+import random
 import warnings
 from typing import Dict, Any
 
+import numpy as np
 import torch
 import yaml
 import pytorch_lightning as pl
@@ -99,6 +102,22 @@ def load_config(config_path: str, server: str) -> Dict[str, Any]:
     merged = deep_merge(merged, experiment_config)
 
     return merged
+
+
+def seed_reproducibility(seed: int, deterministic: bool) -> None:
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    pl.seed_everything(seed, workers=True)
+
+    torch.backends.cudnn.benchmark = not deterministic
+    torch.backends.cudnn.deterministic = deterministic
+    try:
+        torch.use_deterministic_algorithms(deterministic, warn_only=True)
+    except TypeError:
+        torch.use_deterministic_algorithms(deterministic)
 
 
 class TrainingLogUploadCallback(pl.Callback):
@@ -263,6 +282,10 @@ def main():
     scheduler_opts = config.get("scheduler_opts", {})
     metrics_opts = config.get("metrics_opts", {})
 
+    seed = int(training_opts.get("seed", 42))
+    deterministic = bool(training_opts.get("deterministic", True))
+    seed_reproducibility(seed, deterministic)
+
     landsat_channels = loader_opts.get("landsat_channels", True)
     dem_channels = loader_opts.get("dem_channels", True)
     spectral_indices_channels = loader_opts.get("spectral_indices_channels", True)
@@ -348,6 +371,8 @@ def main():
 
     log.info(f"Loaded config from: {config_path}")
     log.info(f"Server: {args.server}")
+    log.info(f"Seed: {seed}")
+    log.info(f"Deterministic mode: {deterministic}")
     log.info(f"MLflow enabled: {mlflow_enabled}")
     if mlflow_enabled and MLFLOW_AVAILABLE:
         log.info(f"MLflow experiment: {experiment_name}")
@@ -390,6 +415,7 @@ def main():
         normalize=loader_opts.get("normalize", "mean-std"),
         robust_scaling=loader_opts.get("robust_scaling", True),
         num_workers=loader_opts.get("num_workers", 4),
+        seed=seed,
     )
 
     log.info("Creating model...")
@@ -543,6 +569,7 @@ def main():
         val_check_interval=1.0,
         enable_progress_bar=True,
         num_sanity_val_steps=2,
+        deterministic=deterministic,
     )
 
     log.info(f"Starting training for {max_epochs} epochs...")

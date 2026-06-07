@@ -144,8 +144,13 @@ def get_mask(tiff, shp, column="Glaciers"):
 
 
 def add_index(tiff_np, index1, index2):
-    rsi = (tiff_np[:, :, index1] - tiff_np[:, :, index2]) / (
-        tiff_np[:, :, index1] + tiff_np[:, :, index2]
+    numerator = tiff_np[:, :, index1] - tiff_np[:, :, index2]
+    denominator = tiff_np[:, :, index1] + tiff_np[:, :, index2]
+    rsi = np.divide(
+        numerator,
+        denominator,
+        out=np.zeros_like(numerator, dtype=np.float32),
+        where=denominator != 0,
     )
     rsi = np.nan_to_num(rsi).clip(-1, 1)
     tiff_np = np.concatenate((tiff_np, np.expand_dims(rsi, axis=2)), axis=2)

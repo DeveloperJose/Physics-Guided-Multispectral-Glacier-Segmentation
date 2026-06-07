@@ -62,9 +62,11 @@ class GlacierSegmentationModule(pl.LightningModule):
         if loader_opts:
             self.processed_dir = loader_opts.get("processed_dir", "/tmp")
             self.normalization = loader_opts.get("normalize", "mean-std")
+            self.robust_scaling = loader_opts.get("robust_scaling", True)
         else:
             self.processed_dir = "/tmp"
             self.normalization = "mean-std"
+            self.robust_scaling = True
 
         from glacier_mapping.data.data import resolve_channel_selection
 
@@ -93,6 +95,7 @@ class GlacierSegmentationModule(pl.LightningModule):
             "theta0",
             "theta",
             "class_weights",
+            "velocity_high_speed_threshold",
             "velocity_loss_weight",
             "velocity_loss_warmup_epochs",
             "velocity_loss_ramp_epochs",
@@ -213,7 +216,7 @@ class GlacierSegmentationModule(pl.LightningModule):
                 and self.velocity_mask_idx is not None
             ):
                 vel_norm = x[:, self.velocity_idx : self.velocity_idx + 1, :, :]
-                velocity = vel_norm
+                velocity = self._denormalize_velocity(vel_norm)
                 velocity_mask = x[
                     :, self.velocity_mask_idx : self.velocity_mask_idx + 1, :, :
                 ]
@@ -363,15 +366,19 @@ class GlacierSegmentationModule(pl.LightningModule):
             and getattr(self.loss_fn, "last_velocity_valid", False)
             and len(losses) >= 3
         ):
+            velocity_base = self.loss_fn.last_velocity_base
+            velocity_loss = self.loss_fn.last_velocity_loss
+            if velocity_base is None or velocity_loss is None:
+                raise RuntimeError("Velocity loss marked valid without logged values.")
             self.log(
                 "velocity_loss_raw",
-                self.loss_fn.last_velocity_base,
+                velocity_base,
                 on_step=True,
                 on_epoch=True,
             )
             self.log(
                 "velocity_loss_weighted",
-                self.loss_fn.last_velocity_loss,
+                velocity_loss,
                 on_step=True,
                 on_epoch=True,
             )
@@ -528,11 +535,30 @@ class GlacierSegmentationModule(pl.LightningModule):
 
         channel_idx = self.use_channels[int(self.velocity_idx)]
 
-        max_val = torch.tensor(self.norm_arr_full[3, channel_idx], device=vel_norm.device)
+        if self.robust_scaling:
+            max_val = torch.tensor(
+                self.norm_arr_full[3, channel_idx], device=vel_norm.device
+            )
+            log_max = torch.log1p(
+                torch.maximum(max_val, torch.tensor(1e-6, device=vel_norm.device))
+            )
+            return torch.expm1(vel_norm * log_max)
 
-        log_max = torch.log1p(torch.maximum(max_val, torch.tensor(1e-6, device=vel_norm.device)))
+        if self.normalization == "mean-std":
+            mean = torch.tensor(self.norm_arr_full[0, channel_idx], device=vel_norm.device)
+            std = torch.tensor(self.norm_arr_full[1, channel_idx], device=vel_norm.device)
+            return vel_norm * std + mean
 
-        return torch.expm1(vel_norm * log_max)
+        if self.normalization == "min-max":
+            min_val = torch.tensor(
+                self.norm_arr_full[2, channel_idx], device=vel_norm.device
+            )
+            max_val = torch.tensor(
+                self.norm_arr_full[3, channel_idx], device=vel_norm.device
+            )
+            return vel_norm * (max_val - min_val) + min_val
+
+        raise ValueError(f"Invalid normalization: {self.normalization}")
 
     def normalize(self, x):
         x_no_norm = None

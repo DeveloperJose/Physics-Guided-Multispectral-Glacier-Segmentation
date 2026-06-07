@@ -1,6 +1,5 @@
 import json
 import os
-import glob
 import pandas as pd
 
 generations = [
@@ -86,6 +85,10 @@ for gen_file in generations:
 
 # Create DataFrame and sort by DCI IoU desc within generation
 df = pd.DataFrame(results)
+if df.empty:
+    print("No finished runs found in configured generation archives.")
+    raise SystemExit(0)
+
 # Sort primarily by Generation order, then by DCI IoU
 gen_order = {
     "gen3": 1,

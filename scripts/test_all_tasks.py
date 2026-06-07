@@ -20,6 +20,7 @@ Usage:
 """
 
 import argparse
+import copy
 import sys
 import tempfile
 import traceback
@@ -41,6 +42,8 @@ import json
 from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
 from glacier_mapping.data.slice import get_tiff_np, save_slices, read_shp
 import rasterio
+
+TEST_DATASET_NAME = "gen_robust_comprehensive"
 
 
 class GlacierTaskTestSuite:
@@ -282,8 +285,10 @@ class GlacierTaskTestSuite:
         # Base template for minimal test configs
         base_config = {
             "training_opts": {
-                "dataset_name": "bibek_w256_o64_f1_comprehensive_phys64_s1",
+                "dataset_name": TEST_DATASET_NAME,
                 "run_name": "",  # Will be set per task
+                "seed": 42,
+                "deterministic": True,
                 "epochs": self.epochs,
                 "early_stopping": self.epochs + 10,  # Disable early stopping
                 "val_viz_n": 0,  # Disable visualizations for speed
@@ -308,7 +313,7 @@ class GlacierTaskTestSuite:
             print(f"✓ Existing config found: {debris_velocity_config_path}")
         else:
             # Create debris ice config with velocity loss enabled
-            debris_velocity_config = base_config.copy()
+            debris_velocity_config = copy.deepcopy(base_config)
             debris_velocity_config["training_opts"]["run_name"] = (
                 "debris_ice_velocity_test"
             )
@@ -329,10 +334,7 @@ class GlacierTaskTestSuite:
             print(f"✓ Existing config found: {debris_weighted_config_path}")
         else:
             # Create debris ice config with class weighting enabled
-            debris_weighted_config = base_config.copy()
-            debris_weighted_config["training_opts"]["dataset_name"] = (
-                "bibek_w512_o64_f1_comprehensive_phys64_s1"
-            )
+            debris_weighted_config = copy.deepcopy(base_config)
             debris_weighted_config["training_opts"]["run_name"] = (
                 "debris_ice_weighted_test"
             )
@@ -346,14 +348,14 @@ class GlacierTaskTestSuite:
             print(f"✓ Auto-created temp config: {debris_weighted_path}")
 
         # Create clean ice config
-        clean_config = base_config.copy()
+        clean_config = copy.deepcopy(base_config)
         clean_config["training_opts"]["run_name"] = "clean_ice_test"
         clean_path = self.create_temp_config("clean_ice", clean_config)
         existing_configs["clean_ice"] = clean_path
         print(f"✓ Auto-created temp config: {clean_path}")
 
         # Create multiclass config
-        multi_config = base_config.copy()
+        multi_config = copy.deepcopy(base_config)
         multi_config["training_opts"]["run_name"] = "multiclass_test"
         multi_path = self.create_temp_config("multiclass", multi_config)
         existing_configs["multiclass"] = multi_path
@@ -1038,7 +1040,7 @@ class GlacierTaskTestSuite:
         """Verify the integrity of the entire preprocessed dataset."""
         print("=== Test: Verify Preprocessed Dataset ===")
         server_config = load_server_config(self.server)
-        dataset_name = "bibek_w256_o64_f1_comprehensive_phys64_s1"
+        dataset_name = TEST_DATASET_NAME
         dataset_path = Path(server_config["processed_data_path"]) / dataset_name
 
         if not dataset_path.exists():
@@ -1052,6 +1054,15 @@ class GlacierTaskTestSuite:
         with open(metadata_path, "r") as f:
             metadata = json.load(f)
         band_names = metadata.get("band_names", [])
+        expected_channels = int(metadata.get("num_bands", len(band_names)))
+        stats_path = dataset_path / "dataset_statistics.json"
+        expected_spatial = None
+        if stats_path.exists():
+            with open(stats_path, "r") as f:
+                stats = json.load(f)
+            window_size = stats.get("summary", {}).get("config", {}).get("window_size")
+            if window_size and len(window_size) == 2:
+                expected_spatial = tuple(window_size)
         try:
             velocity_mask_channel = band_names.index("velocity_mask")
         except ValueError:
@@ -1081,8 +1092,16 @@ class GlacierTaskTestSuite:
         for slice_file in all_slice_files:
             try:
                 slice_data = np.load(slice_file)
-                if slice_data.shape[:2] != (256, 256):
+                if expected_spatial is None:
+                    expected_spatial = slice_data.shape[:2]
+                if slice_data.shape[:2] != expected_spatial:
                     print(f"  - {slice_file.name}: Incorrect shape {slice_data.shape}")
+                    corrupt_files.append(slice_file)
+                if slice_data.ndim != 3 or slice_data.shape[2] != expected_channels:
+                    print(
+                        f"  - {slice_file.name}: Expected {expected_channels} channels, "
+                        f"got shape {slice_data.shape}"
+                    )
                     corrupt_files.append(slice_file)
 
                 velocity_mask = slice_data[..., velocity_mask_channel]
@@ -1100,7 +1119,7 @@ class GlacierTaskTestSuite:
         for mask_file in all_mask_files:
             try:
                 mask_data = np.load(mask_file)
-                if mask_data.shape != (256, 256):
+                if expected_spatial is not None and mask_data.shape != expected_spatial:
                     print(f"  - {mask_file.name}: Incorrect shape {mask_data.shape}")
                     corrupt_files.append(mask_file)
 

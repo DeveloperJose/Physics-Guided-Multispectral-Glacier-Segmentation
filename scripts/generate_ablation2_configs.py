@@ -1,4 +1,3 @@
-import os
 import yaml
 from pathlib import Path
 
@@ -52,12 +51,7 @@ EXPERIMENTS = {
     "landsat_flow_accumulation": {
         "loader_opts": {
             "landsat_channels": True,
-            "dem_channels": True,  # Needed for physics calculation? Usually assumed present if physics is used, but here we just want the channel.
-            # Actually, per data.py, if physics_channels is a list, it selects specific channels.
-            # We also need to enable DEM channels if we want them, but if we just want flow, we list it.
-            # Wait, compute_phys_v4 requires DEM input. The loader usually computes it on the fly.
-            # The channel selector just picks which bands to KEEP.
-            # So we set dem_channels to False (don't keep elevation/slope) but physics_channels to ["flow_accumulation"]
+            # Keep only the derived flow channel. DEM was used during preprocessing.
             "dem_channels": False,
             "spectral_indices_channels": False,
             "hsv_channels": False,

@@ -69,6 +69,7 @@ class TestVelocityLossMath(unittest.TestCase):
             "optim_opts": {},
             "metrics_opts": {},
             "loader_opts": {
+                "processed_dir": "demo_data",
                 "velocity_channels": True,
                 "output_classes": [1],
                 "class_names": ["background", "foreground"],
@@ -93,6 +94,31 @@ class TestVelocityLossMath(unittest.TestCase):
 
         print("  ✓ All sigmas initialize to 1.0 for equal weighting.")
         print("  ✓ Sigma list correctly contains all three parameters.")
+
+    def test_velocity_threshold_config_passthrough(self):
+        """Test velocity threshold config reaches the loss implementation."""
+        print("=== Test: Velocity Threshold Config Passthrough ===")
+
+        from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
+
+        model = GlacierSegmentationModule(
+            model_opts={"args": {"net_depth": 4, "first_channel_output": 16}},
+            loss_opts={
+                "use_velocity_loss": True,
+                "velocity_high_speed_threshold": 9.5,
+            },
+            optim_opts={},
+            metrics_opts={},
+            loader_opts={
+                "processed_dir": "demo_data",
+                "velocity_channels": True,
+                "output_classes": [1],
+                "class_names": ["background", "foreground"],
+            },
+        )
+
+        self.assertEqual(model.loss_fn.velocity_high_speed_threshold, 9.5)
+        print("  ✓ Velocity threshold config reaches customloss.")
 
     def test_kendall_formulation_components(self):
         """Test Kendall formulation mathematical components."""
@@ -142,8 +168,9 @@ class TestVelocityLossMath(unittest.TestCase):
             pred_logits, target_onehot, target_int, velocity, velocity_mask
         )
 
-        # Velocity loss should be zero when all velocity is zero
-        self.assertEqual(velocity_loss.item(), 0.0)
+        # Sigmoid motion probability is small but nonzero below the threshold.
+        self.assertGreaterEqual(velocity_loss.item(), 0.0)
+        self.assertLess(velocity_loss.item(), 0.01)
 
         # Test case 2: Empty velocity mask
         velocity_mask = torch.zeros(2, 1, 32, 32)  # No valid velocity
@@ -170,6 +197,7 @@ class TestVelocityLossMath(unittest.TestCase):
             optim_opts={},
             metrics_opts={},
             loader_opts={
+                "processed_dir": "demo_data",
                 "velocity_channels": True,
                 "output_classes": [1],
                 "class_names": ["bg", "fg"],

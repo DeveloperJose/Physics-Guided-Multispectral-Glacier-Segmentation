@@ -5,9 +5,7 @@ Runs predictions on all runs for a given generation, pairing CI and DCI models.
 """
 
 import argparse
-import json
 import os
-import pathlib
 import re
 import subprocess
 import sys
@@ -16,7 +14,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 from tqdm import tqdm
 

@@ -1,10 +1,13 @@
 """Lightning data module for glacier mapping."""
 
 import pathlib
+import random
 from typing import List, Optional
 
 import albumentations as A
+import numpy as np
 import pytorch_lightning as pl
+import torch
 from torch.utils.data import DataLoader
 
 from glacier_mapping.data.data import GlacierDataset
@@ -28,6 +31,7 @@ class GlacierDataModule(pl.LightningDataModule):
         robust_scaling: bool = True,
         num_workers: int = 4,
         pin_memory: bool = True,
+        seed: int = 42,
     ):
         super().__init__()
         self.processed_dir = pathlib.Path(processed_dir)
@@ -44,6 +48,7 @@ class GlacierDataModule(pl.LightningDataModule):
         self.robust_scaling = robust_scaling
         self.num_workers = num_workers
         self.pin_memory = pin_memory
+        self.seed = seed
 
         if augmentations is not None:
             self.train_transform = self.create_augmentations(augmentations)
@@ -51,6 +56,17 @@ class GlacierDataModule(pl.LightningDataModule):
             self.train_transform = None
 
         self.val_transform = None
+
+    @staticmethod
+    def seed_worker(worker_id: int) -> None:
+        worker_seed = torch.initial_seed() % 2**32
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+
+    def _generator(self) -> torch.Generator:
+        generator = torch.Generator()
+        generator.manual_seed(self.seed)
+        return generator
 
     def create_augmentations(self, aug_opts: dict) -> A.Compose:
         transforms = []
@@ -104,6 +120,8 @@ class GlacierDataModule(pl.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             drop_last=True,
+            worker_init_fn=self.seed_worker,
+            generator=self._generator(),
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -114,4 +132,6 @@ class GlacierDataModule(pl.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             drop_last=False,
+            worker_init_fn=self.seed_worker,
+            generator=self._generator(),
         )
