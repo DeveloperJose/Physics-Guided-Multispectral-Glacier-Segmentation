@@ -40,50 +40,27 @@ def categorize_experiment(config: dict) -> str:
     """Categorize experiment based on config content, not run_name.
 
     Returns:
-        str: One of - baseline_ci, baseline_debris, baseline_multiclass,
-             physics_ci, physics_debris, architecture_study, dataset_study,
-             glacier_mapping_general
+        str: MLflow experiment name, optionally prefixed by
+             training_opts.experiment_prefix.
     """
     # Extract key configuration sections
+    training_opts = config.get("training_opts", {})
     loader_opts = config.get("loader_opts", {})
     output_classes = loader_opts.get("output_classes", [])
+    experiment_prefix = training_opts.get("experiment_prefix", "reproducibility")
 
-    # Physics experiments: use channels beyond index 15 (physics channels start at 16)
-    # use_channels = loader_opts.get("use_channels", [])
-    # if any(ch >= 16 for ch in use_channels):
-    #     if output_classes == [1]:
-    #         return "physics_ci"
-    #     elif output_classes == [2]:
-    #         return "physics_debris"
-
-    # Baseline experiments
     if output_classes == [1]:
-        return "clean_ice"
+        experiment_name = "clean_ice"
     elif output_classes == [2]:
-        return "debris_ice"
+        experiment_name = "debris_ice"
     elif output_classes == [0, 1, 2]:
-        return "multi_class"
+        experiment_name = "multi_class"
+    else:
+        experiment_name = "glacier_mapping_general"
 
-    # Architecture variations (check model parameters)
-    # model_opts = config.get("model_opts", {})
-    # model_args = model_opts.get("args", {})
-    # training_opts = config.get("training_opts", {})
-    # dataset_name = training_opts.get("dataset_name", "")
-    # loss_opts = config.get("loss_opts", {})
-    # net_depth = model_args.get("net_depth", 4)
-    # first_channel_output = model_args.get("first_channel_output", 32)
-    # label_smoothing = loss_opts.get("label_smoothing", 0)
-    # if net_depth != 4 or first_channel_output != 32 or label_smoothing != 0:
-    #     return "architecture_study"
-    #
-    # # Data configuration variations (check dataset name patterns)
-    # if any(
-    #     pattern in dataset_name
-    #     for pattern in ["w256", "w1024", "o32", "o128", "f20", "f15"]
-    # ):
-    #     return "dataset_study"
-
-    return "glacier_mapping_general"  # fallback
+    if experiment_prefix:
+        return f"{experiment_prefix}_{experiment_name}"
+    return experiment_name
 
 
 def extract_mlflow_params(config: dict, server_config: dict) -> dict:
@@ -99,6 +76,9 @@ def extract_mlflow_params(config: dict, server_config: dict) -> dict:
             "early_stopping": training_opts.get("early_stopping"),
             "full_eval_every": training_opts.get("full_eval_every"),
             "num_viz_samples": training_opts.get("num_viz_samples"),
+            "experiment_prefix": training_opts.get("experiment_prefix"),
+            "seed": training_opts.get("seed"),
+            "deterministic": training_opts.get("deterministic"),
         }
     )
 
@@ -197,6 +177,9 @@ def generate_run_tags(config: dict, server_config: dict, config_file: str) -> di
         "model_width": str(model_args.get("first_channel_output", 32)),
         "label_smoothing": str(loss_opts.get("label_smoothing", 0)),
         "batch_size": str(loader_opts.get("batch_size", 8)),
+        "experiment_prefix": str(training_opts.get("experiment_prefix", "")),
+        "seed": str(training_opts.get("seed", "")),
+        "deterministic": str(training_opts.get("deterministic", "")),
     }
 
     # Add dataset-specific tags
@@ -223,12 +206,19 @@ def generate_run_tags(config: dict, server_config: dict, config_file: str) -> di
     elif "f20" in dataset_name:
         tags["frequency"] = "20"
 
-    # Add physics channel info
+    # Add physics channel info. Most current configs use semantic channel
+    # booleans, while older generated configs may still carry use_channels.
     use_channels = loader_opts.get("use_channels", [])
-    if any(ch >= 16 for ch in use_channels):
+    has_physics_inputs = (
+        bool(loader_opts.get("physics_channels"))
+        or bool(loader_opts.get("velocity_channels"))
+        or any(ch >= 16 for ch in use_channels)
+    )
+    if has_physics_inputs:
         tags["physics_channels"] = "enhanced"
     else:
         tags["physics_channels"] = "standard"
+    tags["velocity_loss"] = str(bool(loss_opts.get("use_velocity_loss", False)))
 
     return tags
 

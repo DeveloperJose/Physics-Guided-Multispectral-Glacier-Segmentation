@@ -664,7 +664,7 @@ def main():
     parser.add_argument(
         "--tracking-uri",
         type=str,
-        default="https://mlflow.developerjose.duckdns.org/",
+        default="https://mlflow.josegperez.com/",
         help="MLflow tracking URI",
     )
     parser.add_argument(

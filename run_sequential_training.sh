@@ -22,7 +22,7 @@ BOLD='\033[1m'
 
 # Default values
 GPU=0
-MLFLOW_URI="https://mlflow.developerjose.duckdns.org/"
+MLFLOW_URI="https://mlflow.josegperez.com/"
 DRY_RUN=false
 PAUSE_SECONDS=60
 
@@ -95,7 +95,7 @@ ${BOLD}BASIC OPTIONS:${NC}
     --gpu N             GPU device number (default: 0)
     --dry-run           Show what would run without executing
     --pause N           Pause N seconds between runs (default: 60)
-    --mlflow-uri URI    MLflow tracking URI (default: https://mlflow.developerjose.duckdns.org/)
+    --mlflow-uri URI    MLflow tracking URI (default: https://mlflow.josegperez.com/)
 
 ${BOLD}FILTERING & PRIORITY OPTIONS:${NC}
     --tasks TASKS       Comma-separated tasks to run (default: dci,ci,multi)

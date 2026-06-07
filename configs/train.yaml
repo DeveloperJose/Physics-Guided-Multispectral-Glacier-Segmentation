@@ -5,6 +5,7 @@
 training_opts:
   dataset_name: "gen_robust_comprehensive" # Default run name (override in experiment configs)
   run_name: "" # Optional run identifier (appended to dataset_name)
+  experiment_prefix: "reproducibility" # MLflow experiment prefix for publication reruns
   seed: 42 # Global random seed for Python, NumPy, PyTorch, and dataloader workers
   deterministic: true # Prefer deterministic CUDA kernels when available
   epochs: 200 # Reduced from 500 based on Gen1/Gen2 analysis (best models converge at 130-140)
