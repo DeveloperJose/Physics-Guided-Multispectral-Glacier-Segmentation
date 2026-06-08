@@ -143,6 +143,10 @@ class TrainingLogUploadCallback(pl.Callback):
             if hasattr(handler, "flush"):
                 handler.flush()
 
+        if not mlflow_utils.MLFLOW_ARTIFACT_UPLOAD_ENABLED:
+            log.info("MLflow artifact upload disabled; scalar metrics remain enabled")
+            return
+
         if not self.log_file_path.exists():
             log.warning(f"Training log not found for MLflow upload: {self.log_file_path}")
             return

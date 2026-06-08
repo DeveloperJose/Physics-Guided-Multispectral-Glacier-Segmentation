@@ -1,24 +1,26 @@
 training_opts:
   epochs: 200
-  early_stopping: 30
+  early_stopping: 15
   early_stopping_min_delta: 0.001
+  mlflow_experiment_name: reproducibility
   experiment_prefix: reproducibility
   val_viz_n: 4
   val_viz_every_n_epochs: 0
   run_test_eval: true
   test_eval_n: 4
-  run_name: reproducibility_dci_06_physics_velocity_seed42
-  seed: 42
   deterministic: true
+  seed: 2026
+  run_name: reproducibility_dci_10_dissertation_full_seed2026
 loader_opts:
   landsat_channels: true
   dem_channels: true
-  spectral_indices_channels: false
-  hsv_channels: false
+  spectral_indices_channels: true
+  hsv_channels: true
   physics_channels: true
   velocity_channels: true
-  output_classes: [2]
   robust_scaling: false
+  output_classes:
+  - 2
 scheduler_opts:
   args:
     max_lr: 0.0005

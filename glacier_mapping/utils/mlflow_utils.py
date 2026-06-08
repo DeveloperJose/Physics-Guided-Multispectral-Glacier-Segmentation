@@ -17,6 +17,8 @@ from typing import Optional
 
 import mlflow
 
+MLFLOW_ARTIFACT_UPLOAD_ENABLED = True
+
 
 def load_server_config(servers_yaml_path: str, server_name: str) -> dict:
     """Load explicit server configuration - HARD ERROR if missing."""
@@ -40,11 +42,14 @@ def categorize_experiment(config: dict) -> str:
     """Categorize experiment based on config content, not run_name.
 
     Returns:
-        str: MLflow experiment name, optionally prefixed by
-             training_opts.experiment_prefix.
+        str: MLflow experiment name.
     """
     # Extract key configuration sections
     training_opts = config.get("training_opts", {})
+    explicit_experiment_name = training_opts.get("mlflow_experiment_name")
+    if explicit_experiment_name:
+        return explicit_experiment_name
+
     loader_opts = config.get("loader_opts", {})
     output_classes = loader_opts.get("output_classes", [])
     experiment_prefix = training_opts.get("experiment_prefix", "reproducibility")
@@ -76,6 +81,7 @@ def extract_mlflow_params(config: dict, server_config: dict) -> dict:
             "early_stopping": training_opts.get("early_stopping"),
             "full_eval_every": training_opts.get("full_eval_every"),
             "num_viz_samples": training_opts.get("num_viz_samples"),
+            "mlflow_experiment_name": training_opts.get("mlflow_experiment_name"),
             "experiment_prefix": training_opts.get("experiment_prefix"),
             "seed": training_opts.get("seed"),
             "deterministic": training_opts.get("deterministic"),
@@ -177,6 +183,7 @@ def generate_run_tags(config: dict, server_config: dict, config_file: str) -> di
         "model_width": str(model_args.get("first_channel_output", 32)),
         "label_smoothing": str(loss_opts.get("label_smoothing", 0)),
         "batch_size": str(loader_opts.get("batch_size", 8)),
+        "mlflow_experiment_name": str(training_opts.get("mlflow_experiment_name", "")),
         "experiment_prefix": str(training_opts.get("experiment_prefix", "")),
         "seed": str(training_opts.get("seed", "")),
         "deterministic": str(training_opts.get("deterministic", "")),

@@ -5,13 +5,14 @@
 training_opts:
   dataset_name: "gen_robust_comprehensive" # Default run name (override in experiment configs)
   run_name: "" # Optional run identifier (appended to dataset_name)
-  experiment_prefix: "reproducibility" # MLflow experiment prefix for publication reruns
+  mlflow_experiment_name: "reproducibility" # Put all publication reruns in one MLflow experiment
+  experiment_prefix: "reproducibility" # Legacy fallback when mlflow_experiment_name is unset
   seed: 42 # Global random seed for Python, NumPy, PyTorch, and dataloader workers
   deterministic: true # Prefer deterministic CUDA kernels when available
   epochs: 200 # Reduced from 500 based on Gen1/Gen2 analysis (best models converge at 130-140)
   fine_tune: false
   find_lr: false
-  early_stopping: 30 # Tightened from 75 to kill zombie runs early
+  early_stopping: 15 # Faster publication sweeps; rerun top models later with higher patience
   early_stopping_min_delta: 0.001
   # Validation visualizations (periodic, every N epochs)
   val_viz_n: 4 # Number per third (top, middle, bottom). n=4 → 12 total (4+4+4). 0=disable
@@ -31,7 +32,7 @@ loader_opts:
   spectral_indices_channels: true # [10-12] NDVI, NDWI, NDSI
   hsv_channels: true # [13-15] H, S, V
   velocity_channels: false # [16-19] ITS_LIVE velocity, vx, vy, mask
-  physics_channels: false # [20-23] flow_accumulation, tpi, roughness, curvature
+  physics_channels: false # [20-23] flow_accumulation, tpi, roughness, plan_curvature
 
   # Fine-grained channel selection examples (use in experiment configs):
   # landsat_channels: [0, 1, 2]                    # Specific indices (B1, B2, B3)

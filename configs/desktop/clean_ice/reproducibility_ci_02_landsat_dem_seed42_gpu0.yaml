@@ -10,10 +10,10 @@ training_opts:
   test_eval_n: 4
   deterministic: true
   seed: 42
-  run_name: reproducibility_ci_01_landsat_only_seed42
+  run_name: reproducibility_ci_02_landsat_dem_seed42
 loader_opts:
   landsat_channels: true
-  dem_channels: false
+  dem_channels: true
   spectral_indices_channels: false
   hsv_channels: false
   physics_channels: false

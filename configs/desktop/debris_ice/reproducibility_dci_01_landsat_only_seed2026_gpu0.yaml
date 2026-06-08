@@ -9,8 +9,8 @@ training_opts:
   run_test_eval: true
   test_eval_n: 4
   deterministic: true
-  seed: 42
-  run_name: reproducibility_ci_01_landsat_only_seed42
+  seed: 2026
+  run_name: reproducibility_dci_01_landsat_only_seed2026
 loader_opts:
   landsat_channels: true
   dem_channels: false
@@ -20,7 +20,7 @@ loader_opts:
   velocity_channels: false
   robust_scaling: false
   output_classes:
-  - 1
+  - 2
 scheduler_opts:
   args:
     max_lr: 0.0005

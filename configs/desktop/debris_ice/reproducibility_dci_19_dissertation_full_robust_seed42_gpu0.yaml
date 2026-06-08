@@ -10,19 +10,19 @@ training_opts:
   test_eval_n: 4
   deterministic: true
   seed: 42
-  run_name: reproducibility_ci_01_landsat_only_seed42
+  run_name: reproducibility_dci_19_dissertation_full_robust_seed42
 loader_opts:
   landsat_channels: true
-  dem_channels: false
-  spectral_indices_channels: false
-  hsv_channels: false
-  physics_channels: false
-  velocity_channels: false
-  robust_scaling: false
+  dem_channels: true
+  spectral_indices_channels: true
+  hsv_channels: true
+  physics_channels: true
+  velocity_channels: true
+  robust_scaling: true
   output_classes:
-  - 1
+  - 2
 scheduler_opts:
   args:
     max_lr: 0.0005
 loss_opts:
-  use_velocity_loss: false
+  use_velocity_loss: true

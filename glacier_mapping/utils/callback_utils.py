@@ -18,6 +18,7 @@ from glacier_mapping.utils.visualize import (
 )
 
 from glacier_mapping.utils.logging import warning
+from glacier_mapping.utils.mlflow_utils import MLFLOW_ARTIFACT_UPLOAD_ENABLED
 from glacier_mapping.utils.prediction import (
     calculate_binary_metrics,
     get_probabilities,
@@ -718,6 +719,8 @@ def log_visualizations_to_all_loggers(
         try:
             # MLflow logging
             if (
+                MLFLOW_ARTIFACT_UPLOAD_ENABLED
+                and
                 MLFLOW_AVAILABLE
                 and hasattr(logger, "experiment")
                 and hasattr(logger.experiment, "log_artifacts")
@@ -735,10 +738,10 @@ def log_visualizations_to_all_loggers(
                 # viz_type is "val_visualizations" or "test_evaluations"
                 for tile_dir in output_dir.glob("tiff_*"):
                     if tile_dir.is_dir():
-                        logger.experiment.log_artifact(
+                        logger.experiment.log_artifacts(
                             logger.run_id,
                             str(tile_dir),
-                            artifact_path=f"{viz_type}",
+                            artifact_path=f"{viz_type}/{tile_dir.name}",
                         )
 
             # TensorBoard logging
