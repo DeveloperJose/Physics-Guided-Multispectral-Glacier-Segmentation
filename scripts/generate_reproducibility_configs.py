@@ -17,10 +17,10 @@ BASE_TRAINING = {
     "early_stopping_min_delta": 0.001,
     "mlflow_experiment_name": "reproducibility",
     "experiment_prefix": "reproducibility",
-    "val_viz_n": 4,
+    "val_viz_n": 0,
     "val_viz_every_n_epochs": 0,
-    "run_test_eval": True,
-    "test_eval_n": 4,
+    "run_test_eval": False,
+    "test_eval_n": 0,
     "deterministic": True,
 }
 

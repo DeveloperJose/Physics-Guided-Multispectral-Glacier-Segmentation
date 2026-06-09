@@ -21,7 +21,7 @@ from glacier_mapping.data.data import load_band_names  # noqa: E402
 from glacier_mapping.lightning.glacier_module import (  # noqa: E402
     GlacierSegmentationModule,
 )
-from glacier_mapping.utils.prediction import (  # noqa: E402
+from glacier_mapping.model.evaluation import (  # noqa: E402
     create_invalid_mask,
     get_probabilities,
     merge_ci_debris,

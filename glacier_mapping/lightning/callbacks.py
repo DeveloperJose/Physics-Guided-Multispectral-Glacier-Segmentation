@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import Callback, ModelCheckpoint
 
-from glacier_mapping.utils import cleanup_gpu_memory
+from glacier_mapping.utils.gpu import cleanup_gpu_memory
 from glacier_mapping.utils.callback_utils import (
     load_dataset_metadata,
     generate_single_visualization,

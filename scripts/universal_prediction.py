@@ -23,16 +23,16 @@ from predict import clean_run_name
 
 
 def get_available_gpus() -> List[int]:
-    """Detect available GPUs."""
+    """Detect available GPUs. Returns [-1] for CPU-only execution."""
     try:
         import torch
 
         if torch.cuda.is_available():
             return list(range(torch.cuda.device_count()))
         else:
-            return []
+            return [-1]
     except ImportError:
-        return []
+        return [-1]
 
 
 def extract_generation_runs(generation_id: str, output_path: Path) -> List[str]:
@@ -162,7 +162,10 @@ def run_single_prediction(
 
     # Set environment variable for GPU
     env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    if gpu_id < 0:
+        env["CUDA_VISIBLE_DEVICES"] = ""
+    else:
+        env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 
     try:
         # Run prediction
@@ -244,7 +247,7 @@ def main():
         "--gpu-list",
         type=int,
         nargs="+",
-        help="List of GPU IDs to use (default: auto-detect)",
+        help="List of GPU IDs to use (default: auto-detect). Use -1 for CPU.",
     )
 
     args = parser.parse_args()
@@ -322,7 +325,7 @@ def main():
     # GPU management
     available_gpus = args.gpu_list if args.gpu_list else get_available_gpus()
     if not available_gpus:
-        available_gpus = [0]  # Fallback to CPU
+        available_gpus = [-1]
 
     print(f"Available GPUs: {available_gpus}")
     print(f"Running {len(jobs)} prediction jobs...")

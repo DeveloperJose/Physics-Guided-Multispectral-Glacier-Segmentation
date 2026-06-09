@@ -19,14 +19,14 @@ from glacier_mapping.utils.visualize import (
 
 from glacier_mapping.utils.logging import warning
 from glacier_mapping.utils.mlflow_utils import MLFLOW_ARTIFACT_UPLOAD_ENABLED
-from glacier_mapping.utils.prediction import (
+from glacier_mapping.model.evaluation import (
     calculate_binary_metrics,
     get_probabilities,
     predict_from_probs,
 )
 
 from glacier_mapping.model.metrics import IoU, precision, recall, tp_fp_fn
-from glacier_mapping.utils import cleanup_gpu_memory
+from glacier_mapping.utils.gpu import cleanup_gpu_memory
 
 MLFlowLogger = None
 try:

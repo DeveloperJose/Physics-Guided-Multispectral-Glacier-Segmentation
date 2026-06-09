@@ -4,10 +4,10 @@ training_opts:
   early_stopping_min_delta: 0.001
   mlflow_experiment_name: reproducibility
   experiment_prefix: reproducibility
-  val_viz_n: 4
+  val_viz_n: 0
   val_viz_every_n_epochs: 0
-  run_test_eval: true
-  test_eval_n: 4
+  run_test_eval: false
+  test_eval_n: 0
   deterministic: true
   seed: 3407
   run_name: reproducibility_dci_followup_full_threshold_1p5_seed3407

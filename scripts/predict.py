@@ -2,65 +2,28 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import pathlib
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from scipy.ndimage import binary_fill_holes
 from tqdm import tqdm
 import yaml
 
 import torch
 
 from glacier_mapping.data.data import load_band_names
-from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
-from glacier_mapping.model.metrics import IoU, precision, recall
-from glacier_mapping.utils import cleanup_gpu_memory
-from glacier_mapping.utils.prediction import (
-    calculate_binary_metrics,
-    create_invalid_mask,
-    get_pr_iou,
-    get_probabilities,
-    merge_ci_debris,
+from glacier_mapping.model.evaluation import (
+    evaluate_full_split_modules,
+    load_lightning_module,
+    resolve_prediction_device,
 )
-
-
-def load_lightning_module(checkpoint_path, device, processed_data_path=None):
-    if processed_data_path is not None:
-        import torch
-
-        checkpoint = torch.load(checkpoint_path, map_location="cpu")
-
-        if "loader_opts" in checkpoint["hyper_parameters"]:
-            old_processed_dir = checkpoint["hyper_parameters"]["loader_opts"][
-                "processed_dir"
-            ]
-            checkpoint["hyper_parameters"]["loader_opts"]["processed_dir"] = (
-                processed_data_path
-            )
-            print(
-                f"Overriding processed_dir: {old_processed_dir} -> {processed_data_path}"
-            )
-
-        temp_ckpt = Path(checkpoint_path).parent / "temp_modified.ckpt"
-        torch.save(checkpoint, temp_ckpt)
-
-        try:
-            module = GlacierSegmentationModule.load_from_checkpoint(temp_ckpt)
-        finally:
-            if temp_ckpt.exists():
-                temp_ckpt.unlink()
-    else:
-        module = GlacierSegmentationModule.load_from_checkpoint(checkpoint_path)
-
-    module.eval()
-    module.to(device)
-
-    return module
+from glacier_mapping.utils.gpu import cleanup_gpu_memory
 
 
 def clean_run_name(run_name: str) -> str:
     prefixes_to_remove = [
+        "reproducibility_ci_",
+        "reproducibility_dci_",
+        "reproducibility_mc_",
         "ablation_ci_",
         "ablation_dci_",
         "ablation_mc_",
@@ -125,10 +88,12 @@ def run_prediction_on_models(
     output_dir: Path,
     gpu_id: int,
     processed_data_path: str,
+    split: str = "test",
     feature_importance: bool = False,
     fi_samples: int | None = None,
 ) -> dict:
-    gpu = gpu_id if gpu_id is not None else 0
+    device = resolve_prediction_device(gpu_id)
+    print(f"Prediction device: {device}")
 
     has_ci = ci_checkpoint is not None
     has_deb = deb_checkpoint is not None
@@ -140,106 +105,20 @@ def run_prediction_on_models(
     frame_deb = None
 
     if has_ci and ci_checkpoint is not None:
-        frame_ci = load_lightning_module(ci_checkpoint, gpu, processed_data_path)
+        frame_ci = load_lightning_module(ci_checkpoint, device, processed_data_path)
 
     if has_deb and deb_checkpoint is not None:
-        frame_deb = load_lightning_module(deb_checkpoint, gpu, processed_data_path)
+        frame_deb = load_lightning_module(deb_checkpoint, device, processed_data_path)
 
-    if frame_ci is not None:
-        data_dir = pathlib.Path(frame_ci.processed_dir)
-    elif frame_deb is not None:
-        data_dir = pathlib.Path(frame_deb.processed_dir)
-    else:
-        raise RuntimeError("No valid model loaded for test tiles")
-    test_tiles = sorted(pathlib.Path(data_dir, "test").glob("tiff*"))
-
-    preds_dir = output_dir / "preds"
-    preds_dir.mkdir(parents=True, exist_ok=True)
-
-    print(f"Running on {len(test_tiles)} test tiles...")
-
-    df_rows, acc = run_prediction(
-        frame_ci,
-        frame_deb,
-        ci_threshold,
-        deb_threshold,
-        test_tiles,
-        None,
-        None,
-        preds_dir,
-        has_ci,
-        has_deb,
+    result = evaluate_full_split_modules(
+        frame_ci=frame_ci,
+        frame_dci=frame_deb,
+        split=split,
+        ci_threshold=ci_threshold,
+        dci_threshold=deb_threshold,
+        output_dir=output_dir,
+        save_probabilities=True,
     )
-
-    metrics = {}
-
-    if has_ci and has_deb:
-        Pci = precision(acc["ci_tp"], acc["ci_fp"], acc["ci_fn"])
-        Rci = recall(acc["ci_tp"], acc["ci_fp"], acc["ci_fn"])
-        Ici = IoU(acc["ci_tp"], acc["ci_fp"], acc["ci_fn"])
-
-        Pdb = precision(acc["db_tp"], acc["db_fp"], acc["db_fn"])
-        Rdb = recall(acc["db_tp"], acc["db_fp"], acc["db_fn"])
-        Idb = IoU(acc["db_tp"], acc["db_fp"], acc["db_fn"])
-
-        metrics = {
-            "CI_P": Pci,
-            "CI_R": Rci,
-            "CI_IoU": Ici,
-            "Deb_P": Pdb,
-            "Deb_R": Rdb,
-            "Deb_IoU": Idb,
-        }
-
-        df_rows.append(["TOTAL", Pci, Rci, Ici, Pdb, Rdb, Idb])
-
-    else:
-        if has_ci:
-            tp = acc["ci_tp"]
-            fp = acc["ci_fp"]
-            fn = acc["ci_fn"]
-        else:
-            tp = acc["db_tp"]
-            fp = acc["db_fp"]
-            fn = acc["db_fn"]
-
-        P = precision(tp, fp, fn)
-        R = recall(tp, fp, fn)
-        iou = IoU(tp, fp, fn)
-
-        if has_ci:
-            metrics = {"CI_P": P, "CI_R": R, "CI_IoU": iou}
-        else:
-            metrics = {"Deb_P": P, "Deb_R": R, "Deb_IoU": iou}
-
-        df_rows.append(["TOTAL", P, R, iou])
-
-    ckpt_name = "prediction"
-    df_rows_with_ckpt = [[ckpt_name] + row for row in df_rows]
-
-    if has_ci and has_deb:
-        columns = [
-            "checkpoint",
-            "tile",
-            "CleanIce_precision",
-            "CleanIce_recall",
-            "CleanIce_IoU",
-            "Debris_precision",
-            "Debris_recall",
-            "Debris_IoU",
-        ]
-    else:
-        cname = "CleanIce" if has_ci else "Debris"
-        columns = [
-            "checkpoint",
-            "tile",
-            f"{cname}_precision",
-            f"{cname}_recall",
-            f"{cname}_IoU",
-        ]
-
-    df = pd.DataFrame(df_rows_with_ckpt, columns=pd.Index(columns))
-    df.to_csv(output_dir / "metrics.csv", index=False)
 
     if feature_importance and (frame_ci or frame_deb):
         saliency_frame = frame_ci if frame_ci else frame_deb
@@ -249,6 +128,7 @@ def run_prediction_on_models(
             fi_output_dir = output_dir / "feature_importance"
             fi_output_dir.mkdir(parents=True, exist_ok=True)
 
+            test_tiles = sorted(Path(saliency_frame.processed_dir, split).glob("tiff*"))
             importance_scores = compute_feature_importance(
                 saliency_frame,
                 test_tiles,
@@ -267,7 +147,12 @@ def run_prediction_on_models(
     del frame_ci, frame_deb
     cleanup_gpu_memory(synchronize=False)
 
-    return {"metrics": metrics, "output_dir": output_dir, "status": "SUCCESS"}
+    return {
+        "metrics": result.metrics,
+        "legacy_metrics": result.legacy_metrics,
+        "output_dir": output_dir,
+        "status": "SUCCESS",
+    }
 
 
 def main_prediction_logic(args) -> dict:
@@ -337,11 +222,20 @@ def main_prediction_logic(args) -> dict:
         out_root.mkdir(parents=True, exist_ok=True)
         print(f"Output directory: {out_root}")
 
-        processed_data_path = server_config["processed_data_path"]
-        if "ablation" in (args.ci_run_name or "") or "ablation" in (
-            args.deb_run_name or ""
-        ):
-            processed_data_path = f"{processed_data_path}/gen_robust_comprehensive"
+        processed_data_path = Path(server_config["processed_data_path"])
+        configured_dataset = Path("configs/train.yaml")
+        dataset_name = "gen_robust_comprehensive"
+        if configured_dataset.exists():
+            train_config = yaml.safe_load(configured_dataset.read_text()) or {}
+            dataset_name = (
+                train_config.get("training_opts", {}).get("dataset_name")
+                or dataset_name
+            )
+
+        if not (processed_data_path / "test").exists():
+            dataset_path = processed_data_path / dataset_name
+            if dataset_path.exists():
+                processed_data_path = dataset_path
 
         result = run_prediction_on_models(
             ci_checkpoint_path,
@@ -350,7 +244,8 @@ def main_prediction_logic(args) -> dict:
             args.deb_threshold,
             out_root,
             args.gpu,
-            processed_data_path,
+            str(processed_data_path),
+            args.split,
             getattr(args, "feature_importance", False),
             getattr(args, "fi_samples", None),
         )
@@ -567,120 +462,6 @@ def identify_best_checkpoint(results_df, has_ci, has_deb, metric_strategy="IoU")
     return best_checkpoint, best_metric
 
 
-def run_prediction(
-    frame_ci,
-    frame_deb,
-    thr_ci,
-    thr_deb,
-    test_tiles,
-    vis_mode,
-    vis_maxw,
-    preds_dir,
-    has_ci,
-    has_deb,
-):
-    df_rows = []
-    acc = dict(
-        ci_tp=0.0,
-        ci_fp=0.0,
-        ci_fn=0.0,
-        db_tp=0.0,
-        db_fp=0.0,
-        db_fn=0.0,
-    )
-
-    for tile in tqdm(test_tiles, desc="Predicting"):
-        name = tile.name
-        base = tile.stem
-
-        x_full = np.load(tile)
-        y_full = np.load(tile.parent / name.replace("tiff", "mask")).astype(np.uint8)
-        invalid = create_invalid_mask(x_full, y_full)
-        valid = ~invalid
-
-        prob_path = preds_dir / f"{base}_probs.npy"
-
-        if has_ci ^ has_deb:
-            frame = frame_ci if has_ci else frame_deb
-            model_class = 1 if has_ci else 2
-            thr = thr_ci if has_ci else thr_deb
-
-            probs = get_probabilities(frame, x_full)
-            np.save(prob_path, probs)
-
-            pred_mask = probs[:, :, 1] >= thr
-            pred_filled = binary_fill_holes(pred_mask)
-            pred_bin = pred_filled.astype(np.uint8)
-
-            P, R, iou, tp, fp, fn = calculate_binary_metrics(
-                pred_bin, y_full, model_class, invalid
-            )
-
-            if has_ci:
-                acc["ci_tp"] += tp
-                acc["ci_fp"] += fp
-                acc["ci_fn"] += fn
-            else:
-                acc["db_tp"] += tp
-                acc["db_fp"] += fp
-                acc["db_fn"] += fn
-
-            df_rows.append([name, P, R, iou])
-
-            y_gt = y_full.copy()
-            y_gt[invalid] = 255
-
-            y_gt_vis = np.zeros_like(y_full)
-            y_gt_vis[valid & (y_full == model_class)] = 1
-            y_gt_vis[valid & (y_full != model_class)] = 0
-            y_gt_vis[invalid] = 255
-
-            y_pred = np.zeros_like(y_full)
-            y_pred[valid & (pred_bin == 1)] = 1
-            y_pred[valid & (pred_bin == 0)] = 0
-            y_pred[invalid] = 255
-
-        else:
-            prob_ci = get_probabilities(frame_ci, x_full)
-            prob_db = get_probabilities(frame_deb, x_full)
-
-            merged, probs = merge_ci_debris(prob_ci, prob_db, thr_ci, thr_deb)
-            np.save(prob_path, probs)
-
-            y_gt = y_full.copy()
-            y_gt[invalid] = 255
-
-            merged_vis = merged.copy()
-            merged_vis[invalid] = 255
-
-            Pci, Rci, Ici, tp, fp, fn = get_pr_iou(
-                (merged[valid] == 1).astype(np.uint8),
-                (y_full[valid] == 1).astype(np.uint8),
-            )
-            acc["ci_tp"] += tp
-            acc["ci_fp"] += fp
-            acc["ci_fn"] += fn
-
-            Pdb, Rdb, Idb, tp, fp, fn = get_pr_iou(
-                (merged[valid] == 2).astype(np.uint8),
-                (y_full[valid] == 2).astype(np.uint8),
-            )
-            acc["db_tp"] += tp
-            acc["db_fp"] += fp
-            acc["db_fn"] += fn
-
-            df_rows.append([name, Pci, Rci, Ici, Pdb, Rdb, Idb])
-
-            conf_map = probs[
-                np.arange(probs.shape[0])[:, None],
-                np.arange(probs.shape[1])[None, :],
-                merged,
-            ]
-            conf_map[invalid] = 0
-
-    return df_rows, acc
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run glacier mapping predictions")
 
@@ -727,7 +508,7 @@ if __name__ == "__main__":
         "--gpu",
         type=int,
         default=0,
-        help="GPU ID to use (default: 0)",
+        help="GPU ID to use (default: 0). Use -1 for CPU.",
     )
     parser.add_argument(
         "--server",
@@ -738,6 +519,13 @@ if __name__ == "__main__":
         "--output-dir",
         type=str,
         help="Explicit output directory for predictions (overrides default naming)",
+    )
+    parser.add_argument(
+        "--split",
+        type=str,
+        default="test",
+        choices=["train", "val", "test"],
+        help="Dataset split to evaluate (default: test)",
     )
 
     args = parser.parse_args()

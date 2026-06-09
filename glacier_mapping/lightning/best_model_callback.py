@@ -13,7 +13,7 @@ from glacier_mapping.utils.callback_utils import (
     select_informative_test_tiles,
     log_visualizations_to_all_loggers,
 )
-from glacier_mapping.utils import cleanup_gpu_memory
+from glacier_mapping.utils.gpu import cleanup_gpu_memory
 import glacier_mapping.utils.logging as log
 
 
@@ -184,7 +184,7 @@ class TestEvaluationCallback(Callback):
         import numpy as np
         import torch
         from glacier_mapping.model.metrics import IoU, precision, recall, tp_fp_fn
-        from glacier_mapping.utils.prediction import calculate_binary_metrics
+        from glacier_mapping.model.evaluation import calculate_binary_metrics
 
         for idx, x_path in enumerate(tqdm(test_tiles_all, desc="Test evaluation")):
             # Use cached prediction if available, otherwise compute
