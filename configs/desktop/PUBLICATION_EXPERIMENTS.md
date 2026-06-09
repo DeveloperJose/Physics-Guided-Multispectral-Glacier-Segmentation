@@ -1,19 +1,22 @@
-# Comprehensive Reproducibility Experiments
+# Threshold Follow-Up Experiments
 
-All runs log to the single MLflow experiment `reproducibility`.
+All runs are DCI-only and log to the single MLflow experiment `reproducibility`.
 
-Total configs: 57
+Total configs: 31
+
+## Rationale
+
+The 2026-06-08 sweep showed the best DCI result from the full model with velocity loss threshold 2.0, but that threshold was only tested for seed 42. This batch tests whether that threshold advantage holds across seeds and whether the optimum is closer to 1.5, 2.0, or 2.5.
 
 ## Design
 
-- DCI core ablations: 10 variants x 3 seeds = 30 runs.
-- DCI sensitivity and component checks: 9 seed-42 runs.
-- CI comparison ablations: 6 variants x 3 seeds = 18 runs.
-- Multiclass is deferred because this paper is centered on binary CI/DCI behavior.
-- Early stopping patience is 15 epochs to favor breadth; rerun the best models later with patience 30 if needed.
+- Full DCI model with velocity loss thresholds 1.0, 1.5, 2.0, 2.5, 3.16, 5.0, and 10.0.
+- Four seeds per threshold: 42, 1337, 2026, and 3407.
+- Three seed-3407 controls: Landsat+DEM baseline, full model without velocity loss, and no-spectral physics+velocity at threshold 2.0.
+- CI and multiclass are deferred; the clean-ice result was already stable enough and not the paper's main claim.
 
 ## Runtime Estimate
 
-- Expected active training time with patience 15: about 24-26 hours
-- With 30 second pauses: about 24.5-26.5 hours wall-clock
-- Conservative upper bound: about 30 hours if full-channel runs train longer than the first batch.
+- 31 configs total.
+- Expected active training time: about 14-16 hours.
+- With 30 second pauses: about 14.5-16.5 hours wall-clock.
