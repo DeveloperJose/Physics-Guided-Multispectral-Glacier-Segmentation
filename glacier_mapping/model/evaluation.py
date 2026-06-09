@@ -11,19 +11,57 @@ from scipy.ndimage import binary_fill_holes
 from tqdm import tqdm
 
 from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
-from glacier_mapping.model.metrics import IoU, precision, recall, tp_fp_fn
 from glacier_mapping.utils.gpu import cleanup_gpu_memory
 
 
+# ---------------------------------------------------------------------------
+# Metric helpers
+# ---------------------------------------------------------------------------
+
+
+def precision(tp, fp, fn):
+    return tp / (tp + fp + 1e-10)
+
+
+def tp_fp_fn(pred, true, label=1):
+    tp = ((pred == label) & (true == label)).sum().item()
+    fp = ((pred == label) & (true != label)).sum().item()
+    fn = ((pred != label) & (true == label)).sum().item()
+    return tp, fp, fn
+
+
+def recall(tp, fp, fn):
+    return tp / (tp + fn + 1e-10)
+
+
+def dice(tp, fp, fn):
+    return (2 * tp) / (2 * tp + fp + fn + 1e-10)
+
+
+def IoU(tp, fp, fn):
+    return tp / (tp + fp + fn + 1e-10)
+
+
+def l1_reg(params, lambda_reg, device):
+    penalty = torch.tensor(0.0).to(device)
+    for param in params:
+        penalty += lambda_reg * torch.sum(abs(param))
+    return penalty
+
+
+def l2_reg(params, lambda_reg, device):
+    penalty = torch.tensor(0.0).to(device)
+    for param in params:
+        penalty += lambda_reg * torch.norm(param, 2) ** 2
+    return penalty
+
+
 CLASS_TO_INDEX = {"bg": 0, "ci": 1, "dci": 2}
-CLASS_TO_LEGACY_NAME = {"ci": "CleanIce", "dci": "Debris"}
-CLASS_TO_ACC_PREFIX = {"ci": "ci", "dci": "db"}
 
 
 @dataclass
 class FullSplitEvaluationResult:
     metrics: dict[str, float]
-    legacy_metrics: dict[str, float]
     rows: list[list[Any]]
     columns: list[str]
     output_dir: Path | None = None
@@ -60,13 +98,11 @@ def compute_window_binary_metrics(
         class_idx=class_idx,
         threshold=threshold,
     )
-    from glacier_mapping.model.metrics import tp_fp_fn
+    from glacier_mapping.model.evaluation import tp_fp_fn
 
     tp_, fp_, fn_ = tp_fp_fn(pred, true)
     return {
-        window_metric_name(split, target, "precision"): float(
-            precision(tp_, fp_, fn_)
-        ),
+        window_metric_name(split, target, "precision"): float(precision(tp_, fp_, fn_)),
         window_metric_name(split, target, "recall"): float(recall(tp_, fp_, fn_)),
         window_metric_name(split, target, "iou"): float(IoU(tp_, fp_, fn_)),
     }
@@ -348,7 +384,7 @@ def evaluate_full_split_modules(
         progress=progress,
     )
 
-    metrics, legacy_metrics, total_row = _aggregate_metrics(
+    metrics, total_row = _aggregate_metrics(
         acc=acc,
         split=split,
         has_ci=has_ci,
@@ -357,7 +393,7 @@ def evaluate_full_split_modules(
     rows.append(total_row)
 
     rows_with_checkpoint = [["prediction"] + row for row in rows]
-    columns = _legacy_columns(has_ci=has_ci, has_dci=has_dci)
+    columns = _csv_columns(has_ci=has_ci, has_dci=has_dci)
 
     if out_path is not None:
         out_path.mkdir(parents=True, exist_ok=True)
@@ -367,7 +403,6 @@ def evaluate_full_split_modules(
 
     return FullSplitEvaluationResult(
         metrics=metrics,
-        legacy_metrics=legacy_metrics,
         rows=rows_with_checkpoint,
         columns=columns,
         output_dir=out_path,
@@ -487,10 +522,9 @@ def _run_full_split_prediction(
                     pred_bin, y_full, model_class, invalid
                 )
 
-                acc_prefix = CLASS_TO_ACC_PREFIX[target]
-                acc[f"{acc_prefix}_tp"] += tp_
-                acc[f"{acc_prefix}_fp"] += fp_
-                acc[f"{acc_prefix}_fn"] += fn_
+                acc[f"{target}_tp"] += tp_
+                acc[f"{target}_fp"] += fp_
+                acc[f"{target}_fn"] += fn_
                 rows.append([name, p_, r_, iou_])
 
             else:
@@ -532,9 +566,8 @@ def _aggregate_metrics(
     split: str,
     has_ci: bool,
     has_dci: bool,
-) -> tuple[dict[str, float], dict[str, float], list[Any]]:
+) -> tuple[dict[str, float], list[Any]]:
     metrics: dict[str, float] = {}
-    legacy_metrics: dict[str, float] = {}
 
     if has_ci:
         p_ci = precision(acc["ci_tp"], acc["ci_fp"], acc["ci_fn"])
@@ -547,7 +580,6 @@ def _aggregate_metrics(
                 full_metric_name(split, "ci", "iou"): float(i_ci),
             }
         )
-        legacy_metrics.update({"CI_P": p_ci, "CI_R": r_ci, "CI_IoU": i_ci})
 
     if has_dci:
         p_dci = precision(acc["db_tp"], acc["db_fp"], acc["db_fn"])
@@ -560,57 +592,55 @@ def _aggregate_metrics(
                 full_metric_name(split, "dci", "iou"): float(i_dci),
             }
         )
-        legacy_metrics.update({"Deb_P": p_dci, "Deb_R": r_dci, "Deb_IoU": i_dci})
 
     if has_ci and has_dci:
         total_row = [
             "TOTAL",
-            legacy_metrics["CI_P"],
-            legacy_metrics["CI_R"],
-            legacy_metrics["CI_IoU"],
-            legacy_metrics["Deb_P"],
-            legacy_metrics["Deb_R"],
-            legacy_metrics["Deb_IoU"],
+            metrics[full_metric_name(split, "ci", "precision")],
+            metrics[full_metric_name(split, "ci", "recall")],
+            metrics[full_metric_name(split, "ci", "iou")],
+            metrics[full_metric_name(split, "dci", "precision")],
+            metrics[full_metric_name(split, "dci", "recall")],
+            metrics[full_metric_name(split, "dci", "iou")],
         ]
     elif has_ci:
         total_row = [
             "TOTAL",
-            legacy_metrics["CI_P"],
-            legacy_metrics["CI_R"],
-            legacy_metrics["CI_IoU"],
+            metrics[full_metric_name(split, "ci", "precision")],
+            metrics[full_metric_name(split, "ci", "recall")],
+            metrics[full_metric_name(split, "ci", "iou")],
         ]
     else:
         total_row = [
             "TOTAL",
-            legacy_metrics["Deb_P"],
-            legacy_metrics["Deb_R"],
-            legacy_metrics["Deb_IoU"],
+            metrics[full_metric_name(split, "dci", "precision")],
+            metrics[full_metric_name(split, "dci", "recall")],
+            metrics[full_metric_name(split, "dci", "iou")],
         ]
 
-    return metrics, legacy_metrics, total_row
+    return metrics, total_row
 
 
-def _legacy_columns(*, has_ci: bool, has_dci: bool) -> list[str]:
+def _csv_columns(*, has_ci: bool, has_dci: bool) -> list[str]:
     if has_ci and has_dci:
         return [
             "checkpoint",
             "tile",
-            "CleanIce_precision",
-            "CleanIce_recall",
-            "CleanIce_IoU",
-            "Debris_precision",
-            "Debris_recall",
-            "Debris_IoU",
+            "ci_precision",
+            "ci_recall",
+            "ci_iou",
+            "dci_precision",
+            "dci_recall",
+            "dci_iou",
         ]
 
     target = "ci" if has_ci else "dci"
-    cname = CLASS_TO_LEGACY_NAME[target]
     return [
         "checkpoint",
         "tile",
-        f"{cname}_precision",
-        f"{cname}_recall",
-        f"{cname}_IoU",
+        f"{target}_precision",
+        f"{target}_recall",
+        f"{target}_iou",
     ]
 
 

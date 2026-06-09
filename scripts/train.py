@@ -20,8 +20,10 @@ from pytorch_lightning.callbacks import (
 from pytorch_lightning.loggers import TensorBoardLogger
 from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
 from glacier_mapping.lightning.glacier_datamodule import GlacierDataModule
-from glacier_mapping.lightning.callbacks import ValidationVisualizationCallback
-from glacier_mapping.lightning.best_model_callback import TestEvaluationCallback
+from glacier_mapping.lightning.callbacks import (
+    ValidationVisualizationCallback,
+    TestEvaluationCallback,
+)
 import glacier_mapping.utils.mlflow_utils as mlflow_utils
 from glacier_mapping.utils.error_handler import setup_error_handler
 import glacier_mapping.utils.logging as log
@@ -148,7 +150,9 @@ class TrainingLogUploadCallback(pl.Callback):
             return
 
         if not self.log_file_path.exists():
-            log.warning(f"Training log not found for MLflow upload: {self.log_file_path}")
+            log.warning(
+                f"Training log not found for MLflow upload: {self.log_file_path}"
+            )
             return
 
         mlflow_logger = self._get_mlflow_logger(trainer)
@@ -269,7 +273,7 @@ def main():
     servers_yaml_path = pathlib.Path("configs") / "servers.yaml"
     if MLFLOW_AVAILABLE:
         server_config = mlflow_utils.load_server_config(
-            str(servers_yaml_path), args.server
+            args.server, str(servers_yaml_path)
         )
     else:
         with open(servers_yaml_path, "r") as f:

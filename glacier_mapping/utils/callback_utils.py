@@ -25,7 +25,7 @@ from glacier_mapping.model.evaluation import (
     predict_from_probs,
 )
 
-from glacier_mapping.model.metrics import IoU, precision, recall, tp_fp_fn
+from glacier_mapping.model.evaluation import IoU, precision, recall, tp_fp_fn
 from glacier_mapping.utils.gpu import cleanup_gpu_memory
 
 MLFlowLogger = None
@@ -720,8 +720,7 @@ def log_visualizations_to_all_loggers(
             # MLflow logging
             if (
                 MLFLOW_ARTIFACT_UPLOAD_ENABLED
-                and
-                MLFLOW_AVAILABLE
+                and MLFLOW_AVAILABLE
                 and hasattr(logger, "experiment")
                 and hasattr(logger.experiment, "log_artifacts")
             ):

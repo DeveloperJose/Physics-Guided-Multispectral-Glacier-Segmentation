@@ -26,7 +26,6 @@ def create_simple_physics_lstm_demo():
     """Create a simple Physics-LSTM diagram using basic matplotlib."""
     import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
-    import numpy as np
 
     fig, ax = plt.subplots(figsize=(14, 10))
     ax.set_xlim(0, 1)

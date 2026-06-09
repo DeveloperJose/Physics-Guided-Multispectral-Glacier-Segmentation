@@ -10,32 +10,14 @@ All functions are module-level (converted from MLflowManager static methods).
 """
 
 import warnings
-import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import mlflow
 
+
 MLFLOW_ARTIFACT_UPLOAD_ENABLED = True
-
-
-def load_server_config(servers_yaml_path: str, server_name: str) -> dict:
-    """Load explicit server configuration - HARD ERROR if missing."""
-    if not Path(servers_yaml_path).exists():
-        raise FileNotFoundError(
-            f"Server configuration file not found: {servers_yaml_path}"
-        )
-    with open(servers_yaml_path, "r") as f:
-        servers = yaml.safe_load(f)
-
-    if server_name not in servers:
-        raise ValueError(
-            f"Server '{server_name}' not found in {servers_yaml_path}. "
-            f"Available servers: {list(servers.keys())}"
-        )
-
-    return servers[server_name]
 
 
 def categorize_experiment(config: dict) -> str:

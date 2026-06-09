@@ -18,19 +18,15 @@ sys.path.append(
     )
 )
 
-from PlotNeuralNet.PyCore.Blocks import Block2ConvPool, BlockRes
 from PlotNeuralNet.PyCore.TikzGen import (
     ToBegin,
     ToConnection,
     ToConvConvRelu,
-    ToFullyConnected,
     ToCor,
     ToEnd,
     ToGenerate,
     ToHead,
-    ToInput,
     ToPool,
-    ToSum,
 )
 
 

@@ -130,6 +130,7 @@ class GlacierSegmentationModule(pl.LightningModule):
         self._setup_metrics()
         self.automatic_optimization = True
         self.best_val_loss = float("inf")
+        self.class_name_to_short = {"BG": "bg", "CleanIce": "ci", "Debris": "dci"}
 
     def _setup_metrics(self):
         self.train_metrics = nn.ModuleDict()
@@ -262,6 +263,7 @@ class GlacierSegmentationModule(pl.LightningModule):
                 continue
 
             class_name = self.class_names[class_idx]
+            target = self.class_name_to_short.get(class_name, class_name.lower())
 
             if len(self.output_classes) == 1:
                 pos_prob = y_prob[:, 1]
@@ -283,7 +285,7 @@ class GlacierSegmentationModule(pl.LightningModule):
                 iou_metric.update(y_pred_class, y_true_class.int())
                 iou_value = iou_metric.compute()
                 self.log(
-                    f"{prefix}_{class_name}_iou",
+                    f"window_{prefix}_{target}_iou",
                     iou_value,
                     on_step=False,
                     on_epoch=True,
@@ -294,7 +296,7 @@ class GlacierSegmentationModule(pl.LightningModule):
                 precision_metric.update(y_pred_class, y_true_class.int())
                 precision_value = precision_metric.compute()
                 self.log(
-                    f"{prefix}_{class_name}_precision",
+                    f"window_{prefix}_{target}_precision",
                     precision_value,
                     on_step=False,
                     on_epoch=True,
@@ -305,7 +307,7 @@ class GlacierSegmentationModule(pl.LightningModule):
                 recall_metric.update(y_pred_class, y_true_class.int())
                 recall_value = recall_metric.compute()
                 self.log(
-                    f"{prefix}_{class_name}_recall",
+                    f"window_{prefix}_{target}_recall",
                     recall_value,
                     on_step=False,
                     on_epoch=True,
@@ -545,8 +547,12 @@ class GlacierSegmentationModule(pl.LightningModule):
             return torch.expm1(vel_norm * log_max)
 
         if self.normalization == "mean-std":
-            mean = torch.tensor(self.norm_arr_full[0, channel_idx], device=vel_norm.device)
-            std = torch.tensor(self.norm_arr_full[1, channel_idx], device=vel_norm.device)
+            mean = torch.tensor(
+                self.norm_arr_full[0, channel_idx], device=vel_norm.device
+            )
+            std = torch.tensor(
+                self.norm_arr_full[1, channel_idx], device=vel_norm.device
+            )
             return vel_norm * std + mean
 
         if self.normalization == "min-max":

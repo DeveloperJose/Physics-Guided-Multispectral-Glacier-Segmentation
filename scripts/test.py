@@ -25,6 +25,7 @@ import sys
 import tempfile
 import traceback
 import subprocess
+import unittest
 from pathlib import Path
 from typing import Dict, Any, Tuple
 import logging
@@ -40,7 +41,14 @@ from glacier_mapping.utils.config import load_config, load_server_config
 from glacier_mapping.lightning.glacier_datamodule import GlacierDataModule
 import json
 from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
-from glacier_mapping.data.slice import get_tiff_np, save_slices, read_shp
+from glacier_mapping.data.slice import (
+    get_tiff_np,
+    save_slices,
+    read_shp,
+    add_index,
+    compute_dems,
+)
+from glacier_mapping.model.losses import customloss
 import rasterio
 
 TEST_DATASET_NAME = "gen_robust_comprehensive"
@@ -1218,6 +1226,216 @@ class GlacierTaskTestSuite:
             print(f"⚠ Warning: Could not clean up temp directory {self.temp_dir}: {e}")
 
 
+class TestVelocityLossMath(unittest.TestCase):
+    """Test velocity loss mathematical correctness and Kendall formulation."""
+
+    def test_velocity_loss_basic_functionality(self):
+        batch_size, height, width = 2, 32, 32
+        pred_logits = torch.randn(batch_size, 2, height, width)
+        target_onehot = torch.zeros(batch_size, 2, height, width)
+        target_onehot[:, 1] = 1.0
+        target_int = torch.ones(batch_size, height, width).long()
+        velocity = torch.abs(torch.randn(batch_size, 1, height, width)) * 5.0
+        velocity_mask = torch.ones(batch_size, 1, height, width)
+        loss_fn = customloss()
+        dice_loss, boundary_loss, velocity_loss = loss_fn(
+            pred_logits, target_onehot, target_int, velocity, velocity_mask
+        )
+        self.assertGreater(velocity_loss.item(), 0.0)
+        self.assertLess(velocity_loss.item(), 100.0)
+        dice_loss_no_vel, boundary_loss_no_vel, velocity_loss_no_vel = loss_fn(
+            pred_logits, target_onehot, target_int, None, None
+        )
+        self.assertEqual(velocity_loss_no_vel.item(), 0.0)
+
+    def test_sigma_initialization_values(self):
+        from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
+
+        config = {
+            "model_opts": {"args": {"net_depth": 4, "first_channel_output": 16}},
+            "loss_opts": {"use_velocity_loss": True},
+            "optim_opts": {},
+            "metrics_opts": {},
+            "loader_opts": {
+                "processed_dir": "demo_data",
+                "velocity_channels": True,
+                "output_classes": [1],
+                "class_names": ["background", "foreground"],
+            },
+        }
+        model = GlacierSegmentationModule(**config)
+        self.assertIsNotNone(model.sigma_dice)
+        self.assertIsNotNone(model.sigma_boundary)
+        self.assertIsNotNone(model.sigma_velocity)
+        self.assertEqual(model.sigma_dice.item(), 1.0)
+        self.assertEqual(model.sigma_boundary.item(), 1.0)
+        self.assertEqual(model.sigma_velocity.item(), 1.0)
+        self.assertEqual(len(model.sigma_list), 3)
+
+    def test_velocity_threshold_config_passthrough(self):
+        from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
+
+        model = GlacierSegmentationModule(
+            model_opts={"args": {"net_depth": 4, "first_channel_output": 16}},
+            loss_opts={"use_velocity_loss": True, "velocity_high_speed_threshold": 9.5},
+            optim_opts={},
+            metrics_opts={},
+            loader_opts={
+                "processed_dir": "demo_data",
+                "velocity_channels": True,
+                "output_classes": [1],
+                "class_names": ["background", "foreground"],
+            },
+        )
+        self.assertEqual(model.loss_fn.velocity_high_speed_threshold, 9.5)
+
+    def test_kendall_formulation_components(self):
+        losses = torch.tensor([0.5, 0.3, 1.2])
+        sigmas = torch.tensor([0.8, 1.1, 0.6])
+        expected_total = torch.tensor(0.0)
+        for loss, sigma in zip(losses, sigmas):
+            sigma_clamped = torch.clamp(sigma, min=0.1)
+            var = sigma_clamped**2 + 1e-8
+            expected_total += loss / (2.0 * var)
+            expected_total += 0.5 * torch.log(var)
+        self.assertGreater(expected_total.item(), 0.0)
+        self.assertTrue(torch.isfinite(expected_total))
+
+    def test_velocity_loss_edge_cases(self):
+        loss_fn = customloss()
+        pred_logits = torch.randn(2, 2, 32, 32)
+        target_onehot = torch.zeros(2, 2, 32, 32)
+        target_onehot[:, 1] = 1.0
+        target_int = torch.ones(2, 32, 32).long()
+        velocity = torch.zeros(2, 1, 32, 32)
+        velocity_mask = torch.ones(2, 1, 32, 32)
+        dice_loss, boundary_loss, velocity_loss = loss_fn(
+            pred_logits, target_onehot, target_int, velocity, velocity_mask
+        )
+        self.assertGreaterEqual(velocity_loss.item(), 0.0)
+        self.assertLess(velocity_loss.item(), 0.01)
+        velocity_mask = torch.zeros(2, 1, 32, 32)
+        dice_loss, boundary_loss, velocity_loss = loss_fn(
+            pred_logits, target_onehot, target_int, velocity, velocity_mask
+        )
+        self.assertEqual(velocity_loss.item(), 0.0)
+
+    def test_sigma_minimum_constraint(self):
+        from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
+
+        model = GlacierSegmentationModule(
+            model_opts={"args": {"net_depth": 4, "first_channel_output": 16}},
+            loss_opts={"use_velocity_loss": True},
+            optim_opts={},
+            metrics_opts={},
+            loader_opts={
+                "processed_dir": "demo_data",
+                "velocity_channels": True,
+                "output_classes": [1],
+                "class_names": ["bg", "fg"],
+            },
+        )
+        with torch.no_grad():
+            model.sigma_dice.data = torch.tensor(0.05)
+            model.sigma_boundary.data = torch.tensor(0.01)
+            model.sigma_velocity.data = torch.tensor(0.02)
+        pred_logits = torch.randn(1, 2, 32, 32)
+        target_onehot = torch.zeros(1, 2, 32, 32)
+        target_onehot[:, 1] = 1.0
+        target_int = torch.ones(1, 32, 32).long()
+        velocity = torch.randn(1, 1, 32, 32)
+        velocity_mask = torch.ones(1, 1, 32, 32)
+        test_loss = model.compute_loss(
+            pred_logits, target_onehot, target_int, velocity, velocity_mask
+        )
+        self.assertTrue(torch.isfinite(test_loss))
+        self.assertGreater(test_loss.item(), 0.0)
+
+
+class TestSliceFunctions(unittest.TestCase):
+    def test_add_index(self):
+        tiff_np = np.ones((10, 10, 4), dtype=np.float32)
+        tiff_np[..., 0] = 2
+        tiff_np[..., 1] = 4
+        result = add_index(tiff_np, index1=1, index2=0)
+        expected_index = (4 - 2) / (4 + 2)
+        self.assertEqual(result.shape, (10, 10, 5))
+        self.assertTrue(np.allclose(result[..., 4], expected_index))
+        tiff_np[..., 0] = -4
+        result = add_index(tiff_np, index1=1, index2=0)
+        self.assertFalse(np.isnan(result).any())
+
+    def test_compute_dems(self):
+        dem_np = np.zeros((10, 10, 2), dtype=np.float32)
+        dem_np[..., 0] = 1000
+        dem_np[..., 1] = 30
+        result = compute_dems(dem_np)
+        self.assertEqual(result.shape, (10, 10, 2))
+        self.assertTrue(np.all(result[..., 0] == 1000))
+        self.assertTrue(np.all(result[..., 1] == 30))
+
+
+class TestClassWeights(unittest.TestCase):
+    def test_binary_class_weights(self):
+        batch_size, height, width = 2, 32, 32
+        pred_logits = torch.randn(batch_size, 2, height, width)
+        target_onehot = torch.zeros(batch_size, 2, height, width)
+        target_onehot[:, 1] = 1.0
+        target_int = torch.ones(batch_size, height, width).long()
+        loss_fn = customloss(class_weights=[0, 1])
+        dice_loss, boundary_loss, velocity_loss = loss_fn(
+            pred_logits, target_onehot, target_int
+        )
+        self.assertTrue(torch.isfinite(dice_loss))
+        self.assertGreaterEqual(dice_loss.item(), 0.0)
+        self.assertEqual(velocity_loss.item(), 0.0)
+
+    def test_multiclass_class_weights(self):
+        batch_size, height, width = 2, 32, 32
+        pred_logits = torch.randn(batch_size, 3, height, width)
+        target_onehot = torch.zeros(batch_size, 3, height, width)
+        target_onehot[:, 1] = 1.0
+        target_int = torch.ones(batch_size, height, width).long()
+        loss_fn = customloss(class_weights=[0, 1, 1])
+        dice_loss, boundary_loss, velocity_loss = loss_fn(
+            pred_logits, target_onehot, target_int
+        )
+        self.assertTrue(torch.isfinite(dice_loss))
+        self.assertGreaterEqual(dice_loss.item(), 0.0)
+        self.assertEqual(velocity_loss.item(), 0.0)
+
+    def test_class_weights_length_mismatch(self):
+        batch_size, height, width = 2, 32, 32
+        pred_logits = torch.randn(batch_size, 2, height, width)
+        target_onehot = torch.zeros(batch_size, 2, height, width)
+        target_onehot[:, 1] = 1.0
+        target_int = torch.ones(batch_size, height, width).long()
+        loss_fn = customloss(class_weights=[0, 1, 1])
+        with self.assertRaises(ValueError):
+            loss_fn(pred_logits, target_onehot, target_int)
+
+    def test_no_class_weights_fallback(self):
+        batch_size, height, width = 2, 32, 32
+        pred_logits = torch.randn(batch_size, 2, height, width)
+        target_onehot = torch.zeros(batch_size, 2, height, width)
+        target_onehot[:, 1] = 1.0
+        target_int = torch.ones(batch_size, height, width).long()
+        loss_fn = customloss()
+        dice_loss, boundary_loss, velocity_loss = loss_fn(
+            pred_logits, target_onehot, target_int
+        )
+        self.assertTrue(torch.isfinite(dice_loss))
+        self.assertGreaterEqual(dice_loss.item(), 0.0)
+        self.assertEqual(velocity_loss.item(), 0.0)
+
+
+def run_unit_tests():
+    suite = unittest.TestLoader().loadTestsFromModule(sys.modules[__name__])
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+    return result.wasSuccessful()
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -1232,8 +1450,13 @@ def main():
     parser.add_argument(
         "--epochs", type=int, default=2, help="Number of epochs for testing"
     )
+    parser.add_argument("--unit", action="store_true", help="Run unit tests only")
 
     args = parser.parse_args()
+
+    if args.unit:
+        success = run_unit_tests()
+        sys.exit(0 if success else 1)
 
     # Create and run test suite
     test_suite = GlacierTaskTestSuite(

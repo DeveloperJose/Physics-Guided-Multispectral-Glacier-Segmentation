@@ -37,8 +37,10 @@ except ImportError:
 
 try:
     from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
-    from glacier_mapping.lightning.callbacks import ValidationVisualizationCallback
-    from glacier_mapping.lightning.best_model_callback import TestEvaluationCallback
+    from glacier_mapping.lightning.callbacks import (
+        ValidationVisualizationCallback,
+        TestEvaluationCallback,
+    )
     from glacier_mapping.lightning.glacier_datamodule import GlacierDataModule
 
     LIGHTNING_AVAILABLE = True
@@ -332,9 +334,9 @@ def regenerate_visualizations(
         # Extract new best test metrics from the callback
         new_metrics = {}
         for class_name, metrics in test_callback.best_test_metrics.items():
-            new_metrics[f"best_test_{class_name}_iou"] = metrics["iou"]
-            new_metrics[f"best_test_{class_name}_precision"] = metrics["precision"]
-            new_metrics[f"best_test_{class_name}_recall"] = metrics["recall"]
+            new_metrics[f"best_full_test_{class_name}_iou"] = metrics["iou"]
+            new_metrics[f"best_full_test_{class_name}_precision"] = metrics["precision"]
+            new_metrics[f"best_full_test_{class_name}_recall"] = metrics["recall"]
 
         return True, new_metrics
 

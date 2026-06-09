@@ -149,7 +149,6 @@ def run_prediction_on_models(
 
     return {
         "metrics": result.metrics,
-        "legacy_metrics": result.legacy_metrics,
         "output_dir": output_dir,
         "status": "SUCCESS",
     }
@@ -297,9 +296,7 @@ def compute_feature_importance(
         channel_grad = np.zeros(len(use_channels))
         if x_tensor.grad is not None:
             grads = x_tensor.grad.data.abs()
-            channel_grad = (
-                grads.sum(dim=(2, 3)).cpu().numpy()[0]
-            )
+            channel_grad = grads.sum(dim=(2, 3)).cpu().numpy()[0]
 
         channel_gradients += channel_grad
 

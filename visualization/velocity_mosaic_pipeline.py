@@ -11,7 +11,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, Tuple, Optional
 
 import cv2
 import matplotlib.pyplot as plt
@@ -27,7 +27,6 @@ from glacier_mapping.utils.visualize import (
     COLOR_CI,
     COLOR_DEB,
     COLOR_IGNORE,
-    label_to_color,
     make_overlay,
     add_title,
 )
