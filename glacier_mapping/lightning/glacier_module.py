@@ -104,10 +104,11 @@ class GlacierSegmentationModule(pl.LightningModule):
 
         self.loss_fn = customloss(**loss_args)
 
-        self.sigma_dice = nn.Parameter(torch.tensor(1.0))
-        self.sigma_boundary = nn.Parameter(torch.tensor(1.0))
+        sigma_init = model_opts.get("sigma_init", 0.5)
+        self.sigma_dice = nn.Parameter(torch.tensor(sigma_init))
+        self.sigma_boundary = nn.Parameter(torch.tensor(sigma_init))
         self.sigma_velocity = (
-            nn.Parameter(torch.tensor(1.0)) if self.use_velocity_loss else None
+            nn.Parameter(torch.tensor(sigma_init)) if self.use_velocity_loss else None
         )
 
         self.sigma_list = nn.ParameterList([self.sigma_dice, self.sigma_boundary])
@@ -285,7 +286,7 @@ class GlacierSegmentationModule(pl.LightningModule):
                 iou_metric.update(y_pred_class, y_true_class.int())
                 iou_value = iou_metric.compute()
                 self.log(
-                    f"window_{prefix}_{target}_iou",
+                    f"slice_{prefix}_{target}_iou",
                     iou_value,
                     on_step=False,
                     on_epoch=True,
@@ -296,7 +297,7 @@ class GlacierSegmentationModule(pl.LightningModule):
                 precision_metric.update(y_pred_class, y_true_class.int())
                 precision_value = precision_metric.compute()
                 self.log(
-                    f"window_{prefix}_{target}_precision",
+                    f"slice_{prefix}_{target}_precision",
                     precision_value,
                     on_step=False,
                     on_epoch=True,
@@ -307,7 +308,7 @@ class GlacierSegmentationModule(pl.LightningModule):
                 recall_metric.update(y_pred_class, y_true_class.int())
                 recall_value = recall_metric.compute()
                 self.log(
-                    f"window_{prefix}_{target}_recall",
+                    f"slice_{prefix}_{target}_recall",
                     recall_value,
                     on_step=False,
                     on_epoch=True,
@@ -586,49 +587,17 @@ class GlacierSegmentationModule(pl.LightningModule):
 
         return x_normalized
 
-    def predict_slice(self, slice_arr, threshold=None, preprocess=True, use_mask=True):
-        if preprocess:
-            slice_arr = slice_arr[:, :, self.use_channels]
-            slice_arr = self.normalize(slice_arr)
+    def predict_slice(
+        self, slice_arr, threshold=None, preprocess=True, use_mask=True, fill_holes=True
+    ):
+        from glacier_mapping.model.evaluation import predict_slice as eval_predict_slice
 
-        _mask = np.sum(slice_arr, axis=2) == 0
-
-        _x = torch.from_numpy(np.expand_dims(slice_arr, axis=0)).float().to(self.device)
-
-        with torch.no_grad():
-            _y = self.forward(_x.permute(0, 3, 1, 2))
-
-        if len(self.output_classes) == 1:
-            if threshold is None:
-                threshold = [0.5]
-            elif isinstance(threshold, (int, float)):
-                threshold = [threshold]
-            elif isinstance(threshold, list):
-                pass
-            else:
-                threshold = [0.5]
-
-            _y = torch.nn.functional.softmax(_y, dim=1)
-            _y = _y.cpu().numpy()
-            if _y.shape[0] == 1:
-                _y = _y[0]
-            y_pred = (_y[1] >= threshold[0]).astype(np.uint8)
-        else:
-            _y = torch.nn.functional.softmax(_y, dim=1)
-            _y = _y.cpu().numpy()
-            if _y.shape[0] == 1:
-                _y = _y[0]
-            y_pred = np.argmax(_y, axis=0).astype(np.uint8)
-
-        del _x
-
-        if use_mask:
-            if y_pred.ndim == 2:
-                y_pred[_mask] = 0
-            elif y_pred.ndim == 1:
-                y_pred[_mask.flatten()] = 0
-            return y_pred, _mask
-        return y_pred
+        y_pred, mask = eval_predict_slice(
+            self, slice_arr, threshold, fill_holes=fill_holes
+        )
+        if not use_mask:
+            return y_pred
+        return y_pred, mask
 
     def freeze_layers(self, layers=None):
         for i, param in enumerate(self.model.parameters()):

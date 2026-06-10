@@ -16,6 +16,7 @@ from typing import Optional
 
 import mlflow
 
+from glacier_mapping.utils.config import load_server_config  # noqa: F401 — re-exported for scripts/train.py
 
 MLFLOW_ARTIFACT_UPLOAD_ENABLED = True
 

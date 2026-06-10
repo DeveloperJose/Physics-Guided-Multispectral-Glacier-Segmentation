@@ -168,8 +168,11 @@ if __name__ == "__main__":
         for split, meta in splits.items():
             means, stds, mins, maxs = [], [], [], []
             savepath = Path(conf["out_dir"]) / split
+            slice_conf = dict(conf)
+            if split == "test":
+                slice_conf["overlap"] = 0
             fn_process = partial(
-                fn.save_slices, labels=labels, savepath=savepath, **conf
+                fn.save_slices, labels=labels, savepath=savepath, **slice_conf
             )
             remove_and_create(savepath)
 

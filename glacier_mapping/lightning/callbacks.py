@@ -307,13 +307,21 @@ class TestEvaluationCallback(Callback):
         from tqdm import tqdm
         import numpy as np
         import torch
-        from glacier_mapping.model.evaluation import IoU, precision, recall, tp_fp_fn
-        from glacier_mapping.model.evaluation import calculate_binary_metrics
+        from glacier_mapping.model.evaluation import (
+            IoU,
+            precision,
+            recall,
+            tp_fp_fn,
+            calculate_binary_metrics,
+            predict_slice,
+        )
 
         for idx, x_path in enumerate(tqdm(test_tiles_all, desc="Test evaluation")):
             if x_path not in prediction_cache:
                 x = np.load(x_path)
-                y_pred, invalid_mask = pl_module.predict_slice(x, threshold)
+                y_pred, invalid_mask = predict_slice(
+                    pl_module, x, threshold, fill_holes=True
+                )
             else:
                 y_pred, invalid_mask = prediction_cache[x_path]
 
@@ -426,6 +434,16 @@ class TestEvaluationCallback(Callback):
                 metrics_to_log[f"best_full_test_{target}_iou"] = float(iou)
                 metrics_to_log[f"best_full_test_{target}_precision"] = float(prec)
                 metrics_to_log[f"best_full_test_{target}_recall"] = float(rec)
+
+        # Save aggregate metrics locally so results are available without MLflow
+        metrics_path = output_dir / "test_metrics.json"
+        try:
+            import json
+            with open(metrics_path, "w") as f:
+                json.dump(metrics_to_log, f, indent=2)
+            log.info(f"Saved test metrics to {metrics_path}")
+        except Exception as e:
+            log.warning(f"Failed to save test metrics locally: {e}")
 
         self._log_metrics_to_all_loggers(
             trainer, metrics_to_log, step=trainer.current_epoch + 1

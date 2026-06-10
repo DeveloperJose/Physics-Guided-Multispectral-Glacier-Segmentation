@@ -49,6 +49,22 @@ from glacier_mapping.data.slice import (
     compute_dems,
 )
 from glacier_mapping.model.losses import customloss
+from glacier_mapping.model.evaluation import (
+    precision,
+    recall,
+    IoU,
+    dice,
+    tp_fp_fn,
+    get_pr_iou,
+    calculate_binary_metrics,
+    create_invalid_mask,
+    predict_from_probs,
+    _normalize_target,
+    metric_name,
+    full_metric_name,
+    merge_ci_debris,
+    CLASS_TO_INDEX,
+)
 import rasterio
 
 TEST_DATASET_NAME = "gen_robust_comprehensive"
@@ -1267,9 +1283,9 @@ class TestVelocityLossMath(unittest.TestCase):
         self.assertIsNotNone(model.sigma_dice)
         self.assertIsNotNone(model.sigma_boundary)
         self.assertIsNotNone(model.sigma_velocity)
-        self.assertEqual(model.sigma_dice.item(), 1.0)
-        self.assertEqual(model.sigma_boundary.item(), 1.0)
-        self.assertEqual(model.sigma_velocity.item(), 1.0)
+        self.assertEqual(model.sigma_dice.item(), 0.5)
+        self.assertEqual(model.sigma_boundary.item(), 0.5)
+        self.assertEqual(model.sigma_velocity.item(), 0.5)
         self.assertEqual(len(model.sigma_list), 3)
 
     def test_velocity_threshold_config_passthrough(self):
@@ -1427,6 +1443,186 @@ class TestClassWeights(unittest.TestCase):
         self.assertTrue(torch.isfinite(dice_loss))
         self.assertGreaterEqual(dice_loss.item(), 0.0)
         self.assertEqual(velocity_loss.item(), 0.0)
+
+
+class TestEvaluationFunctions(unittest.TestCase):
+    """Unit tests for evaluation.py metric helpers and prediction functions."""
+
+    def test_precision_recall_iou_dice(self):
+        self.assertAlmostEqual(precision(10, 2, 1), 10.0 / 12)
+        self.assertAlmostEqual(recall(10, 2, 1), 10.0 / 11)
+        self.assertAlmostEqual(IoU(10, 2, 1), 10.0 / 13)
+        self.assertAlmostEqual(dice(10, 2, 1), 20.0 / 23)
+
+    def test_metrics_zero_division(self):
+        self.assertEqual(precision(0, 0, 0), 0.0)
+        self.assertEqual(recall(0, 0, 0), 0.0)
+        self.assertEqual(IoU(0, 0, 0), 0.0)
+        self.assertEqual(dice(0, 0, 0), 0.0)
+
+    def test_tp_fp_fn_basic(self):
+        pred = torch.tensor([1, 1, 0, 1, 0])
+        true = torch.tensor([1, 0, 0, 1, 1])
+        tp, fp, fn = tp_fp_fn(pred, true)
+        self.assertEqual(tp, 2)
+        self.assertEqual(fp, 1)
+        self.assertEqual(fn, 1)
+
+    def test_tp_fp_fn_custom_label(self):
+        pred = torch.tensor([2, 2, 0, 2, 0])
+        true = torch.tensor([2, 0, 0, 2, 2])
+        tp, fp, fn = tp_fp_fn(pred, true, label=2)
+        self.assertEqual(tp, 2)
+        self.assertEqual(fp, 1)
+        self.assertEqual(fn, 1)
+
+    def test_tp_fp_fn_empty(self):
+        pred = torch.tensor([], dtype=torch.int64)
+        true = torch.tensor([], dtype=torch.int64)
+        tp, fp, fn = tp_fp_fn(pred, true)
+        self.assertEqual((tp, fp, fn), (0, 0, 0))
+
+    def test_get_pr_iou(self):
+        pred = np.array([1, 1, 0, 1, 0])
+        true = np.array([1, 0, 0, 1, 1])
+        p, r, i, tp, fp, fn = get_pr_iou(pred, true)
+        self.assertAlmostEqual(p, 2.0 / 3)
+        self.assertAlmostEqual(r, 2.0 / 3)
+        self.assertAlmostEqual(i, 2.0 / 4)
+        self.assertEqual((tp, fp, fn), (2, 1, 1))
+
+    def test_calculate_binary_metrics(self):
+        y_pred = np.array([1, 1, 0, 1, 0, 1])
+        y_true = np.array([1, 0, 0, 1, 1, 1], dtype=np.uint8)
+        p, r, i, tp, fp, fn = calculate_binary_metrics(y_pred, y_true, target_class=1)
+        self.assertEqual((tp, fp, fn), (3, 1, 1))
+
+    def test_calculate_binary_metrics_with_mask(self):
+        y_pred = np.array([1, 1, 0, 1, 0, 1])
+        y_true = np.array([1, 0, 0, 1, 1, 1], dtype=np.uint8)
+        mask = np.array([False, False, True, False, False, False])
+        p, r, i, tp, fp, fn = calculate_binary_metrics(
+            y_pred, y_true, target_class=1, mask=mask
+        )
+        self.assertEqual((tp, fp, fn), (3, 1, 1))
+
+    def test_calculate_binary_metrics_all_masked(self):
+        y_pred = np.array([1, 0])
+        y_true = np.array([1, 1], dtype=np.uint8)
+        mask = np.array([True, True])
+        p, r, i, tp, fp, fn = calculate_binary_metrics(
+            y_pred, y_true, target_class=1, mask=mask
+        )
+        self.assertEqual((tp, fp, fn), (0, 0, 0))
+        self.assertEqual(i, 0.0)
+
+    def test_create_invalid_mask(self):
+        x = np.ones((4, 4, 3), dtype=np.float32)
+        x[0, 0] = 0.0
+        y = np.zeros((4, 4), dtype=np.uint8)
+        y[1, 1] = 255
+        mask = create_invalid_mask(x, y)
+        self.assertTrue(mask[0, 0])
+        self.assertTrue(mask[1, 1])
+        self.assertFalse(mask[2, 2])
+
+    def test_normalize_target(self):
+        self.assertEqual(_normalize_target("dci"), "dci")
+        self.assertEqual(_normalize_target("DCI"), "dci")
+        self.assertEqual(_normalize_target("debris"), "dci")
+        self.assertEqual(_normalize_target("ci"), "ci")
+        self.assertEqual(_normalize_target("CI"), "ci")
+        self.assertEqual(_normalize_target("cleanice"), "ci")
+        with self.assertRaises(ValueError):
+            _normalize_target("invalid")
+
+    def test_metric_name_format(self):
+        self.assertEqual(metric_name("full", "val", "dci", "iou"), "full_val_dci_iou")
+        self.assertEqual(full_metric_name("val", "ci", "iou"), "full_val_ci_iou")
+
+    def test_predict_from_probs_binary(self):
+        probs = np.zeros((4, 4, 2), dtype=np.float32)
+        probs[:, :, 1] = 0.8
+        probs[0, 0, 1] = 0.3
+        probs[1, 1, 1] = 0.6
+        from types import SimpleNamespace
+
+        module = SimpleNamespace()
+        module.output_classes = [1]
+        module.metrics_opts = {"threshold": [0.5]}
+        pred = predict_from_probs(probs, module, fill_holes=False)
+        self.assertEqual(pred[0, 0], 0)
+        self.assertEqual(pred[1, 1], 1)
+        self.assertEqual(pred[2, 2], 1)
+        self.assertEqual(pred.dtype, np.uint8)
+
+    def test_predict_from_probs_multiclass(self):
+        probs = np.zeros((4, 4, 3), dtype=np.float32)
+        probs[:, :, 0] = 0.1
+        probs[:, :, 1] = 0.8
+        probs[:, :, 2] = 0.1
+        from types import SimpleNamespace
+
+        module = SimpleNamespace()
+        module.output_classes = [0, 1, 2]
+        pred = predict_from_probs(probs, module, fill_holes=False)
+        self.assertEqual(pred[0, 0], 1)
+
+    def test_predict_from_probs_fill_holes(self):
+        probs = np.zeros((10, 10, 2), dtype=np.float32)
+        probs[:, :, 1] = 1.0
+        probs[4:6, 4:6, 1] = 0.0
+        from types import SimpleNamespace
+
+        module = SimpleNamespace()
+        module.output_classes = [1]
+        module.metrics_opts = {"threshold": [0.5]}
+        pred_no_fill = predict_from_probs(probs, module, fill_holes=False)
+        pred_fill = predict_from_probs(probs, module, fill_holes=True)
+        self.assertEqual(pred_no_fill[5, 5], 0)
+        self.assertEqual(pred_fill[5, 5], 1)
+
+    def test_predict_from_probs_threshold_none(self):
+        probs = np.zeros((4, 4, 2), dtype=np.float32)
+        probs[:, :, 1] = 0.7
+        from types import SimpleNamespace
+
+        module = SimpleNamespace()
+        module.output_classes = [1]
+        module.metrics_opts = {"threshold": [0.5]}
+        pred = predict_from_probs(probs, module, threshold=None, fill_holes=False)
+        self.assertEqual(pred[0, 0], 1)
+
+    def test_merge_ci_debris(self):
+        h, w = 10, 10
+        prob_ci = np.zeros((h, w, 2), dtype=np.float32)
+        prob_ci[:, :, 1] = 0.9
+        prob_dci = np.zeros((h, w, 2), dtype=np.float32)
+        prob_dci[:, :, 1] = 0.1
+        merged, probs = merge_ci_debris(prob_ci, prob_dci, thr_ci=0.5, thr_dci=0.5)
+        self.assertEqual(merged[0, 0], CLASS_TO_INDEX["ci"])
+        self.assertEqual(merged[0, 0], 1)
+        self.assertEqual(probs.shape, (h, w, 3))
+
+    def test_merge_ci_debris_dci_wins(self):
+        h, w = 10, 10
+        prob_ci = np.zeros((h, w, 2), dtype=np.float32)
+        prob_ci[:, :, 1] = 0.1
+        prob_dci = np.zeros((h, w, 2), dtype=np.float32)
+        prob_dci[:, :, 1] = 0.9
+        merged, probs = merge_ci_debris(prob_ci, prob_dci, thr_ci=0.5, thr_dci=0.5)
+        self.assertEqual(merged[0, 0], CLASS_TO_INDEX["dci"])
+        self.assertEqual(merged[0, 0], 2)
+
+    def test_merge_ci_debris_both_active(self):
+        h, w = 10, 10
+        prob_ci = np.zeros((h, w, 2), dtype=np.float32)
+        prob_ci[:, :, 1] = 0.9
+        prob_dci = np.zeros((h, w, 2), dtype=np.float32)
+        prob_dci[:, :, 1] = 0.9
+        merged, probs = merge_ci_debris(prob_ci, prob_dci, thr_ci=0.5, thr_dci=0.5)
+        self.assertEqual(merged[0, 0], CLASS_TO_INDEX["dci"])
+        self.assertEqual(probs.shape, (h, w, 3))
 
 
 def run_unit_tests():

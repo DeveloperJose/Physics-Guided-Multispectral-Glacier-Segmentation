@@ -12,7 +12,7 @@ training_opts:
   epochs: 200 # Reduced from 500 based on Gen1/Gen2 analysis (best models converge at 130-140)
   fine_tune: false
   find_lr: false
-  early_stopping: 15 # Faster publication sweeps; rerun top models later with higher patience
+  early_stopping: 55 # Allow longer convergence; was 15 for sweeps
   early_stopping_min_delta: 0.001
   # Validation visualizations (periodic, every N epochs)
   val_viz_n: 0 # Number per third (top, middle, bottom). 0=disable for routine sweeps
@@ -48,10 +48,10 @@ loader_opts:
 
   # Data Augmentation (restored from Gen3)
   augmentations:
-    h_flip_prob: 0.5
-    v_flip_prob: 0.5
-    rotate90_prob: 0.5
-    transpose_prob: 0.5
+    h_flip_prob: 0.15
+    v_flip_prob: 0.15
+    rotate90_prob: 0.15
+    transpose_prob: 0.15
 
 metrics_opts:
   metrics: ["IoU", "precision", "recall"]
@@ -60,7 +60,7 @@ metrics_opts:
 loss_opts:
   name: "custom"
   label_smoothing: 0
-  class_weights: [0.01, 1] # Default for binary: ignore background (0), focus on foreground (1)
+  class_weights: [0, 1] # Default for binary: ignore background (0), focus on foreground (1)
 
   # Physics-Informed Velocity Loss Options
   use_velocity_loss: false
@@ -73,7 +73,7 @@ loss_opts:
 model_opts:
   args:
     net_depth: 4
-    dropout: 0.3
+    dropout: 0.1
     spatial: true
     first_channel_output: 32
 
@@ -81,11 +81,11 @@ optim_opts:
   name: "AdamW"
   args:
     lr: 0.0003
-    weight_decay: 1e-4
+    weight_decay: 5e-5
 
 scheduler_opts:
   name: "OneCycleLR"
   args:
-    max_lr: 0.0005 # Peak LR (3.3x base lr)
+    max_lr: 0.001 # Peak LR (3.3x base lr)
     pct_start: 0.3 # 30% warmup, 70% annealing
     anneal_strategy: "cos"

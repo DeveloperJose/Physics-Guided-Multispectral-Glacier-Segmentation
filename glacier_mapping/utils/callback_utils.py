@@ -583,7 +583,7 @@ def select_informative_test_tiles(
     # for idx, x_path in enumerate(tqdm(tile_paths, desc="IoU computation + caching")):
     for idx, x_path in enumerate(tile_paths):
         x = np.load(x_path)
-        y_pred, invalid_mask = pl_module.predict_slice(x, threshold)
+        y_pred, invalid_mask = pl_module.predict_slice(x, threshold, fill_holes=True)
 
         # Cache prediction for reuse in full evaluation
         prediction_cache[x_path] = (y_pred, invalid_mask)

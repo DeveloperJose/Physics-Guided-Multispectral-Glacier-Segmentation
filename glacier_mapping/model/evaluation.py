@@ -42,20 +42,6 @@ def IoU(tp, fp, fn):
     return tp / (tp + fp + fn + 1e-10)
 
 
-def l1_reg(params, lambda_reg, device):
-    penalty = torch.tensor(0.0).to(device)
-    for param in params:
-        penalty += lambda_reg * torch.sum(abs(param))
-    return penalty
-
-
-def l2_reg(params, lambda_reg, device):
-    penalty = torch.tensor(0.0).to(device)
-    for param in params:
-        penalty += lambda_reg * torch.norm(param, 2) ** 2
-    return penalty
-
-
 CLASS_TO_INDEX = {"bg": 0, "ci": 1, "dci": 2}
 
 
@@ -73,111 +59,8 @@ def metric_name(scope: str, split: str, target: str, metric: str) -> str:
     return f"{scope}_{split}_{target}_{metric}"
 
 
-def window_metric_name(split: str, target: str, metric: str) -> str:
-    return metric_name("window", split, target, metric)
-
-
 def full_metric_name(split: str, target: str, metric: str) -> str:
     return metric_name("full", split, target, metric)
-
-
-def compute_window_binary_metrics(
-    y_hat: torch.Tensor,
-    y_int: torch.Tensor,
-    *,
-    split: str,
-    target: str,
-    class_idx: int,
-    threshold: float = 0.5,
-) -> dict[str, float]:
-    """Compute canonical window_* metrics from model logits and integer labels."""
-    target = _normalize_target(target)
-    pred, true = window_binary_prediction(
-        y_hat,
-        y_int,
-        class_idx=class_idx,
-        threshold=threshold,
-    )
-    from glacier_mapping.model.evaluation import tp_fp_fn
-
-    tp_, fp_, fn_ = tp_fp_fn(pred, true)
-    return {
-        window_metric_name(split, target, "precision"): float(precision(tp_, fp_, fn_)),
-        window_metric_name(split, target, "recall"): float(recall(tp_, fp_, fn_)),
-        window_metric_name(split, target, "iou"): float(IoU(tp_, fp_, fn_)),
-    }
-
-
-def window_binary_prediction(
-    y_hat: torch.Tensor,
-    y_int: torch.Tensor,
-    *,
-    class_idx: int,
-    threshold: float = 0.5,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return flattened valid binary prediction/target tensors for window metrics."""
-    y_prob = torch.softmax(y_hat, dim=1)
-    pos_prob = y_prob[:, 1]
-    y_pred = (pos_prob >= threshold).int()
-    y_true = (y_int == class_idx).int()
-    valid_mask = y_int != 255
-    return y_pred[valid_mask], y_true[valid_mask]
-
-
-def predict_whole(module, whole_arr, window_size, threshold=None):
-    """Predict on a whole image using sliding windows."""
-    use_channels = module.use_channels
-    whole_arr = whole_arr[:, :, use_channels]
-    whole_arr = module.normalize(whole_arr)
-    mask = np.sum(whole_arr, axis=2) == 0
-
-    y_pred = np.zeros((whole_arr.shape[0], whole_arr.shape[1]), dtype=np.uint8)
-
-    for row in range(0, whole_arr.shape[0], window_size[0]):
-        for column in range(0, whole_arr.shape[1], window_size[1]):
-            current_slice = whole_arr[
-                row : row + window_size[0], column : column + window_size[1], :
-            ]
-
-            if current_slice.shape[:2] != window_size:
-                temp = np.zeros((window_size[0], window_size[1], whole_arr.shape[2]))
-                temp[: current_slice.shape[0], : current_slice.shape[1], :] = (
-                    current_slice
-                )
-                current_slice = temp
-
-            pred = module.predict_slice(
-                current_slice, threshold, preprocess=False, use_mask=False
-            )
-
-            endrow_dest = min(row + window_size[0], y_pred.shape[0])
-            endrow_source = min(window_size[0], y_pred.shape[0] - row)
-            endcolumn_dest = min(column + window_size[1], y_pred.shape[1])
-            endcolumn_source = min(window_size[1], y_pred.shape[1] - column)
-
-            y_pred[row:endrow_dest, column:endcolumn_dest] = pred[
-                0:endrow_source, 0:endcolumn_source
-            ]
-
-    y_pred[mask] = 0
-    return y_pred, mask
-
-
-def get_y_true(label_mask, output_classes, is_binary, binary_class_idx=None, mask=None):
-    """Convert one-hot mask to true labels."""
-    y_true = np.zeros((label_mask.shape[0], label_mask.shape[1]), dtype=np.uint8)
-
-    if is_binary:
-        assert binary_class_idx is not None
-        y_true[label_mask[:, :, binary_class_idx - 1] != 1] = 0
-        y_true[label_mask[:, :, binary_class_idx - 1] == 1] = 1
-    else:
-        for i in range(label_mask.shape[2]):
-            y_true[label_mask[:, :, i] == 1] = i + 1
-
-    if mask is not None:
-        y_true[mask] = 0
-    return y_true
 
 
 def get_probabilities(module, x_full):
@@ -198,7 +81,7 @@ def get_probabilities(module, x_full):
     return probs
 
 
-def predict_from_probs(probs, module, threshold=None):
+def predict_from_probs(probs, module, threshold=None, *, fill_holes=True):
     """Convert probabilities to hard predictions using module configuration."""
     if len(module.output_classes) == 1:
         if threshold is None:
@@ -208,16 +91,46 @@ def predict_from_probs(probs, module, threshold=None):
                 if isinstance(config_threshold, list)
                 else config_threshold
             )
-        return (probs[:, :, 1] >= threshold).astype(np.uint8)
+        y_pred = (probs[:, :, 1] >= threshold).astype(np.uint8)
+        if fill_holes:
+            y_pred = binary_fill_holes(y_pred).astype(np.uint8)
+        return y_pred
 
     return np.argmax(probs, axis=2).astype(np.uint8)
 
 
-def predict_with_probs(module, x_full, threshold=None):
-    """Return `(probabilities, hard_prediction)` for an input window."""
-    probs = get_probabilities(module, x_full)
-    prediction = predict_from_probs(probs, module, threshold)
-    return probs, prediction
+def predict_whole(module, whole_arr, window_size, threshold=None):
+    """Predict on a whole image using sliding windows, stitching results."""
+    y_pred = np.zeros((whole_arr.shape[0], whole_arr.shape[1]), dtype=np.uint8)
+
+    for row in range(0, whole_arr.shape[0], window_size[0]):
+        for column in range(0, whole_arr.shape[1], window_size[1]):
+            current_slice = whole_arr[
+                row : row + window_size[0], column : column + window_size[1], :
+            ]
+
+            if current_slice.shape[:2] != window_size:
+                temp = np.zeros(
+                    (window_size[0], window_size[1], whole_arr.shape[2]),
+                    dtype=whole_arr.dtype,
+                )
+                temp[: current_slice.shape[0], : current_slice.shape[1], :] = (
+                    current_slice
+                )
+                current_slice = temp
+
+            pred, _ = predict_slice(module, current_slice, threshold)
+
+            endrow_dest = min(row + window_size[0], y_pred.shape[0])
+            endrow_source = min(window_size[0], y_pred.shape[0] - row)
+            endcolumn_dest = min(column + window_size[1], y_pred.shape[1])
+            endcolumn_source = min(window_size[1], y_pred.shape[1] - column)
+
+            y_pred[row:endrow_dest, column:endcolumn_dest] = pred[
+                0:endrow_source, 0:endcolumn_source
+            ]
+
+    return y_pred
 
 
 def get_pr_iou(pred, true):
@@ -255,11 +168,6 @@ def calculate_binary_metrics(y_pred, y_true, target_class, mask=None):
 def create_invalid_mask(x_full, y_true):
     """Create invalid mask where pixels are empty imagery or ignored labels."""
     return (np.sum(x_full, axis=2) == 0) | (y_true == 255)
-
-
-def softmax_probs(module, x_full):
-    """Deprecated compatibility alias for `get_probabilities`."""
-    return get_probabilities(module, x_full)
 
 
 def merge_ci_debris(
@@ -484,9 +392,9 @@ def _run_full_split_prediction(
         "ci_tp": 0.0,
         "ci_fp": 0.0,
         "ci_fn": 0.0,
-        "db_tp": 0.0,
-        "db_fp": 0.0,
-        "db_fn": 0.0,
+        "dci_tp": 0.0,
+        "dci_fp": 0.0,
+        "dci_fn": 0.0,
     }
 
     has_ci = frame_ci is not None
@@ -513,13 +421,13 @@ def _run_full_split_prediction(
                 model_class = CLASS_TO_INDEX[target]
                 threshold = ci_threshold if has_ci else dci_threshold
 
-                probs = get_probabilities(frame, x_full)
+                y_pred, mask = predict_slice(frame, x_full, threshold, fill_holes=True)
                 if save_probabilities and preds_dir is not None:
+                    probs = get_probabilities(frame, x_full)
                     np.save(preds_dir / f"{base}_probs.npy", probs)
 
-                pred_bin = _threshold_binary_probs(probs, threshold)
                 p_, r_, iou_, tp_, fp_, fn_ = calculate_binary_metrics(
-                    pred_bin, y_full, model_class, invalid
+                    y_pred, y_full, model_class, invalid
                 )
 
                 acc[f"{target}_tp"] += tp_
@@ -551,9 +459,9 @@ def _run_full_split_prediction(
                     (merged[valid] == CLASS_TO_INDEX["dci"]).astype(np.uint8),
                     (y_full[valid] == CLASS_TO_INDEX["dci"]).astype(np.uint8),
                 )
-                acc["db_tp"] += tp_
-                acc["db_fp"] += fp_
-                acc["db_fn"] += fn_
+                acc["dci_tp"] += tp_
+                acc["dci_fp"] += fp_
+                acc["dci_fn"] += fn_
 
                 rows.append([name, p_ci, r_ci, i_ci, p_dci, r_dci, i_dci])
 
@@ -582,9 +490,9 @@ def _aggregate_metrics(
         )
 
     if has_dci:
-        p_dci = precision(acc["db_tp"], acc["db_fp"], acc["db_fn"])
-        r_dci = recall(acc["db_tp"], acc["db_fp"], acc["db_fn"])
-        i_dci = IoU(acc["db_tp"], acc["db_fp"], acc["db_fn"])
+        p_dci = precision(acc["dci_tp"], acc["dci_fp"], acc["dci_fn"])
+        r_dci = recall(acc["dci_tp"], acc["dci_fp"], acc["dci_fn"])
+        i_dci = IoU(acc["dci_tp"], acc["dci_fp"], acc["dci_fn"])
         metrics.update(
             {
                 full_metric_name(split, "dci", "precision"): float(p_dci),
@@ -644,12 +552,53 @@ def _csv_columns(*, has_ci: bool, has_dci: bool) -> list[str]:
     ]
 
 
-def _threshold_binary_probs(probs: np.ndarray, threshold: float) -> np.ndarray:
-    pred_mask = probs[:, :, 1] >= threshold
-    pred_filled = binary_fill_holes(pred_mask)
-    if pred_filled is None:
-        pred_filled = pred_mask
-    return pred_filled.astype(np.uint8)
+def predict_slice(
+    module,
+    slice_arr: np.ndarray,
+    threshold: float | None = None,
+    *,
+    use_mask: bool = True,
+    fill_holes: bool = True,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Unified slice prediction with optional binary_fill_holes.
+
+    All evaluation code should use this instead of module.predict_slice() to
+    ensure consistent post-processing (fill_holes, masking).
+    """
+    slice_arr = slice_arr[:, :, module.use_channels]
+    slice_arr = module.normalize(slice_arr)
+
+    _mask = np.sum(slice_arr, axis=2) == 0 if use_mask else None
+
+    _x = torch.from_numpy(np.expand_dims(slice_arr, axis=0)).float().to(module.device)
+    with torch.no_grad():
+        _y = module.forward(_x.permute(0, 3, 1, 2))
+
+    if len(module.output_classes) == 1:
+        if threshold is None:
+            threshold = [0.5]
+        elif isinstance(threshold, (int, float)):
+            threshold = [threshold]
+
+        _y = torch.nn.functional.softmax(_y, dim=1)
+        _y = _y.cpu().numpy()
+        if _y.shape[0] == 1:
+            _y = _y[0]
+
+        y_pred = (_y[1] >= threshold[0]).astype(np.uint8)
+        if fill_holes:
+            y_pred = binary_fill_holes(y_pred).astype(np.uint8)
+    else:
+        _y = torch.nn.functional.softmax(_y, dim=1)
+        _y = _y.cpu().numpy()
+        if _y.shape[0] == 1:
+            _y = _y[0]
+        y_pred = np.argmax(_y, axis=0).astype(np.uint8)
+
+    if use_mask and _mask is not None:
+        y_pred[_mask] = 0
+
+    return y_pred, _mask
 
 
 def _normalize_target(target: str) -> str:

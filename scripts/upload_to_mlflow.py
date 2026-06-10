@@ -525,6 +525,19 @@ def upload_single_run(
         with mlflow.start_run(
             run_id=run_id, run_name=run_name if run_id is None else None
         ) as run:
+            # Check if artifact URI is writable. The MLflow server may return a
+            # local path (e.g. /mlflow) that the client cannot write to.
+            artifact_uri = mlflow.get_run(run.info.run_id).info.artifact_uri
+            artifacts_writable = True
+            if artifact_uri.startswith("file://") or artifact_uri.startswith("/"):
+                local_path = artifact_uri.replace("file://", "")
+                if not os.access(local_path, os.W_OK):
+                    print(
+                        f"  Artifact URI ({artifact_uri}) not writable; "
+                        "skipping artifact uploads"
+                    )
+                    artifacts_writable = False
+
             if regenerate and run_id is not None:
                 # Only log new metrics (don't re-log old ones)
                 if all_checkpoint_metrics:
@@ -546,39 +559,45 @@ def upload_single_run(
                 mlflow.log_metrics(metrics)
 
                 # Log checkpoints as artifacts (only on initial upload, not regenerate)
-                checkpoint_dir = run_dir / "checkpoints"
-                if checkpoint_dir.exists():
-                    print("  Uploading checkpoints...")
-                    mlflow.log_artifacts(
-                        str(checkpoint_dir), artifact_path="checkpoints"
-                    )
+                if artifacts_writable:
+                    checkpoint_dir = run_dir / "checkpoints"
+                    if checkpoint_dir.exists():
+                        print("  Uploading checkpoints...")
+                        mlflow.log_artifacts(
+                            str(checkpoint_dir), artifact_path="checkpoints"
+                        )
 
-                # Log config as artifact
-                config_path = run_dir / "conf.json"
-                if config_path.exists():
-                    mlflow.log_artifact(str(config_path), artifact_path="config")
+                    # Log config as artifact
+                    config_path = run_dir / "conf.json"
+                    if config_path.exists():
+                        mlflow.log_artifact(str(config_path), artifact_path="config")
+                else:
+                    print("  Skipping checkpoint and config artifact uploads")
 
             # Delete old visualization artifacts before uploading new ones
             # (prevents accumulation of stale/duplicate PNGs)
-            if run_id:
+            if run_id and artifacts_writable:
                 delete_mlflow_artifact_directories(
                     run_id, ["val_visualizations", "test_evaluations"]
                 )
 
             # Always upload visualization directories (new or updated)
-            val_viz_dir = run_dir / "val_visualizations"
-            if val_viz_dir.exists():
-                print("  Uploading val_visualizations...")
-                mlflow.log_artifacts(
-                    str(val_viz_dir), artifact_path="val_visualizations"
-                )
+            if artifacts_writable:
+                val_viz_dir = run_dir / "val_visualizations"
+                if val_viz_dir.exists():
+                    print("  Uploading val_visualizations...")
+                    mlflow.log_artifacts(
+                        str(val_viz_dir), artifact_path="val_visualizations"
+                    )
 
-            test_eval_dir = run_dir / "test_evaluations"
-            if test_eval_dir.exists():
-                print("  Uploading test_evaluations...")
-                mlflow.log_artifacts(
-                    str(test_eval_dir), artifact_path="test_evaluations"
-                )
+                test_eval_dir = run_dir / "test_evaluations"
+                if test_eval_dir.exists():
+                    print("  Uploading test_evaluations...")
+                    mlflow.log_artifacts(
+                        str(test_eval_dir), artifact_path="test_evaluations"
+                    )
+            else:
+                print("  Skipping visualization artifact uploads")
 
         action = "updated" if run_id is not None else "uploaded"
         print(f"✅ Successfully {action} {run_dir.name} to MLflow")
