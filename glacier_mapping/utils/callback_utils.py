@@ -18,7 +18,7 @@ from glacier_mapping.utils.visualize import (
 )
 
 from glacier_mapping.utils.logging import warning
-from glacier_mapping.utils.mlflow_utils import MLFLOW_ARTIFACT_UPLOAD_ENABLED
+import glacier_mapping.utils.mlflow_utils as mlflow_utils
 from glacier_mapping.model.evaluation import (
     calculate_binary_metrics,
     get_probabilities,
@@ -719,7 +719,7 @@ def log_visualizations_to_all_loggers(
         try:
             # MLflow logging
             if (
-                MLFLOW_ARTIFACT_UPLOAD_ENABLED
+                mlflow_utils.MLFLOW_ARTIFACT_UPLOAD_ENABLED
                 and MLFLOW_AVAILABLE
                 and hasattr(logger, "experiment")
                 and hasattr(logger.experiment, "log_artifacts")

@@ -6,6 +6,7 @@ training_opts:
   dataset_name: "gen_robust_comprehensive" # Default run name (override in experiment configs)
   run_name: "" # Optional run identifier (appended to dataset_name)
   mlflow_experiment_name: "sota_replication" # Put all publication reruns in one MLflow experiment
+  mlflow_artifacts_enabled: false # Keep MLflow scalar metrics on, but skip artifact uploads during training
   # experiment_prefix: "reproducibility" # Legacy fallback when mlflow_experiment_name is unset
   seed: 8675309 # Global random seed for Python, NumPy, PyTorch, and dataloader workers
   augmentation_seed: 1000 # Seed for albumentations augmentations (independent from model seed)

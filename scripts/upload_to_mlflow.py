@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Upload completed training runs to MLflow with checkpoint evaluation."""
+"""Backfill or repair MLflow artifacts for completed training runs."""
 
 import argparse
 import json
@@ -671,9 +671,11 @@ def upload_batch_runs(
 
 
 def main():
-    """Main upload function."""
+    """Main post-hoc MLflow artifact upload function."""
     parser = argparse.ArgumentParser(
-        description="Upload completed runs to MLflow with checkpoint evaluation"
+        description=(
+            "Backfill or repair MLflow artifacts for completed local training runs"
+        )
     )
     parser.add_argument("run_dir", nargs="?", help="Single run directory to upload")
     parser.add_argument(
@@ -694,7 +696,9 @@ def main():
         help="Filter by experiment type (e.g., baseline_ci, baseline_debris)",
     )
     parser.add_argument(
-        "--batch", action="store_true", help="Upload all runs from output directory"
+        "--batch",
+        action="store_true",
+        help="Process all run directories from output directory",
     )
     parser.add_argument(
         "--regenerate",
@@ -704,7 +708,7 @@ def main():
     parser.add_argument(
         "--high-res",
         action="store_true",
-        help="Generate high-resolution visualizations for dissertation",
+        help="Generate high-resolution visualizations",
     )
     parser.add_argument(
         "--val-viz-n",

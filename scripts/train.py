@@ -246,6 +246,15 @@ def main():
         help="Enable MLflow logging (true/false)",
     )
     parser.add_argument(
+        "--mlflow-artifacts-enabled",
+        type=str,
+        default=None,
+        help=(
+            "Enable MLflow artifact uploads while keeping metrics enabled "
+            "(true/false; defaults to training_opts.mlflow_artifacts_enabled)"
+        ),
+    )
+    parser.add_argument(
         "--tracking-uri",
         type=str,
         default="https://mlflow.josegperez.com/",
@@ -282,8 +291,6 @@ def main():
 
     config = load_config(str(config_path), args.server)
 
-    mlflow_enabled = args.mlflow_enabled.lower() == "true"
-
     servers_yaml_path = pathlib.Path("configs") / "servers.yaml"
     if MLFLOW_AVAILABLE:
         server_config = mlflow_utils.load_server_config(
@@ -303,6 +310,16 @@ def main():
     optim_opts = config.get("optim_opts", {})
     scheduler_opts = config.get("scheduler_opts", {})
     metrics_opts = config.get("metrics_opts", {})
+
+    mlflow_enabled = args.mlflow_enabled.lower() == "true"
+    if args.mlflow_artifacts_enabled is not None:
+        mlflow_artifacts_enabled = args.mlflow_artifacts_enabled.lower() == "true"
+    else:
+        mlflow_artifacts_enabled = bool(
+            training_opts.get("mlflow_artifacts_enabled", False)
+        )
+    training_opts["mlflow_artifacts_enabled"] = mlflow_artifacts_enabled
+    mlflow_utils.MLFLOW_ARTIFACT_UPLOAD_ENABLED = mlflow_artifacts_enabled
 
     seed = int(training_opts.get("seed", 42))
     augmentation_seed = training_opts.get("augmentation_seed", None)
@@ -397,6 +414,7 @@ def main():
     log.info(f"Seed: {seed}")
     log.info(f"Deterministic mode: {deterministic}")
     log.info(f"MLflow enabled: {mlflow_enabled}")
+    log.info(f"MLflow artifact upload enabled: {mlflow_artifacts_enabled}")
     if mlflow_enabled and MLFLOW_AVAILABLE:
         log.info(f"MLflow experiment: {experiment_name}")
         log.info(f"MLflow run name: {run_name}")

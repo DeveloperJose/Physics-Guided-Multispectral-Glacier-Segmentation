@@ -45,23 +45,52 @@ glacier mapping performance.
 
 ## Visual Results
 
-<p>
-  <img src="docs/figures/glacier_mapping.png" alt="Glacier segmentation example" width="100%">
-</p>
+The task is pixel-wise glacier segmentation over HKH Landsat scenes. Clean ice
+and debris-covered ice have different visual signatures, so the pipeline uses
+spectral, topographic, and dynamic cues rather than RGB imagery alone.
 
-Good predictions on Clean Ice (top) and Debris-Covered Ice (bottom):
+<figure>
+  <img src="docs/figures/glacier_mapping.png" alt="Clean ice and debris-covered ice labels over HKH satellite imagery" width="100%">
+  <figcaption>HKH glacier labels over satellite imagery: clean ice is shown in purple, and debris-covered ice is shown in red.</figcaption>
+</figure>
 
-<p>
-  <img src="docs/figures/ci_good.png" alt="Clean ice good prediction" width="49%">
-  <img src="docs/figures/dci_good.png" alt="Debris-covered ice good prediction" width="49%">
-</p>
+Static terrain channels are derived from DEMs and aligned with the satellite
+image. The triptychs below show the RGB tile, the derived physics channel, and
+the channel overlaid on the satellite image.
 
-Earth observation data augmentation channels derived from DEM:
+<figure>
+  <img src="docs/figures/image125_triptych_physics_flow_accumulation.png" alt="RGB image, flow accumulation channel, and flow accumulation overlay" width="100%">
+  <figcaption>Flow accumulation highlights terrain pathways where ice and water are likely to move downslope.</figcaption>
+</figure>
 
-<p>
-  <img src="docs/figures/data_augmentation_dem.png" alt="DEM physics channels" width="49%">
-  <img src="docs/figures/data_augmentation_result.png" alt="Physics augmentation result" width="49%">
-</p>
+<figure>
+  <img src="docs/figures/image125_triptych_physics_tpi.png" alt="RGB image, topographic position index channel, and topographic position index overlay" width="100%">
+  <figcaption>Topographic Position Index captures local ridge and valley structure around glacier terrain.</figcaption>
+</figure>
+
+Dynamic velocity channels are fused from ITS_LIVE products and resampled to the
+Landsat grid. These channels provide a direct physical cue for moving glacier
+ice, especially where debris-covered ice is spectrally similar to surrounding
+rock.
+
+<figure>
+  <img src="docs/figures/image125_triptych_velocity_magnitude.png" alt="RGB image, velocity magnitude channel, and velocity magnitude overlay" width="100%">
+  <figcaption>Velocity magnitude separates moving glacier flow from static terrain and supports the velocity-aware loss.</figcaption>
+</figure>
+
+Prediction panels compare the input context, confidence map, ground truth, and
+model output. Clean ice and debris-covered ice examples are shown separately so
+the wide panels remain readable.
+
+<figure>
+  <img src="docs/figures/ci_good.png" alt="Clean ice prediction panel with RGB context, confidence, ground truth, and prediction" width="100%">
+  <figcaption>Clean ice example with high overlap between ground truth and prediction.</figcaption>
+</figure>
+
+<figure>
+  <img src="docs/figures/dci_good.png" alt="Debris-covered ice prediction panel with RGB context, confidence, ground truth, and prediction" width="100%">
+  <figcaption>Debris-covered ice example showing the model tracing debris-covered glacier structure through visually ambiguous terrain.</figcaption>
+</figure>
 
 ## Workflow Overview
 
@@ -73,9 +102,11 @@ The repository is organized around reproducible experiment runs:
 3. Create a small experiment YAML under `configs/{server}/{task}/` that
    overrides only the fields that differ from the global and task defaults.
 4. Train with `scripts/train.py`; each run writes checkpoints, TensorBoard logs,
-   a frozen `conf.json`, and optional validation/test visualizations.
+   a frozen `conf.json`, optional validation/test visualizations, and live
+   MLflow metrics when MLflow is enabled.
 5. Evaluate selected checkpoints with `scripts/predict.py`.
-6. Upload or update completed runs in MLflow with `scripts/upload_to_mlflow.py`.
+6. Use `scripts/upload_to_mlflow.py` only when a completed local run needs
+   post-hoc MLflow artifact upload, regeneration, or repair.
 
 ## Installation
 
@@ -219,6 +250,7 @@ training_opts:
   dataset_name: "gen_robust_comprehensive_dci"
   run_name: "dci_static_physics_seed42"
   mlflow_experiment_name: "physics_ablation"
+  mlflow_artifacts_enabled: false
   seed: 42
   run_test_eval: true
   test_eval_n: 4
@@ -282,6 +314,9 @@ Useful training flags:
 ```bash
 # Disable MLflow logging for local debugging
 uv run python scripts/train.py --config <config> --server desktop --gpu 0 --mlflow-enabled false
+
+# Keep MLflow metrics on, but force artifact uploads off
+uv run python scripts/train.py --config <config> --server desktop --gpu 0 --mlflow-artifacts-enabled false
 
 # Override epochs without editing YAML
 uv run python scripts/train.py --config <config> --server desktop --gpu 0 --max-epochs 5
@@ -377,11 +412,38 @@ Prediction outputs default to `output_predictions/` next to the server
 
 ## MLflow Tracking
 
-Training can log scalar metrics directly to MLflow, but completed run upload is
-handled separately by `scripts/upload_to_mlflow.py`. This script reads an output
-run directory, parses TensorBoard metrics, logs the frozen `conf.json`, uploads
-checkpoints and visualizations when the artifact store is writable, and can
-regenerate validation/test panels from saved checkpoints.
+Training uses MLflow directly by default for metrics. `scripts/train.py` creates
+an `MLFlowLogger` when `--mlflow-enabled true` and logs scalar metrics from
+Lightning during training.
+
+Artifact upload is controlled separately by
+`training_opts.mlflow_artifacts_enabled` or the `--mlflow-artifacts-enabled`
+CLI override. The default in `configs/train.yaml` is `false`, so current runs
+log MLflow metrics but skip artifacts during training. Set it to `true` only
+when the MLflow artifact store is writable from the training machine.
+
+Live training writes the complete local run directory regardless of MLflow:
+
+```text
+output/{run_name}_{server}_{timestamp}/
+  conf.json
+  training.log
+  checkpoints/
+  logs/
+  val_visualizations/
+  test_evaluations/
+```
+
+`scripts/upload_to_mlflow.py` is a post-hoc utility for cases where you want to
+separate training from heavier MLflow artifact handling, or where a run needs to
+be repaired after training. Use it to:
+
+- upload checkpoints and the frozen `conf.json` from a local run directory
+- parse TensorBoard event files and backfill metrics
+- upload visualization and test-evaluation artifact directories
+- regenerate validation/test panels from saved checkpoints
+- update one existing MLflow run when artifacts were missing, stale, or generated
+  at too low a resolution
 
 Upload one completed run:
 
@@ -409,6 +471,21 @@ uv run python scripts/upload_to_mlflow.py output/<run_name> \
 MLflow experiment names come from `training_opts.mlflow_experiment_name` when it
 is set. Otherwise, they are inferred from the task and optional
 `training_opts.experiment_prefix`.
+
+Disable live MLflow logging for local debugging or offline training:
+
+```bash
+uv run python scripts/train.py --config <config> --server desktop --gpu 0 --mlflow-enabled false
+```
+
+Keep MLflow metrics enabled but disable live artifact upload:
+
+```bash
+uv run python scripts/train.py --config <config> --server desktop --gpu 0 --mlflow-artifacts-enabled false
+```
+
+You can still upload that local run later with `scripts/upload_to_mlflow.py` if
+the run directory contains `conf.json`, TensorBoard logs, and checkpoints.
 
 ## Development Checks
 

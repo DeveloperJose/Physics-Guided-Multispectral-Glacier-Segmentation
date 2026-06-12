@@ -60,6 +60,7 @@ uv run python scripts/predict.py --ci-run-name ci_run_name --deb-run-name dci_ru
 - 4-level merge: `configs/train.yaml` (global defaults) → `configs/servers.yaml` (server) → `configs/tasks/{task}.yaml` (task) → experiment file.
 - Experiment files live under `configs/{server}/{task}/`. Only override what differs from upstream levels.
 - Keep experiment configs minimal and descriptive.
+- Keep MLflow metrics enabled by default, but leave `training_opts.mlflow_artifacts_enabled: false` unless the artifact store is writable from the training machine.
 
 ## Public Documentation
 - Keep README and public docs focused on this repository's software, workflows, results, and assets.

@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 
 import torch
 import glacier_mapping.utils.logging as log
-from glacier_mapping.utils.mlflow_utils import MLFLOW_ARTIFACT_UPLOAD_ENABLED
+import glacier_mapping.utils.mlflow_utils as mlflow_utils
 
 try:
     import psutil
@@ -119,7 +119,11 @@ class ErrorHandler:
             json.dump(error_report, f, indent=2)
 
         # Log to MLflow if available
-        if self.mlflow_logger and MLFLOW_AVAILABLE and MLFLOW_ARTIFACT_UPLOAD_ENABLED:
+        if (
+            self.mlflow_logger
+            and MLFLOW_AVAILABLE
+            and mlflow_utils.MLFLOW_ARTIFACT_UPLOAD_ENABLED
+        ):
             try:
                 # Log error as artifact
                 if hasattr(self.mlflow_logger, "experiment"):
@@ -171,7 +175,11 @@ class ErrorHandler:
             json.dump(warning_report, f, indent=2)
 
         # Log to MLflow if available
-        if self.mlflow_logger and MLFLOW_AVAILABLE and MLFLOW_ARTIFACT_UPLOAD_ENABLED:
+        if (
+            self.mlflow_logger
+            and MLFLOW_AVAILABLE
+            and mlflow_utils.MLFLOW_ARTIFACT_UPLOAD_ENABLED
+        ):
             try:
                 self.mlflow_logger.experiment.log_artifact(
                     self.mlflow_logger.run_id,

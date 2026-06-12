@@ -18,7 +18,7 @@ import mlflow
 
 from glacier_mapping.utils.config import load_server_config  # noqa: F401 — re-exported for scripts/train.py
 
-MLFLOW_ARTIFACT_UPLOAD_ENABLED = True
+MLFLOW_ARTIFACT_UPLOAD_ENABLED = False
 
 
 def categorize_experiment(config: dict) -> str:
@@ -65,6 +65,9 @@ def extract_mlflow_params(config: dict, server_config: dict) -> dict:
             "full_eval_every": training_opts.get("full_eval_every"),
             "num_viz_samples": training_opts.get("num_viz_samples"),
             "mlflow_experiment_name": training_opts.get("mlflow_experiment_name"),
+            "mlflow_artifacts_enabled": training_opts.get(
+                "mlflow_artifacts_enabled"
+            ),
             "experiment_prefix": training_opts.get("experiment_prefix"),
             "seed": training_opts.get("seed"),
             "deterministic": training_opts.get("deterministic"),
@@ -167,6 +170,9 @@ def generate_run_tags(config: dict, server_config: dict, config_file: str) -> di
         "label_smoothing": str(loss_opts.get("label_smoothing", 0)),
         "batch_size": str(loader_opts.get("batch_size", 8)),
         "mlflow_experiment_name": str(training_opts.get("mlflow_experiment_name", "")),
+        "mlflow_artifacts_enabled": str(
+            bool(training_opts.get("mlflow_artifacts_enabled", False))
+        ),
         "experiment_prefix": str(training_opts.get("experiment_prefix", "")),
         "seed": str(training_opts.get("seed", "")),
         "deterministic": str(training_opts.get("deterministic", "")),
