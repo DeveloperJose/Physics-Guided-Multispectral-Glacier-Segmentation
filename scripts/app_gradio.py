@@ -57,7 +57,9 @@ class AppConfig:
     def from_env(cls) -> "AppConfig":
         env_processed_dir = os.environ.get("PROCESSED_DIR")
         processed_dir = (
-            Path(env_processed_dir) if env_processed_dir else resolve_default_processed_dir()
+            Path(env_processed_dir)
+            if env_processed_dir
+            else resolve_default_processed_dir()
         )
         return cls(
             processed_dir=processed_dir,
@@ -114,7 +116,9 @@ class PatchRecord:
 
 RUN_SPECS = {
     "ci": RunSpec("Clean Ice", "ablation2_ci_full_physics_velocity_channels_loss"),
-    "dci": RunSpec("Debris-Covered Ice", "ablation2_dci_full_physics_velocity_channels_loss"),
+    "dci": RunSpec(
+        "Debris-Covered Ice", "ablation2_dci_full_physics_velocity_channels_loss"
+    ),
 }
 
 RANK_K = 3
@@ -250,7 +254,9 @@ class DemoBackend:
     def __init__(self, config: AppConfig):
         self.config = config
         self.band_names = load_band_names(config.processed_dir)
-        self.band_index = {name: idx for idx, name in enumerate(self.band_names.tolist())}
+        self.band_index = {
+            name: idx for idx, name in enumerate(self.band_names.tolist())
+        }
         self.models = {
             "ci": self._load_model_for_run(RUN_SPECS["ci"]),
             "dci": self._load_model_for_run(RUN_SPECS["dci"]),
@@ -415,7 +421,9 @@ class DemoBackend:
         if marker not in ckpt_path.name:
             return None
         try:
-            return float(ckpt_path.name.split(marker, maxsplit=1)[1].removesuffix(".ckpt"))
+            return float(
+                ckpt_path.name.split(marker, maxsplit=1)[1].removesuffix(".ckpt")
+            )
         except ValueError:
             return None
 
@@ -503,7 +511,9 @@ class DemoBackend:
         if view_name == "Snow and Ice Signal":
             return self.make_scalar_heatmap(self.get_band(patch, "NDSI"), "ice")
         if view_name == "Surface Velocity":
-            return self.make_scalar_heatmap(self.get_band(patch, "velocity"), "velocity")
+            return self.make_scalar_heatmap(
+                self.get_band(patch, "velocity"), "velocity"
+            )
         raise ValueError(f"Unsupported view: {view_name}")
 
     def get_band(self, patch: np.ndarray, band_name: str) -> np.ndarray:
@@ -529,7 +539,9 @@ class DemoBackend:
         return rgb
 
     @staticmethod
-    def normalize_scalar(band: np.ndarray, percentile_low: float = 2, percentile_high: float = 98):
+    def normalize_scalar(
+        band: np.ndarray, percentile_low: float = 2, percentile_high: float = 98
+    ):
         band = np.nan_to_num(band.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
         valid = np.isfinite(band) & (band != 0)
         if valid.any():
@@ -562,17 +574,23 @@ class DemoBackend:
     def make_probability_heatmap(self, probs: np.ndarray, kind: str) -> np.ndarray:
         norm = np.clip(probs.astype(np.float32), 0, 1)
         if kind == "ci":
-            return np.stack([0.08 + 0.10 * norm, 0.15 + 0.70 * norm, 0.20 + 0.75 * norm], axis=-1)
-        return np.stack([0.25 + 0.70 * norm, 0.12 + 0.42 * norm, 0.05 + 0.18 * norm], axis=-1)
+            return np.stack(
+                [0.08 + 0.10 * norm, 0.15 + 0.70 * norm, 0.20 + 0.75 * norm], axis=-1
+            )
+        return np.stack(
+            [0.25 + 0.70 * norm, 0.12 + 0.42 * norm, 0.05 + 0.18 * norm], axis=-1
+        )
 
     @staticmethod
-    def overlay_segmentation(base: np.ndarray, segmentation: np.ndarray, alpha: float = 0.52):
+    def overlay_segmentation(
+        base: np.ndarray, segmentation: np.ndarray, alpha: float = 0.52
+    ):
         colors = SEGMENT_COLORS[segmentation]
         glacier_mask = segmentation > 0
         output = base.copy()
-        output[glacier_mask] = (
-            (1.0 - alpha) * base[glacier_mask] + alpha * colors[glacier_mask]
-        )
+        output[glacier_mask] = (1.0 - alpha) * base[glacier_mask] + alpha * colors[
+            glacier_mask
+        ]
         return np.clip(output, 0, 1)
 
     def reference_or_placeholder(self, truth: np.ndarray | None) -> np.ndarray:
@@ -630,7 +648,15 @@ class DemoBackend:
             prec = tp / (tp + fp) if (tp + fp) else None
             rec = tp / (tp + fn) if (tp + fn) else None
             iou = tp / (tp + fp + fn) if (tp + fp + fn) else None
-            return {"precision": prec, "recall": rec, "iou": iou, "truth": int(truth_cls.sum()), "pred": int(pred_cls.sum()), "intersection": tp, "union": tp + fp + fn}
+            return {
+                "precision": prec,
+                "recall": rec,
+                "iou": iou,
+                "truth": int(truth_cls.sum()),
+                "pred": int(pred_cls.sum()),
+                "intersection": tp,
+                "union": tp + fp + fn,
+            }
 
         def fmt(val: float | None, suffix: str = "%") -> str:
             return f"{val * 100:.1f}{suffix}" if val is not None else "N/A"
@@ -924,7 +950,9 @@ def main() -> None:
 
     print(f"Device: {config.device}")
     print(f"Examples available: {len(backend.patch_records)}")
-    print(f"Reference labels available: {sum(record.mask_path is not None for record in backend.patch_records)}")
+    print(
+        f"Reference labels available: {sum(record.mask_path is not None for record in backend.patch_records)}"
+    )
 
     demo = build_demo(backend)
     demo.queue()

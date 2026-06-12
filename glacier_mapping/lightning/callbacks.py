@@ -439,6 +439,7 @@ class TestEvaluationCallback(Callback):
         metrics_path = output_dir / "test_metrics.json"
         try:
             import json
+
             with open(metrics_path, "w") as f:
                 json.dump(metrics_to_log, f, indent=2)
             log.info(f"Saved test metrics to {metrics_path}")

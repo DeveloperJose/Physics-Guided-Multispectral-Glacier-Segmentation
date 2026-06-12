@@ -11,7 +11,7 @@ from torchmetrics import Precision, Recall
 import pytorch_lightning as pl
 
 from glacier_mapping.model.losses import customloss
-from glacier_mapping.model.unet import Unet
+from glacier_mapping.model.unet import Unet as CustomUnet
 
 
 class GlacierSegmentationModule(pl.LightningModule):
@@ -84,9 +84,21 @@ class GlacierSegmentationModule(pl.LightningModule):
 
         model_args = model_opts.get("args", {})
         out_channels = 2 if len(output_classes) == 1 else len(output_classes)
-        self.model = Unet(
-            inchannels=len(self.use_channels), outchannels=out_channels, **model_args
-        )
+        n_channels = len(self.use_channels)
+
+        framework = model_opts.get("framework", "custom")
+        if framework == "smp":
+            import segmentation_models_pytorch as smp
+
+            arch_name = model_opts.get("name", "Unet")
+            smp_class = getattr(smp, arch_name)
+            self.model = smp_class(
+                in_channels=n_channels, classes=out_channels, **model_args
+            )
+        else:
+            self.model = CustomUnet(
+                inchannels=n_channels, outchannels=out_channels, **model_args
+            )
 
         supported_loss_args = {
             "act",

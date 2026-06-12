@@ -617,8 +617,7 @@ def main():
     parser.add_argument(
         "--server",
         required=True,
-        choices=["desktop", "bilbo", "frodo"],
-        help="Server name for path configuration (must be specified explicitly)",
+        help="Server name from configs/servers.yaml (must be specified explicitly)",
     )
     parser.add_argument(
         "--landsat-dir",

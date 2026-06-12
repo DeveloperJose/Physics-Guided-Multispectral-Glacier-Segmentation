@@ -23,6 +23,9 @@ lightning_logs/
 *.pdf
 *.tif
 *.nc
+!docs/
+!docs/figures/
+!docs/figures/*.png
 
 ############### https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore
 # Byte-compiled / optimized / DLL files

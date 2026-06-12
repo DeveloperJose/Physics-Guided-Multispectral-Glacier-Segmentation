@@ -34,7 +34,7 @@ uv run python scripts/test.py --server desktop --subset-size 5 --epochs 2
 
 ### Training
 ```bash
-uv run python scripts/train.py --config configs/desktop/debris_ice/reproducibility2_dci_15_full_threshold_2p0_seed42_gpu0.yaml --server desktop --gpu 0
+uv run python scripts/train.py --config configs/desktop/debris_ice/sota_dci_06_bs12_seed42_gpu0.yaml --server desktop --gpu 0
 
 # Sequential runs
 uv run bash run_sequential_training.sh
@@ -60,6 +60,11 @@ uv run python scripts/predict.py --ci-run-name ci_run_name --deb-run-name dci_ru
 - 4-level merge: `configs/train.yaml` (global defaults) → `configs/servers.yaml` (server) → `configs/tasks/{task}.yaml` (task) → experiment file.
 - Experiment files live under `configs/{server}/{task}/`. Only override what differs from upstream levels.
 - Keep experiment configs minimal and descriptive.
+
+## Public Documentation
+- Keep README and public docs focused on this repository's software, workflows, results, and assets.
+- Keep implementation notes, local setup history, and maintenance context out of public docs.
+- If public docs reference figures or supporting files, keep those files inside this repository under `docs/` and link only to repo-local paths.
 
 ## Project Structure
 ```

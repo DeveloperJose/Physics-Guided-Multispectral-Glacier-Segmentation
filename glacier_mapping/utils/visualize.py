@@ -287,9 +287,7 @@ def create_legend_row(labels_dict, width, height=40, scale_factor: float = 1.0):
         cv2.rectangle(
             legend, (box_x1, box_y1), (box_x2, box_y2), tuple(int(c) for c in color), -1
         )
-        cv2.rectangle(
-            legend, (box_x1, box_y1), (box_x2, box_y2), (40, 40, 40), 1
-        )
+        cv2.rectangle(legend, (box_x1, box_y1), (box_x2, box_y2), (40, 40, 40), 1)
 
         text_x = box_x2 + max(6, int(8 * scale_factor))
 

@@ -387,8 +387,6 @@ def main():
     config_output_dir = pathlib.Path(output_dir) / run_name
     config_output_dir.mkdir(parents=True, exist_ok=True)
 
-
-
     log_file_path = None
     if not args.no_output:
         log_file_path = config_output_dir / "training.log"

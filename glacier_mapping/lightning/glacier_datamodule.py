@@ -50,7 +50,9 @@ class GlacierDataModule(pl.LightningDataModule):
         self.num_workers = num_workers
         self.pin_memory = pin_memory
         self.seed = seed
-        self.augmentation_seed = augmentation_seed if augmentation_seed is not None else seed
+        self.augmentation_seed = (
+            augmentation_seed if augmentation_seed is not None else seed
+        )
 
         if augmentations is not None:
             self.train_transform = self.create_augmentations(augmentations)

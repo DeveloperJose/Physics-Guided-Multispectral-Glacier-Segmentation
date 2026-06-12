@@ -2,7 +2,7 @@
 ################################################################################
 # Sequential Training Script for Glacier Mapping
 #
-# Usage: ./run_sequential_training.sh [desktop|bilbo|frodo] [OPTIONS]
+# Usage: ./run_sequential_training.sh SERVER [OPTIONS]
 #
 # This script runs all config files for a specified server sequentially,
 # continuing on failure and logging results to both console and summary file.
@@ -89,7 +89,7 @@ ${BOLD}USAGE:${NC}
     ./run_sequential_training.sh SERVER [OPTIONS]
 
 ${BOLD}ARGUMENTS:${NC}
-    SERVER              Server name: desktop, bilbo, or frodo
+    SERVER              Server name from configs/servers.yaml
 
 ${BOLD}BASIC OPTIONS:${NC}
     --gpu N             GPU device number (default: 0)
@@ -419,13 +419,6 @@ done
 ################################################################################
 # Validate Arguments
 ################################################################################
-
-# Validate server
-if [[ ! "$SERVER" =~ ^(desktop|bilbo|frodo)$ ]]; then
-    print_error "Invalid server: $SERVER"
-    echo "Valid servers: desktop, bilbo, frodo"
-    exit 1
-fi
 
 # Check if server exists in servers.yaml
 if ! grep -q "^${SERVER}:" configs/servers.yaml 2>/dev/null; then

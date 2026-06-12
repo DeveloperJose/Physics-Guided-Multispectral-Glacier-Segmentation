@@ -74,8 +74,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--server",
         required=True,
-        choices=["desktop", "bilbo", "frodo"],
-        help="Server name (must be specified explicitly)",
+        help="Server name from configs/servers.yaml (must be specified explicitly)",
     )
     parser.add_argument(
         "--config",

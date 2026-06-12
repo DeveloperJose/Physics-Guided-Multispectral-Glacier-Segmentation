@@ -1,0 +1,9 @@
+training_opts:
+  dataset_name: "gen_robust_comprehensive_dci"
+  run_name: "sota_dci_06_bs12_seed2026"
+  mlflow_experiment_name: "sota_replication"
+  seed: 2026
+  run_test_eval: true
+  test_eval_n: 0
+loader_opts:
+  batch_size: 12

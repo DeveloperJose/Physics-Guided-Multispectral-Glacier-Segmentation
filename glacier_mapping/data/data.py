@@ -334,7 +334,9 @@ class GlacierDataset(Dataset):
             self.folder_path = pathlib.Path(self.folder_path)
 
         assert isinstance(output_classes, list), "output_classes must be a list"
-        assert len(set(output_classes)) == len(output_classes), "output_classes cannot have duplicates"
+        assert len(set(output_classes)) == len(output_classes), (
+            "output_classes cannot have duplicates"
+        )
         assert all(self.output_classes >= 0) and all(self.output_classes < 3), (
             "output_classes must be either 0 (BG), 1 (CleanIce), or 2 (Debris)"
         )
@@ -358,7 +360,9 @@ class GlacierDataset(Dataset):
         self.channel_names = [band_names[ch] for ch in use_channels]
 
         self.log_mask = np.array([name in LOG_CHANNELS for name in self.channel_names])
-        self.symlog_mask = np.array([name in SYMLOG_CHANNELS for name in self.channel_names])
+        self.symlog_mask = np.array(
+            [name in SYMLOG_CHANNELS for name in self.channel_names]
+        )
 
         if self.robust_scaling:
             self.no_normalize_mask = np.array(
@@ -396,7 +400,10 @@ class GlacierDataset(Dataset):
                 for ch, skip in zip(use_channels, self.no_normalize_mask)
                 if skip
             ]
-            fn.log(logging.INFO, f"Channels excluded from standard normalization: {skip_names}")
+            fn.log(
+                logging.INFO,
+                f"Channels excluded from standard normalization: {skip_names}",
+            )
 
     def __getitem__(self, index):
         file_data = np.load(self.img_files[index])

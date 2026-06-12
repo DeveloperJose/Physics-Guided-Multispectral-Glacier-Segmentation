@@ -722,7 +722,6 @@ def main():
         "--server",
         type=str,
         required=True,
-        choices=["desktop", "bilbo", "frodo"],
         help="Server name for loading image_dir path (must exist in configs/servers.yaml)",
     )
 
