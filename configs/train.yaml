@@ -5,9 +5,10 @@
 training_opts:
   dataset_name: "gen_robust_comprehensive" # Default run name (override in experiment configs)
   run_name: "" # Optional run identifier (appended to dataset_name)
-  mlflow_experiment_name: "reproducibility" # Put all publication reruns in one MLflow experiment
-  experiment_prefix: "reproducibility" # Legacy fallback when mlflow_experiment_name is unset
-  seed: 42 # Global random seed for Python, NumPy, PyTorch, and dataloader workers
+  mlflow_experiment_name: "sota_replication" # Put all publication reruns in one MLflow experiment
+  # experiment_prefix: "reproducibility" # Legacy fallback when mlflow_experiment_name is unset
+  seed: 8675309 # Global random seed for Python, NumPy, PyTorch, and dataloader workers
+  augmentation_seed: 1000 # Seed for albumentations augmentations (independent from model seed)
   deterministic: true # Prefer deterministic CUDA kernels when available
   epochs: 200 # Reduced from 500 based on Gen1/Gen2 analysis (best models converge at 130-140)
   fine_tune: false
@@ -86,6 +87,6 @@ optim_opts:
 scheduler_opts:
   name: "OneCycleLR"
   args:
-    max_lr: 0.001 # Peak LR (3.3x base lr)
+    max_lr: 0.0005 # Peak LR (1.67x base lr; 0.001 used in sweeps)
     pct_start: 0.3 # 30% warmup, 70% annealing
     anneal_strategy: "cos"

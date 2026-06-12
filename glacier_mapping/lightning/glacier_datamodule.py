@@ -32,6 +32,7 @@ class GlacierDataModule(pl.LightningDataModule):
         num_workers: int = 4,
         pin_memory: bool = True,
         seed: int = 42,
+        augmentation_seed: Optional[int] = None,
     ):
         super().__init__()
         self.processed_dir = pathlib.Path(processed_dir)
@@ -49,6 +50,7 @@ class GlacierDataModule(pl.LightningDataModule):
         self.num_workers = num_workers
         self.pin_memory = pin_memory
         self.seed = seed
+        self.augmentation_seed = augmentation_seed if augmentation_seed is not None else seed
 
         if augmentations is not None:
             self.train_transform = self.create_augmentations(augmentations)
@@ -78,7 +80,7 @@ class GlacierDataModule(pl.LightningDataModule):
             transforms.append(A.RandomRotate90(p=aug_opts["rotate90_prob"]))
         if aug_opts.get("transpose_prob", 0) > 0:
             transforms.append(A.Transpose(p=aug_opts["transpose_prob"]))
-        return A.Compose(transforms)
+        return A.Compose(transforms, seed=self.augmentation_seed)
 
     def setup(self, stage: Optional[str] = None):
         from glacier_mapping.data.data import resolve_channel_selection

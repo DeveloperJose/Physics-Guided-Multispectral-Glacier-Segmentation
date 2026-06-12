@@ -117,7 +117,7 @@ def seed_reproducibility(seed: int, deterministic: bool) -> None:
     torch.backends.cudnn.benchmark = not deterministic
     torch.backends.cudnn.deterministic = deterministic
     try:
-        torch.use_deterministic_algorithms(deterministic, warn_only=True)
+        torch.use_deterministic_algorithms(deterministic, warn_only=not deterministic)
     except TypeError:
         torch.use_deterministic_algorithms(deterministic)
 
@@ -305,6 +305,7 @@ def main():
     metrics_opts = config.get("metrics_opts", {})
 
     seed = int(training_opts.get("seed", 42))
+    augmentation_seed = training_opts.get("augmentation_seed", None)
     deterministic = bool(training_opts.get("deterministic", True))
     seed_reproducibility(seed, deterministic)
 
@@ -440,6 +441,7 @@ def main():
         robust_scaling=loader_opts.get("robust_scaling", True),
         num_workers=loader_opts.get("num_workers", 4),
         seed=seed,
+        augmentation_seed=augmentation_seed,
     )
 
     log.info("Creating model...")
