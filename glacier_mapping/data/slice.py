@@ -366,6 +366,11 @@ def save_slices(
         if num_labels == 0:
             return False
 
+        # Keep all slices with any DCI pixels — they are precious and sparse
+        has_dci = np.any(slice == 2)
+        if has_dci:
+            return True
+
         frac = num_labels / num_valid
 
         if frac < percentage:
