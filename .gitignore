@@ -9,6 +9,7 @@ archive/
 **output/
 output_predictions/
 visualization/**/*.md
+old_code/
 
 .ruff_cache/
 .python-version

@@ -1,0 +1,37 @@
+training_opts:
+  dataset_name: "gen_robust_comprehensive_dci"
+  run_name: "sota_dci_16_02_velmag_loss_w010_seed42"
+  seed: 42
+  augmentation_seed: 1000
+  deterministic: true
+  early_stopping: 35
+  run_test_eval: true
+  test_eval_n: 0
+
+loader_opts:
+  processed_dir: "/home/devj/local-arch/data/HKH/gen_robust_comprehensive_dci/"
+  batch_size: 12
+  landsat_channels: true
+  dem_channels: true
+  spectral_indices_channels: false
+  hsv_channels: false
+  velocity_channels: ["velocity"]
+  physics_channels: false
+  robust_scaling: false
+
+loss_opts:
+  use_velocity_loss: true
+  velocity_loss_weight: 0.10
+  velocity_high_speed_threshold: 3.16
+  velocity_loss_warmup_epochs: 10
+  velocity_loss_ramp_epochs: 10
+
+model_opts:
+  framework: "smp"
+  name: "Unet"
+  sigma_init: 0.5
+  min_log_var: -3.0
+  max_log_var: 2.0
+  args:
+    encoder_name: "resnet18"
+    encoder_weights: null

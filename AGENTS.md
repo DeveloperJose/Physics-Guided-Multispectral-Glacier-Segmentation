@@ -4,6 +4,13 @@
 
 **IMPORTANT**: Use `uv` for everything (installs, running scripts). No raw `pip` or `python`.
 
+## Agent Execution Policy
+
+- Agents do **not** have permission to run training scripts.
+- Agents may prepare configs, inspect past outputs, run analysis, run prediction, and run tests unless the user says otherwise.
+- All training runs, including `scripts/train.py` and `run_sequential_training.sh`, are user-executed only.
+- If a task would require new training, the agent must stop at config preparation and tell the user exactly what to run.
+
 ### Environment Setup
 ```bash
 uv pip install -e .
@@ -33,6 +40,7 @@ uv run python scripts/test.py --server desktop --subset-size 5 --epochs 2
 ```
 
 ### Training
+User reference only. Agents must not execute these commands.
 ```bash
 uv run python scripts/train.py --config configs/desktop/debris_ice/sota_dci_06_bs12_seed42_gpu0.yaml --server desktop --gpu 0
 

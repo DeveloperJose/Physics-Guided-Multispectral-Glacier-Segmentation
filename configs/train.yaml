@@ -72,12 +72,7 @@ loss_opts:
   velocity_loss_ramp_epochs: 10
   velocity_loss_clip: null # Sigmoid loss is naturally bounded [0,1]
 
-model_opts:
-  args:
-    net_depth: 4
-    dropout: 0.1
-    spatial: true
-    first_channel_output: 32
+model_opts: {}
 
 optim_opts:
   name: "AdamW"

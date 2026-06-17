@@ -1280,13 +1280,15 @@ class TestVelocityLossMath(unittest.TestCase):
             },
         }
         model = GlacierSegmentationModule(**config)
-        self.assertIsNotNone(model.sigma_dice)
-        self.assertIsNotNone(model.sigma_boundary)
-        self.assertIsNotNone(model.sigma_velocity)
-        self.assertEqual(model.sigma_dice.item(), 0.5)
-        self.assertEqual(model.sigma_boundary.item(), 0.5)
-        self.assertEqual(model.sigma_velocity.item(), 0.5)
-        self.assertEqual(len(model.sigma_list), 3)
+        self.assertIsNotNone(model.raw_log_var_dice)
+        self.assertIsNotNone(model.raw_log_var_boundary)
+        self.assertFalse(hasattr(model, "sigma_velocity"))
+        self.assertAlmostEqual(
+            model._sigma_from_log_var(model.raw_log_var_dice).item(), 0.5
+        )
+        self.assertAlmostEqual(
+            model._sigma_from_log_var(model.raw_log_var_boundary).item(), 0.5
+        )
 
     def test_velocity_threshold_config_passthrough(self):
         from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
@@ -1306,14 +1308,13 @@ class TestVelocityLossMath(unittest.TestCase):
         self.assertEqual(model.loss_fn.velocity_high_speed_threshold, 9.5)
 
     def test_kendall_formulation_components(self):
-        losses = torch.tensor([0.5, 0.3, 1.2])
-        sigmas = torch.tensor([0.8, 1.1, 0.6])
+        losses = torch.tensor([0.5, 0.3])
+        sigmas = torch.tensor([0.8, 1.1])
         expected_total = torch.tensor(0.0)
         for loss, sigma in zip(losses, sigmas):
-            sigma_clamped = torch.clamp(sigma, min=0.1)
-            var = sigma_clamped**2 + 1e-8
-            expected_total += loss / (2.0 * var)
-            expected_total += 0.5 * torch.log(var)
+            log_var = torch.log(sigma**2)
+            expected_total += 0.5 * torch.exp(-log_var) * loss
+            expected_total += 0.5 * log_var
         self.assertGreater(expected_total.item(), 0.0)
         self.assertTrue(torch.isfinite(expected_total))
 
@@ -1352,9 +1353,8 @@ class TestVelocityLossMath(unittest.TestCase):
             },
         )
         with torch.no_grad():
-            model.sigma_dice.data = torch.tensor(0.05)
-            model.sigma_boundary.data = torch.tensor(0.01)
-            model.sigma_velocity.data = torch.tensor(0.02)
+            model.raw_log_var_dice.data = torch.tensor(-20.0)
+            model.raw_log_var_boundary.data = torch.tensor(-20.0)
         pred_logits = torch.randn(1, 2, 32, 32)
         target_onehot = torch.zeros(1, 2, 32, 32)
         target_onehot[:, 1] = 1.0

@@ -1,0 +1,1277 @@
+{
+  "metadata": {
+    "dataset": "gen_robust_comprehensive_dci",
+    "server": "desktop",
+    "target_channels": [
+      "B1",
+      "B2",
+      "B3",
+      "B4",
+      "B5",
+      "B6_VCID1",
+      "B6_VCID2",
+      "B7",
+      "elevation",
+      "slope_deg",
+      "velocity",
+      "velocity_x",
+      "velocity_y",
+      "velocity_mask",
+      "NDVI",
+      "NDWI",
+      "NDSI",
+      "H",
+      "S",
+      "V",
+      "flow_accumulation",
+      "tpi",
+      "roughness",
+      "plan_curvature"
+    ],
+    "classes": [
+      "Background",
+      "Clean Ice",
+      "Debris Ice"
+    ],
+    "max_slices": 80,
+    "max_pixels_per_slice": 8000
+  },
+  "class_statistics": {
+    "Background": {
+      "B1": {
+        "count": 1525502,
+        "mean": 69.74454498291016,
+        "std": 48.073768615722656,
+        "median": 60.0,
+        "q25": 46.0,
+        "q75": 80.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B2": {
+        "count": 1525502,
+        "mean": 64.308349609375,
+        "std": 46.446533203125,
+        "median": 56.0,
+        "q25": 39.0,
+        "q75": 77.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B3": {
+        "count": 1525502,
+        "mean": 72.09466552734375,
+        "std": 51.25972366333008,
+        "median": 63.0,
+        "q25": 42.0,
+        "q75": 90.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B4": {
+        "count": 1525502,
+        "mean": 56.27214050292969,
+        "std": 37.16449737548828,
+        "median": 53.0,
+        "q25": 34.0,
+        "q75": 72.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B5": {
+        "count": 1525502,
+        "mean": 55.27717971801758,
+        "std": 35.528892517089844,
+        "median": 54.0,
+        "q25": 28.0,
+        "q75": 79.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B6_VCID1": {
+        "count": 1525502,
+        "mean": 105.91902923583984,
+        "std": 39.67231369018555,
+        "median": 113.0,
+        "q25": 91.0,
+        "q75": 132.0,
+        "min": 0.0,
+        "max": 213.0
+      },
+      "B6_VCID2": {
+        "count": 1525502,
+        "mean": 111.29737854003906,
+        "std": 54.54035949707031,
+        "median": 118.0,
+        "q25": 78.0,
+        "q75": 151.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B7": {
+        "count": 1525502,
+        "mean": 48.717533111572266,
+        "std": 31.978572845458984,
+        "median": 46.0,
+        "q25": 24.0,
+        "q75": 70.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "elevation": {
+        "count": 1525502,
+        "mean": 4252.21240234375,
+        "std": 1445.8782958984375,
+        "median": 4570.0,
+        "q25": 3867.0,
+        "q75": 5168.0,
+        "min": 0.0,
+        "max": 8034.0
+      },
+      "slope_deg": {
+        "count": 1525502,
+        "mean": 29.382400512695312,
+        "std": 15.572954177856445,
+        "median": 30.94681167602539,
+        "q25": 19.12660837173462,
+        "q75": 39.8809289932251,
+        "min": 0.0,
+        "max": 83.72293853759766
+      },
+      "velocity": {
+        "count": 1525502,
+        "mean": 2.8839402198791504,
+        "std": 23.090856552124023,
+        "median": 1.861583948135376,
+        "q25": 0.0,
+        "q75": 2.933622896671295,
+        "min": 0.0,
+        "max": 4785.91162109375
+      },
+      "velocity_x": {
+        "count": 1525502,
+        "mean": -0.01684636063873768,
+        "std": 13.244938850402832,
+        "median": 0.0,
+        "q25": -0.27775418758392334,
+        "q75": 0.22866161540150642,
+        "min": -3810.202880859375,
+        "max": 2612.3369140625
+      },
+      "velocity_y": {
+        "count": 1525502,
+        "mean": 0.23487962782382965,
+        "std": 17.995798110961914,
+        "median": 0.0,
+        "q25": -0.1438145451247692,
+        "q75": 0.2759135589003563,
+        "min": -2508.06689453125,
+        "max": 4265.88427734375
+      },
+      "velocity_mask": {
+        "count": 1525502,
+        "mean": 0.6583196875520321,
+        "std": 0.47427299789617705,
+        "median": 1.0,
+        "q25": 0.0,
+        "q75": 1.0,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "NDVI": {
+        "count": 1525502,
+        "mean": -0.10360415279865265,
+        "std": 0.14674127101898193,
+        "median": -0.12820513546466827,
+        "q25": -0.17341040074825287,
+        "q75": -0.03414634242653847,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "NDWI": {
+        "count": 1525502,
+        "mean": 0.05846778303384781,
+        "std": 0.15249411761760712,
+        "median": 0.05882352963089943,
+        "q25": 0.0,
+        "q75": 0.13513512909412384,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "NDSI": {
+        "count": 1525502,
+        "mean": 0.06276538223028183,
+        "std": 0.2985704243183136,
+        "median": 0.0,
+        "q25": -0.12820513546466827,
+        "q75": 0.1860465109348297,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "H": {
+        "count": 1525502,
+        "mean": 0.45389193296432495,
+        "std": 0.33652856945991516,
+        "median": 0.5999999642372131,
+        "q25": 0.08585857599973679,
+        "q75": 0.7222222685813904,
+        "min": 0.0,
+        "max": 0.9992492198944092
+      },
+      "S": {
+        "count": 1525502,
+        "mean": 0.3540371060371399,
+        "std": 0.23571240901947021,
+        "median": 0.302752286195755,
+        "q25": 0.1964285522699356,
+        "q75": 0.47560974955558777,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "V": {
+        "count": 1525502,
+        "mean": 0.294354647397995,
+        "std": 0.18761637806892395,
+        "median": 0.2705882489681244,
+        "q25": 0.18431372940540314,
+        "q75": 0.37254902720451355,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "flow_accumulation": {
+        "count": 1525502,
+        "mean": 39.718082427978516,
+        "std": 76.96720886230469,
+        "median": 13.0,
+        "q25": 3.0,
+        "q75": 44.0,
+        "min": 0.0,
+        "max": 2273.0
+      },
+      "tpi": {
+        "count": 1525502,
+        "mean": -0.5929954648017883,
+        "std": 202.37330627441406,
+        "median": 0.0,
+        "q25": -4.31982421875,
+        "q75": 4.16015625,
+        "min": -4679.60009765625,
+        "max": 4850.2998046875
+      },
+      "roughness": {
+        "count": 1525502,
+        "mean": 35.315731048583984,
+        "std": 210.3931121826172,
+        "median": 15.232357025146484,
+        "q25": 9.089405059814453,
+        "q75": 21.343748092651367,
+        "min": 0.0,
+        "max": 3655.271240234375
+      },
+      "plan_curvature": {
+        "count": 1525502,
+        "mean": -0.22644929587841034,
+        "std": 8.115068435668945,
+        "median": 0.0,
+        "q25": -0.1481635421514511,
+        "q75": 0.14490116760134697,
+        "min": -3301.99951171875,
+        "max": 491.439208984375
+      }
+    },
+    "Clean Ice": {
+      "B1": {
+        "count": 350599,
+        "mean": 192.1190948486328,
+        "std": 77.28435516357422,
+        "median": 230.0,
+        "q25": 140.0,
+        "q75": 255.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B2": {
+        "count": 350599,
+        "mean": 182.8707275390625,
+        "std": 80.13014221191406,
+        "median": 212.0,
+        "q25": 126.0,
+        "q75": 255.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B3": {
+        "count": 350599,
+        "mean": 190.4353790283203,
+        "std": 81.02974700927734,
+        "median": 234.0,
+        "q25": 138.0,
+        "q75": 255.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B4": {
+        "count": 350599,
+        "mean": 141.48822021484375,
+        "std": 74.71175384521484,
+        "median": 148.0,
+        "q25": 85.0,
+        "q75": 202.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B5": {
+        "count": 350599,
+        "mean": 23.319059371948242,
+        "std": 15.879172325134277,
+        "median": 21.0,
+        "q25": 13.0,
+        "q75": 29.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B6_VCID1": {
+        "count": 350599,
+        "mean": 78.94007873535156,
+        "std": 21.371442794799805,
+        "median": 84.0,
+        "q25": 74.0,
+        "q75": 91.0,
+        "min": 0.0,
+        "max": 180.0
+      },
+      "B6_VCID2": {
+        "count": 350599,
+        "mean": 59.67033386230469,
+        "std": 25.62297821044922,
+        "median": 65.0,
+        "q25": 47.0,
+        "q75": 78.0,
+        "min": 0.0,
+        "max": 237.0
+      },
+      "B7": {
+        "count": 350599,
+        "mean": 20.00984001159668,
+        "std": 13.778812408447266,
+        "median": 18.0,
+        "q25": 11.0,
+        "q75": 24.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "elevation": {
+        "count": 350599,
+        "mean": 5178.673828125,
+        "std": 1272.5107421875,
+        "median": 5399.0,
+        "q25": 5047.0,
+        "q75": 5746.0,
+        "min": 0.0,
+        "max": 8057.0
+      },
+      "slope_deg": {
+        "count": 350599,
+        "mean": 18.739540100097656,
+        "std": 14.742583274841309,
+        "median": 14.679797172546387,
+        "q25": 6.966482400894165,
+        "q75": 28.031982421875,
+        "min": 0.0,
+        "max": 79.60120391845703
+      },
+      "velocity": {
+        "count": 350599,
+        "mean": 15.337908744812012,
+        "std": 111.81874084472656,
+        "median": 3.116114616394043,
+        "q25": 0.0,
+        "q75": 8.863333702087402,
+        "min": 0.0,
+        "max": 12460.28515625
+      },
+      "velocity_x": {
+        "count": 350599,
+        "mean": 1.1677454710006714,
+        "std": 75.50314331054688,
+        "median": 0.0,
+        "q25": -0.5433409512042999,
+        "q75": 0.6461297273635864,
+        "min": -8457.5419921875,
+        "max": 8328.9765625
+      },
+      "velocity_y": {
+        "count": 350599,
+        "mean": 2.3725697994232178,
+        "std": 303.84649658203125,
+        "median": 0.0,
+        "q25": 0.0,
+        "q75": 1.4906764030456543,
+        "min": -50000.0,
+        "max": 50000.0
+      },
+      "velocity_mask": {
+        "count": 350599,
+        "mean": 0.6258061203825454,
+        "std": 0.4839140626953225,
+        "median": 1.0,
+        "q25": 0.0,
+        "q75": 1.0,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "NDVI": {
+        "count": 350599,
+        "mean": -0.16773511469364166,
+        "std": 0.12174761295318604,
+        "median": -0.18918919563293457,
+        "q25": -0.22596153616905212,
+        "q75": -0.08050847798585892,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "NDWI": {
+        "count": 350599,
+        "mean": 0.14900322258472443,
+        "std": 0.12750381231307983,
+        "median": 0.15068493783473969,
+        "q25": 0.07594936341047287,
+        "q75": 0.19075144827365875,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "NDSI": {
+        "count": 350599,
+        "mean": 0.720458984375,
+        "std": 0.22065643966197968,
+        "median": 0.7957746386528015,
+        "q25": 0.699999988079071,
+        "q75": 0.8373983502388,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "H": {
+        "count": 350599,
+        "mean": 0.11865822225809097,
+        "std": 0.08827599883079529,
+        "median": 0.11526480317115784,
+        "q25": 0.10109289735555649,
+        "q75": 0.1336805671453476,
+        "min": 0.0,
+        "max": 0.9992458820343018
+      },
+      "S": {
+        "count": 350599,
+        "mean": 0.8170489072799683,
+        "std": 0.20892088115215302,
+        "median": 0.886274516582489,
+        "q25": 0.8271605372428894,
+        "q75": 0.9120000004768372,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "V": {
+        "count": 350599,
+        "mean": 0.719247043132782,
+        "std": 0.3126320242881775,
+        "median": 0.8352941274642944,
+        "q25": 0.49803921580314636,
+        "q75": 1.0,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "flow_accumulation": {
+        "count": 350599,
+        "mean": 45.88455581665039,
+        "std": 88.44580841064453,
+        "median": 16.0,
+        "q25": 4.0,
+        "q75": 49.0,
+        "min": 0.0,
+        "max": 1845.0
+      },
+      "tpi": {
+        "count": 350599,
+        "mean": -0.46696239709854126,
+        "std": 279.8323059082031,
+        "median": -0.35986328125,
+        "q25": -2.919921875,
+        "q75": 1.56005859375,
+        "min": -4970.60009765625,
+        "max": 3927.760009765625
+      },
+      "roughness": {
+        "count": 350599,
+        "mean": 42.59001159667969,
+        "std": 290.2423400878906,
+        "median": 6.831300735473633,
+        "q25": 3.197221040725708,
+        "q75": 13.960261344909668,
+        "min": 0.0,
+        "max": 3506.900634765625
+      },
+      "plan_curvature": {
+        "count": 350599,
+        "mean": -0.8622458577156067,
+        "std": 23.13678741455078,
+        "median": 0.006000000052154064,
+        "q25": -0.14000000059604645,
+        "q75": 0.19734741747379303,
+        "min": -3061.499755859375,
+        "max": 391.2001037597656
+      }
+    },
+    "Debris Ice": {
+      "B1": {
+        "count": 37146,
+        "mean": 91.28681182861328,
+        "std": 48.636878967285156,
+        "median": 81.0,
+        "q25": 61.0,
+        "q75": 112.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B2": {
+        "count": 37146,
+        "mean": 83.48786163330078,
+        "std": 46.16130828857422,
+        "median": 75.0,
+        "q25": 54.0,
+        "q75": 104.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B3": {
+        "count": 37146,
+        "mean": 92.54536437988281,
+        "std": 51.03368377685547,
+        "median": 84.0,
+        "q25": 58.0,
+        "q75": 117.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B4": {
+        "count": 37146,
+        "mean": 64.07855224609375,
+        "std": 36.18225860595703,
+        "median": 59.0,
+        "q25": 40.0,
+        "q75": 80.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B5": {
+        "count": 37146,
+        "mean": 57.9214973449707,
+        "std": 31.57670021057129,
+        "median": 56.0,
+        "q25": 34.0,
+        "q75": 79.0,
+        "min": 0.0,
+        "max": 255.0
+      },
+      "B6_VCID1": {
+        "count": 37146,
+        "mean": 100.83654022216797,
+        "std": 27.030113220214844,
+        "median": 104.0,
+        "q25": 94.0,
+        "q75": 115.0,
+        "min": 0.0,
+        "max": 181.0
+      },
+      "B6_VCID2": {
+        "count": 37146,
+        "mean": 98.81639862060547,
+        "std": 36.290279388427734,
+        "median": 101.0,
+        "q25": 82.0,
+        "q75": 120.0,
+        "min": 0.0,
+        "max": 239.0
+      },
+      "B7": {
+        "count": 37146,
+        "mean": 53.84127426147461,
+        "std": 29.40593910217285,
+        "median": 53.0,
+        "q25": 31.0,
+        "q75": 74.0,
+        "min": 0.0,
+        "max": 249.0
+      },
+      "elevation": {
+        "count": 37146,
+        "mean": 4204.73974609375,
+        "std": 1091.9522705078125,
+        "median": 4491.0,
+        "q25": 4041.0,
+        "q75": 4829.0,
+        "min": 0.0,
+        "max": 5817.0
+      },
+      "slope_deg": {
+        "count": 37146,
+        "mean": 8.079171180725098,
+        "std": 6.124203205108643,
+        "median": 6.846604347229004,
+        "q25": 3.922344923019409,
+        "q75": 10.445958852767944,
+        "min": 0.0,
+        "max": 74.24224853515625
+      },
+      "velocity": {
+        "count": 37146,
+        "mean": 19.740995407104492,
+        "std": 34.18189239501953,
+        "median": 4.186861515045166,
+        "q25": 0.0,
+        "q75": 20.990917205810547,
+        "min": 0.0,
+        "max": 295.3938293457031
+      },
+      "velocity_x": {
+        "count": 37146,
+        "mean": 10.922571182250977,
+        "std": 29.775341033935547,
+        "median": 0.0,
+        "q25": 0.0,
+        "q75": 5.7168755531311035,
+        "min": -130.5169677734375,
+        "max": 215.81365966796875
+      },
+      "velocity_y": {
+        "count": 37146,
+        "mean": -6.050769329071045,
+        "std": 21.361955642700195,
+        "median": 0.0,
+        "q25": -3.2036648988723755,
+        "q75": 0.4874337837100029,
+        "min": -187.3126220703125,
+        "max": 227.26272583007812
+      },
+      "velocity_mask": {
+        "count": 37146,
+        "mean": 0.6621170516340925,
+        "std": 0.4729884370356943,
+        "median": 1.0,
+        "q25": 0.0,
+        "q75": 1.0,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "NDVI": {
+        "count": 37146,
+        "mean": -0.17471440136432648,
+        "std": 0.09040142595767975,
+        "median": -0.1756756752729416,
+        "q25": -0.19696970283985138,
+        "q75": -0.15789473056793213,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "NDWI": {
+        "count": 37146,
+        "mean": 0.13037611544132233,
+        "std": 0.10070107132196426,
+        "median": 0.125,
+        "q25": 0.0941176488995552,
+        "q75": 0.16438356041908264,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "NDSI": {
+        "count": 37146,
+        "mean": 0.16748261451721191,
+        "std": 0.2386946827173233,
+        "median": 0.08503685146570206,
+        "q25": 0.0,
+        "q75": 0.28735631704330444,
+        "min": -1.0,
+        "max": 1.0
+      },
+      "H": {
+        "count": 37146,
+        "mean": 0.49192512035369873,
+        "std": 0.40085500478744507,
+        "median": 0.7307692170143127,
+        "q25": 0.06481482833623886,
+        "q75": 0.875,
+        "min": 0.0,
+        "max": 0.9987277388572693
+      },
+      "S": {
+        "count": 37146,
+        "mean": 0.35609757900238037,
+        "std": 0.2183053195476532,
+        "median": 0.26923075318336487,
+        "q25": 0.20799998939037323,
+        "q75": 0.46979865431785583,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "V": {
+        "count": 37146,
+        "mean": 0.33721446990966797,
+        "std": 0.1824466735124588,
+        "median": 0.30588236451148987,
+        "q25": 0.21568627655506134,
+        "q75": 0.41960784792900085,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "flow_accumulation": {
+        "count": 37146,
+        "mean": 133.67132568359375,
+        "std": 225.39663696289062,
+        "median": 41.0,
+        "q25": 0.0,
+        "q75": 167.0,
+        "min": 0.0,
+        "max": 2242.0
+      },
+      "tpi": {
+        "count": 37146,
+        "mean": -1.911808729171753,
+        "std": 197.51480102539062,
+        "median": -0.06494140625,
+        "q25": -1.72021484375,
+        "q75": 1.31982421875,
+        "min": -3474.13330078125,
+        "max": 2286.8798828125
+      },
+      "roughness": {
+        "count": 37146,
+        "mean": 25.06914710998535,
+        "std": 212.13633728027344,
+        "median": 3.046957492828369,
+        "q25": 1.9309052228927612,
+        "q75": 4.618802070617676,
+        "min": 0.0,
+        "max": 2552.4208984375
+      },
+      "plan_curvature": {
+        "count": 37146,
+        "mean": -0.9531245827674866,
+        "std": 23.85004234313965,
+        "median": 0.0,
+        "q25": -0.22727273404598236,
+        "q75": 0.2651650607585907,
+        "min": -2621.999755859375,
+        "max": 11.499999046325684
+      }
+    }
+  },
+  "statistical_tests": {
+    "B1": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.6910500591857903,
+        "p_value": 0.0,
+        "effect_size": -2.235961405302325
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.29105313758215895,
+        "p_value": 0.0,
+        "effect_size": -0.4479828025506264
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.6186210631017393,
+        "p_value": 0.0,
+        "effect_size": 1.3441534402205368
+      }
+    },
+    "B2": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.675737142600283,
+        "p_value": 0.0,
+        "effect_size": -2.1814162354725886
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.2578309394861882,
+        "p_value": 0.0,
+        "effect_size": -0.41299726156307337
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.6127898618092429,
+        "p_value": 0.0,
+        "effect_size": 1.2819710239059272
+      }
+    },
+    "B3": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.6609788741914324,
+        "p_value": 0.0,
+        "effect_size": -2.040499459863092
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.22846483406685758,
+        "p_value": 0.0,
+        "effect_size": -0.39900380767401616
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.6048353809430551,
+        "p_value": 0.0,
+        "effect_size": 1.2445751842004116
+      }
+    },
+    "B4": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.6074608632861147,
+        "p_value": 0.0,
+        "effect_size": -1.8309306859379209
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.09609905118626469,
+        "p_value": 6.214570101022539e-292,
+        "effect_size": -0.21018045943536817
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.5633391733497153,
+        "p_value": 0.0,
+        "effect_size": 1.076323732879946
+      }
+    },
+    "B5": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.5327542811161003,
+        "p_value": 0.0,
+        "effect_size": 0.9753808995548319
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.09347832329160892,
+        "p_value": 3.2065008608777513e-276,
+        "effect_size": -0.07461375557117521
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.5856963767459098,
+        "p_value": 0.0,
+        "effect_size": -1.9237979029062096
+      }
+    },
+    "B6_VCID1": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.6329914628817777,
+        "p_value": 0.0,
+        "effect_size": 0.7301952243147986
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.2345662662853486,
+        "p_value": 0.0,
+        "effect_size": 0.12893536766990546
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.6265924012275681,
+        "p_value": 0.0,
+        "effect_size": -0.9963445138811114
+      }
+    },
+    "B6_VCID2": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.6332209218102531,
+        "p_value": 0.0,
+        "effect_size": 1.024085590778978
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.23478236224688465,
+        "p_value": 0.0,
+        "effect_size": 0.23037012520321287
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.628022344548665,
+        "p_value": 0.0,
+        "effect_size": -1.459078516446494
+      }
+    },
+    "B7": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.539767333000696,
+        "p_value": 0.0,
+        "effect_size": 0.9749619176146008
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.10249143027772754,
+        "p_value": 0.0,
+        "effect_size": -0.160518985341485
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.6114336525094635,
+        "p_value": 0.0,
+        "effect_size": -2.120653456894893
+      }
+    },
+    "elevation": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.45277525908865063,
+        "p_value": 0.0,
+        "effect_size": -0.6546989220449786
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.1741463289748626,
+        "p_value": 0.0,
+        "effect_size": 0.03300203304675841
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.6169502088099149,
+        "p_value": 0.0,
+        "effect_size": 0.7752148202863541
+      }
+    },
+    "slope_deg": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.35688268287582153,
+        "p_value": 0.0,
+        "effect_size": 0.6901455383159143
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.7083004301335638,
+        "p_value": 0.0,
+        "effect_size": 1.3819177244087264
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.3938660685756587,
+        "p_value": 0.0,
+        "effect_size": 0.7535828338399982
+      }
+    },
+    "velocity": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.30913392970895515,
+        "p_value": 0.0,
+        "effect_size": -0.23662267112006136
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.39429106618466725,
+        "p_value": 0.0,
+        "effect_size": -0.7199084515691917
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.12423000615045876,
+        "p_value": 0.0,
+        "effect_size": -0.041206898749978384
+      }
+    },
+    "velocity_x": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.13936194877860386,
+        "p_value": 0.0,
+        "effect_size": -0.03408312300235575
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.29727637168871823,
+        "p_value": 0.0,
+        "effect_size": -0.7887999961628989
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.16344954560799685,
+        "p_value": 0.0,
+        "effect_size": -0.1347634994233378
+      }
+    },
+    "velocity_y": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.20455606069694066,
+        "p_value": 0.0,
+        "effect_size": -0.01615190766529152
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.26653980181853737,
+        "p_value": 0.0,
+        "effect_size": 0.34759799503440897
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.1785737330201158,
+        "p_value": 0.0,
+        "effect_size": 0.029146272827818273
+      }
+    },
+    "velocity_mask": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.03251356716948678,
+        "p_value": 2.924564821431663e-262,
+        "effect_size": 0.06829293344476221
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.0037973640820604393,
+        "p_value": 0.6710011973070686,
+        "effect_size": -0.00800721493775142
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.03631093125154722,
+        "p_value": 6.530871906362349e-39,
+        "effect_size": -0.07519669679506336
+      }
+    },
+    "NDVI": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.32106122040617746,
+        "p_value": 0.0,
+        "effect_size": 0.4503442654603517
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.45058794327831797,
+        "p_value": 0.0,
+        "effect_size": 0.4882095325841272
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.24215739422349414,
+        "p_value": 0.0,
+        "effect_size": 0.0585988417967475
+      }
+    },
+    "NDWI": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.34706281932677113,
+        "p_value": 0.0,
+        "effect_size": -0.6111282958552318
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.4095601231258934,
+        "p_value": 0.0,
+        "effect_size": -0.47474063980447645
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.1808782958978491,
+        "p_value": 0.0,
+        "effect_size": 0.1487963767497994
+      }
+    },
+    "NDSI": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.7860664274627928,
+        "p_value": 0.0,
+        "effect_size": -2.3026097238345162
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.31316253392305726,
+        "p_value": 0.0,
+        "effect_size": -0.3522425734973514
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.7836158083164795,
+        "p_value": 0.0,
+        "effect_size": 2.485863045351347
+      }
+    },
+    "H": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.6007274238979692,
+        "p_value": 0.0,
+        "effect_size": 1.0960747232822865
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.27648474046692084,
+        "p_value": 0.0,
+        "effect_size": -0.11245771498508017
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.5412936729223028,
+        "p_value": 0.0,
+        "effect_size": -2.491779495899977
+      }
+    },
+    "S": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.7770736124228725,
+        "p_value": 0.0,
+        "effect_size": -2.004882642445313
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.09584243932533666,
+        "p_value": 2.2452966446258482e-290,
+        "effect_size": -0.008756280535201924
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.7798192213955759,
+        "p_value": 0.0,
+        "effect_size": 2.1966943768873484
+      }
+    },
+    "V": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.6447670467086457,
+        "p_value": 0.0,
+        "effect_size": -1.9622429006475748
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.1146135148822739,
+        "p_value": 0.0,
+        "effect_size": -0.22859150652133103
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.6091542519738753,
+        "p_value": 0.0,
+        "effect_size": 1.2625140961266075
+      }
+    },
+    "flow_accumulation": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.041283245918196876,
+        "p_value": 0.0,
+        "effect_size": -0.07782142342484874
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.27112168876735443,
+        "p_value": 0.0,
+        "effect_size": -1.123694494061538
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.2547579265196668,
+        "p_value": 0.0,
+        "effect_size": -0.8033806810168076
+      }
+    },
+    "tpi": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.12825400066156056,
+        "p_value": 0.0,
+        "effect_size": -0.0005756491557873774
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.20659028688032388,
+        "p_value": 0.0,
+        "effect_size": 0.006520408712104271
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.10801077525852473,
+        "p_value": 0.0,
+        "effect_size": 0.00529201132679509
+      }
+    },
+    "roughness": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.3537036909665555,
+        "p_value": 0.0,
+        "effect_size": -0.03198118826458076
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.7130796123096018,
+        "p_value": 0.0,
+        "effect_size": 0.04869242685519278
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.4041111659852135,
+        "p_value": 0.0,
+        "effect_size": 0.06175985843658794
+      }
+    },
+    "plan_curvature": {
+      "Background_vs_Clean Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.05931563109584925,
+        "p_value": 0.0,
+        "effect_size": 0.051303142027377444
+      },
+      "Background_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.11032340422359999,
+        "p_value": 0.0,
+        "effect_size": 0.08237983679341616
+      },
+      "Clean Ice_vs_Debris Ice": {
+        "test": "kolmogorov_smirnov",
+        "statistic": 0.07924502559040175,
+        "p_value": 6.622470128366704e-184,
+        "effect_size": 0.003916152109855226
+      }
+    }
+  },
+  "visualizations": {
+    "violin_plots": [
+      "visualization/output/channel_label_correlation_batch10_debug/violin_B1.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_B2.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_B3.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_B4.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_B5.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_B6_VCID1.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_B6_VCID2.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_B7.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_elevation.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_slope_deg.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_velocity.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_velocity_x.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_velocity_y.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_velocity_mask.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_NDVI.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_NDWI.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_NDSI.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_H.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_S.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_V.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_flow_accumulation.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_tpi.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_roughness.png",
+      "visualization/output/channel_label_correlation_batch10_debug/violin_plan_curvature.png"
+    ]
+  }
+}
