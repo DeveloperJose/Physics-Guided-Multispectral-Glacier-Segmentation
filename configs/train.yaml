@@ -3,7 +3,7 @@
 # Override any parameter in child configs for experiment-specific settings.
 
 training_opts:
-  dataset_name: "gen_robust_comprehensive" # Default run name (override in experiment configs)
+  dataset_name: "gen_robust_comprehensive_dci_clean_v2" # Default run name (override in experiment configs)
   run_name: "" # Optional run identifier (appended to dataset_name)
   mlflow_experiment_name: "sota_replication" # Put all publication reruns in one MLflow experiment
   mlflow_artifacts_enabled: false # Keep MLflow scalar metrics on, but skip artifact uploads during training
@@ -28,19 +28,19 @@ training_opts:
 loader_opts:
   batch_size: 8 # CRITICAL: Locked to 8 for stability (prevents OOM/LR mismatch)
 
-  # Channel groups (semantic selection)
-  landsat_channels: true # [0-7] Landsat B1-B7
-  dem_channels: true # [8-9] elevation, slope
-  spectral_indices_channels: true # [10-12] NDVI, NDWI, NDSI
-  hsv_channels: true # [13-15] H, S, V
-  velocity_channels: false # [16-19] ITS_LIVE velocity, vx, vy, mask
-  physics_channels: false # [20-23] flow_accumulation, tpi, roughness, plan_curvature
+  # Channel groups are resolved by name from band_metadata.json.
+  landsat_channels: true # Landsat B1-B7
+  dem_channels: true # elevation, slope
+  spectral_indices_channels: false # NDVI, NDWI, NDSI
+  hsv_channels: false # H, S, V
+  velocity_channels: false # velocity, vx, vy, mask
+  physics_channels: false # flow_accumulation, tpi, roughness, plan_curvature
 
   # Fine-grained channel selection examples (use in experiment configs):
-  # landsat_channels: [0, 1, 2]                    # Specific indices (B1, B2, B3)
+  # landsat_channels: [0, 1, 2]                    # Group-local indices (B1, B2, B3)
   # landsat_channels: ["B1", "B2", "B3"]           # By name
   # spectral_indices_channels: ["NDVI", "NDSI"]    # Subset of indices
-  # velocity_channels: [0, 1]                      # magnitude, vx → auto-adds mask → [16, 17, 19]
+  # velocity_channels: ["velocity"]                # Auto-adds velocity_mask
   # velocity_channels: false                       # Disable velocity entirely
 
   output_classes: [2] # Binary segmentation: [1]=CleanIce, [2]=Debris, [1,2]=Multiclass

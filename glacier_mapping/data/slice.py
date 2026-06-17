@@ -13,6 +13,7 @@ from glacier_mapping.data import physics
 import glacier_mapping.utils.logging as log
 
 IGNORE_LABEL = 255
+DEFAULT_VELOCITY_CLIP_M_PER_YEAR = 1000.0
 
 
 def plot_image_and_mask(rgb, mask, title, out_path):
@@ -174,6 +175,54 @@ def compute_dems(dem_np):
     return dem_np
 
 
+def compute_landsat_valid_mask(tiff, landsat_raw: np.ndarray) -> np.ndarray:
+    """Recover source-valid Landsat pixels before auxiliary channels are added."""
+    dataset_valid = tiff.dataset_mask() > 0
+    proxy_valid = np.isfinite(landsat_raw[:, :, :8]).all(axis=2) & np.any(
+        landsat_raw[:, :, :8] != 0, axis=2
+    )
+
+    if dataset_valid.shape != proxy_valid.shape:
+        log.warning(
+            "Landsat dataset_mask shape does not match raster shape; using nonzero proxy."
+        )
+        return proxy_valid
+
+    if np.all(dataset_valid):
+        return proxy_valid
+
+    return dataset_valid & proxy_valid
+
+
+def clip_velocity_channels(
+    velocity_np: np.ndarray,
+    max_velocity_m_per_year: float | None = DEFAULT_VELOCITY_CLIP_M_PER_YEAR,
+) -> np.ndarray:
+    """Clip velocity magnitude and vector components while preserving mask semantics."""
+    if max_velocity_m_per_year is None:
+        return velocity_np
+
+    max_velocity = float(max_velocity_m_per_year)
+    if max_velocity <= 0:
+        return velocity_np
+
+    clipped = velocity_np.copy()
+    velocity_mask = clipped[:, :, 3] > 0.5
+
+    clipped[:, :, 0] = np.where(
+        velocity_mask, np.clip(clipped[:, :, 0], 0.0, max_velocity), 0.0
+    )
+
+    vx = clipped[:, :, 1]
+    vy = clipped[:, :, 2]
+    mag_xy = np.sqrt(vx**2 + vy**2)
+    scale = np.minimum(1.0, max_velocity / (mag_xy + 1e-8))
+    clipped[:, :, 1] = np.where(velocity_mask, vx * scale, 0.0)
+    clipped[:, :, 2] = np.where(velocity_mask, vy * scale, 0.0)
+
+    return clipped
+
+
 def get_tiff_np(
     tiff_fname,
     dem_fname=None,
@@ -184,12 +233,15 @@ def get_tiff_np(
     add_ndwi=False,
     add_ndsi=False,
     add_hsv=False,
+    velocity_clip_m_per_year=DEFAULT_VELOCITY_CLIP_M_PER_YEAR,
     return_band_names=False,
+    return_valid_mask=False,
     verbose=False,
 ):
     tiff = read_tiff(tiff_fname)
-    tiff_np = np.transpose(tiff.read(), (1, 2, 0)).astype(np.float32)
-    tiff_np = np.nan_to_num(tiff_np)
+    landsat_raw = np.transpose(tiff.read(), (1, 2, 0)).astype(np.float32)
+    landsat_valid = compute_landsat_valid_mask(tiff, landsat_raw)
+    tiff_np = np.nan_to_num(landsat_raw)
 
     band_names = ["B1", "B2", "B3", "B4", "B5", "B6_VCID1", "B6_VCID2", "B7"]
 
@@ -239,6 +291,7 @@ def get_tiff_np(
                 velocity_np[invalid, 0] = 0.0
                 velocity_np[invalid, 1] = 0.0
                 velocity_np[invalid, 2] = 0.0
+            velocity_np = clip_velocity_channels(velocity_np, velocity_clip_m_per_year)
 
             if verbose:
                 log.debug(f"Loaded velocity data: shape={velocity_np.shape}")
@@ -290,8 +343,12 @@ def get_tiff_np(
         log.debug(f"Final band order: {band_names}")
         log.debug(f"Final shape: {tiff_np.shape}")
 
+    if return_band_names and return_valid_mask:
+        return tiff_np, band_names, landsat_valid
     if return_band_names:
         return tiff_np, band_names
+    if return_valid_mask:
+        return tiff_np, landsat_valid
     return tiff_np
 
 
@@ -322,15 +379,15 @@ def save_slices(
             if len(slice.shape) == 2:
                 temp = np.full(
                     (conf["window_size"][0], conf["window_size"][1]),
-                    0.0,
-                    dtype=np.float32,
+                    False if slice.dtype == np.bool_ else 0,
+                    dtype=slice.dtype,
                 )
                 temp[0 : slice.shape[0], 0 : slice.shape[1]] = slice
             else:
                 temp = np.full(
                     (conf["window_size"][0], conf["window_size"][1], slice.shape[2]),
-                    0.0,
-                    dtype=np.float32,
+                    0,
+                    dtype=slice.dtype,
                 )
                 temp[0 : slice.shape[0], 0 : slice.shape[1], :] = slice
 
@@ -395,11 +452,8 @@ def save_slices(
     def save_slice(arr, filename):
         np.save(filename, arr)
 
-    def get_pixel_count(tiff_slice, mask_slice):
+    def get_pixel_count(mask_slice):
         mask_local = mask_slice.copy()
-
-        invalid = np.sum(tiff_slice, axis=2) == 0
-        mask_local[invalid] = IGNORE_LABEL
 
         ci = np.sum(mask_local == 1)
         deb = np.sum(mask_local == 2)
@@ -421,13 +475,17 @@ def save_slices(
             conf["add_ndwi"],
             conf["add_ndsi"],
             conf["add_hsv"],
+            velocity_clip_m_per_year=conf.get(
+                "velocity_clip_m_per_year", DEFAULT_VELOCITY_CLIP_M_PER_YEAR
+            ),
             return_band_names=True,
+            return_valid_mask=True,
             verbose=True,
         )
-        tiff_np, band_names = result
+        tiff_np, band_names, landsat_valid = result
         conf["_band_names"] = band_names
     else:
-        tiff_np = get_tiff_np(
+        tiff_np, landsat_valid = get_tiff_np(
             tiff_fname,
             dem_fname,
             velocity_fname,
@@ -437,7 +495,11 @@ def save_slices(
             conf["add_ndwi"],
             conf["add_ndsi"],
             conf["add_hsv"],
+            velocity_clip_m_per_year=conf.get(
+                "velocity_clip_m_per_year", DEFAULT_VELOCITY_CLIP_M_PER_YEAR
+            ),
             return_band_names=False,
+            return_valid_mask=True,
             verbose=False,
         )
 
@@ -462,7 +524,13 @@ def save_slices(
             ]
             tiff_slice = verify_slice_size(tiff_slice, conf)
 
-            invalid = np.sum(tiff_slice, axis=2) == 0
+            landsat_valid_slice = landsat_valid[
+                row : row + conf["window_size"][0],
+                column : column + conf["window_size"][1],
+            ]
+            landsat_valid_slice = verify_slice_size(landsat_valid_slice, conf)
+
+            invalid = ~landsat_valid_slice.astype(bool)
             mask_slice[invalid] = IGNORE_LABEL
 
             rgb_preview = tiff_np[
@@ -474,9 +542,7 @@ def save_slices(
             final_save_slice = np.copy(tiff_slice)
             final_save_slice[invalid] = 0
 
-            bg, ci, deb, mas, modified_mask = get_pixel_count(
-                final_save_slice, mask_slice
-            )
+            bg, ci, deb, mas, modified_mask = get_pixel_count(mask_slice)
             total = bg + ci + deb + mas
 
             keep = filter_percentage(

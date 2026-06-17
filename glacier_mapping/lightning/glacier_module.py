@@ -661,10 +661,21 @@ class GlacierSegmentationModule(pl.LightningModule):
 
         band_names = load_band_names(self.processed_dir)
         no_norm_names = get_no_normalize_channel_names()
+        used_band_names = band_names[self.use_channels].tolist()
 
         self.no_normalize_mask = np.array(
             [band_names[ch] in no_norm_names for ch in self.use_channels]
         )
+        self.velocity_normalize_mask_idx = (
+            used_band_names.index("velocity_mask")
+            if "velocity_mask" in used_band_names
+            else None
+        )
+        self.velocity_normalize_value_indices = [
+            idx
+            for idx, name in enumerate(used_band_names)
+            if name in {"velocity", "velocity_x", "velocity_y"}
+        ]
 
     def _denormalize_velocity(self, vel_norm):
         if self.velocity_idx is None:
@@ -718,6 +729,18 @@ class GlacierSegmentationModule(pl.LightningModule):
 
         if x_no_norm is not None:
             x_normalized[:, :, self.no_normalize_mask] = x_no_norm
+
+        if (
+            self.velocity_normalize_mask_idx is not None
+            and self.velocity_normalize_value_indices
+        ):
+            missing_velocity = (
+                x_normalized[:, :, self.velocity_normalize_mask_idx] <= 0.5
+            )
+            for channel_idx in self.velocity_normalize_value_indices:
+                channel = x_normalized[:, :, channel_idx]
+                channel[missing_velocity] = 0.0
+                x_normalized[:, :, channel_idx] = channel
 
         return x_normalized
 

@@ -358,6 +358,16 @@ class GlacierDataset(Dataset):
         no_norm_names = get_no_normalize_channel_names()
 
         self.channel_names = [band_names[ch] for ch in use_channels]
+        self.velocity_mask_pos = (
+            self.channel_names.index("velocity_mask")
+            if "velocity_mask" in self.channel_names
+            else None
+        )
+        self.velocity_value_positions = [
+            idx
+            for idx, name in enumerate(self.channel_names)
+            if name in {"velocity", "velocity_x", "velocity_y"}
+        ]
 
         self.log_mask = np.array([name in LOG_CHANNELS for name in self.channel_names])
         self.symlog_mask = np.array(
@@ -462,6 +472,8 @@ class GlacierDataset(Dataset):
 
             # Binary masks (no_norm but NOT log/symlog) are already restored and left untouched.
 
+        self._zero_missing_velocity_values(data)
+
         label_int = np.load(self.mask_files[index]).astype(np.uint8)
         label_int = np.expand_dims(label_int, axis=2)
 
@@ -487,6 +499,19 @@ class GlacierDataset(Dataset):
         label = torch.from_numpy(label).float()
 
         return data, label, torch.from_numpy(label_int).long()
+
+    def _zero_missing_velocity_values(self, data):
+        if self.velocity_mask_pos is None or not self.velocity_value_positions:
+            return
+
+        missing_velocity = data[:, :, self.velocity_mask_pos] <= 0.5
+        if not np.any(missing_velocity):
+            return
+
+        for channel_idx in self.velocity_value_positions:
+            channel = data[:, :, channel_idx]
+            channel[missing_velocity] = 0.0
+            data[:, :, channel_idx] = channel
 
     def __len__(self):
         return len(self.img_files)

@@ -69,6 +69,79 @@ def load_config_with_server_paths(config_path, server_name="desktop"):
     return slice_config
 
 
+def mask_path_for_tiff(tiff_path: Path) -> Path:
+    return tiff_path.with_name(tiff_path.name.replace("tiff_", "mask_", 1))
+
+
+def compute_model_visible_normalization(
+    split_dir: Path, band_names: list[str]
+) -> np.ndarray:
+    channel_count = len(band_names)
+    counts = np.zeros(channel_count, dtype=np.int64)
+    sums = np.zeros(channel_count, dtype=np.float64)
+    sum_squares = np.zeros(channel_count, dtype=np.float64)
+    mins = np.full(channel_count, np.inf, dtype=np.float64)
+    maxs = np.full(channel_count, -np.inf, dtype=np.float64)
+
+    velocity_value_names = {"velocity", "velocity_x", "velocity_y"}
+    velocity_mask_idx = (
+        band_names.index("velocity_mask") if "velocity_mask" in band_names else None
+    )
+
+    tiff_files = sorted(split_dir.glob("tiff_*.npy"))
+    for tiff_file in tqdm(tiff_files, desc=f"Computing stats for {split_dir.name}"):
+        mask_file = mask_path_for_tiff(tiff_file)
+        if not mask_file.exists():
+            raise FileNotFoundError(f"Missing mask for {tiff_file}: {mask_file}")
+
+        data = np.load(tiff_file)
+        mask = np.load(mask_file)
+        valid = mask != fn.IGNORE_LABEL
+
+        if not np.any(valid):
+            continue
+
+        velocity_valid = valid
+        if velocity_mask_idx is not None:
+            velocity_valid = valid & (data[:, :, velocity_mask_idx] > 0.5)
+
+        for channel_idx, band_name in enumerate(band_names):
+            channel_valid = (
+                velocity_valid if band_name in velocity_value_names else valid
+            )
+            if not np.any(channel_valid):
+                continue
+
+            values = data[:, :, channel_idx][channel_valid]
+            finite = np.isfinite(values)
+            if not np.any(finite):
+                continue
+
+            values = values[finite].astype(np.float64, copy=False)
+            counts[channel_idx] += values.size
+            sums[channel_idx] += values.sum()
+            sum_squares[channel_idx] += np.square(values).sum()
+            mins[channel_idx] = min(mins[channel_idx], values.min())
+            maxs[channel_idx] = max(maxs[channel_idx], values.max())
+
+    means = np.zeros(channel_count, dtype=np.float64)
+    stds = np.ones(channel_count, dtype=np.float64)
+    valid_channels = counts > 0
+    means[valid_channels] = sums[valid_channels] / counts[valid_channels]
+    variances = np.zeros(channel_count, dtype=np.float64)
+    variances[valid_channels] = (
+        sum_squares[valid_channels] / counts[valid_channels]
+    ) - np.square(means[valid_channels])
+    stds[valid_channels] = np.sqrt(np.maximum(variances[valid_channels], 0.0))
+    stds[stds < 1e-6] = 1.0
+
+    mins[~valid_channels] = 0.0
+    maxs[~valid_channels] = 1.0
+
+    stats = np.asarray((means, stds, mins, maxs), dtype=np.float32)
+    return stats
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Slice and preprocess glacier data")
     parser.add_argument(
@@ -79,7 +152,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         type=str,
-        default="./configs/preprocess.yaml",
+        default="./configs/datasets/gen_robust_comprehensive_dci_clean_v2.yaml",
         help="Path to preprocessing config file",
     )
     parser.add_argument(
@@ -165,7 +238,6 @@ if __name__ == "__main__":
 
     with tqdm(total=1, desc="temp") as pbar:
         for split, meta in splits.items():
-            means, stds, mins, maxs = [], [], [], []
             savepath = Path(conf["out_dir"]) / split
             slice_conf = dict(conf)
             if split == "test":
@@ -182,11 +254,7 @@ if __name__ == "__main__":
             print(f"Using {workers}/{cores} CPU cores")
             with multiprocessing.Pool(workers) as pool:
                 for result in pool.istarmap(fn_process, enumerate(meta)):
-                    mu, s, mi, ma, df_rows, skipped_rows, band_names = result
-                    means.append(mu)
-                    stds.append(s)
-                    mins.append(mi)
-                    maxs.append(ma)
+                    _mu, _s, _mi, _ma, df_rows, skipped_rows, band_names = result
                     for row in df_rows:
                         saved_df.loc[len(saved_df.index)] = row
                     for row in skipped_rows:
@@ -197,14 +265,15 @@ if __name__ == "__main__":
 
                     pbar.update(1)
 
-            means_agg = np.mean(np.asarray(means), axis=0)
-            stds_agg = np.mean(np.asarray(stds), axis=0)
-            mins_agg = np.min(np.asarray(mins), axis=0)
-            maxs_agg = np.max(np.asarray(maxs), axis=0)
+            if band_names_metadata is None:
+                raise ValueError("No band metadata returned during preprocessing.")
 
+            norm_stats = compute_model_visible_normalization(
+                savepath, band_names_metadata
+            )
             np.save(
                 Path(conf["out_dir"]) / f"normalize_{split}",
-                np.asarray((means_agg, stds_agg, mins_agg, maxs_agg)),
+                norm_stats,
             )
             print(f"Saved normalization stats for {split}")
 
