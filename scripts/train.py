@@ -297,37 +297,30 @@ class ResilientMLFlowLogger:
     def version(self) -> str:
         return str(self.run_id)
 
-    def log_hyperparams(self, params, *args, **kwargs) -> None:
-        if self._disabled:
-            return
+    def __getattr__(self, name: str):
         try:
-            self._logger.log_hyperparams(params, *args, **kwargs)
+            target = getattr(self._logger, name)
         except Exception as e:
             self._disable(e)
 
-    def log_metrics(self, metrics, step=None, *args, **kwargs) -> None:
-        if self._disabled:
-            return
-        try:
-            self._logger.log_metrics(metrics, step=step, *args, **kwargs)
-        except Exception as e:
-            self._disable(e)
+            def noop(*args, **kwargs):
+                return None
 
-    def finalize(self, status: str = "success") -> None:
-        if self._disabled:
-            return
-        try:
-            self._logger.finalize(status)
-        except Exception as e:
-            self._disable(e)
+            return noop
 
-    def after_save_checkpoint(self, checkpoint_callback) -> None:
-        if self._disabled:
-            return
-        try:
-            self._logger.after_save_checkpoint(checkpoint_callback)
-        except Exception as e:
-            self._disable(e)
+        if not callable(target):
+            return target
+
+        def guarded(*args, **kwargs):
+            if self._disabled:
+                return None
+            try:
+                return target(*args, **kwargs)
+            except Exception as e:
+                self._disable(e)
+                return None
+
+        return guarded
 
 
 def mlflow_tracking_uri_available(
