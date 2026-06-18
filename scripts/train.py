@@ -5,8 +5,11 @@ import argparse
 import os
 import pathlib
 import random
+import socket
 import warnings
 from typing import Dict, Any
+from types import SimpleNamespace
+from urllib.parse import urlparse
 
 import numpy as np
 import torch
@@ -215,6 +218,142 @@ class TrainingLogUploadCallback(pl.Callback):
         if best_path and best_path.exists():
             return best_path
         return None
+
+
+class _NoopMLflowClient:
+    """Minimal MLflow client stand-in used when remote MLflow is unavailable."""
+
+    def __init__(self, run_id: str):
+        self._run_id = run_id
+
+    def get_run(self, run_id: str):
+        return SimpleNamespace(
+            info=SimpleNamespace(
+                run_id=run_id,
+                experiment_id="mlflow_unavailable",
+                artifact_uri="",
+            )
+        )
+
+    def log_batch(self, *args, **kwargs) -> None:
+        return None
+
+    def log_artifact(self, *args, **kwargs) -> None:
+        return None
+
+    def log_artifacts(self, *args, **kwargs) -> None:
+        return None
+
+    def set_terminated(self, *args, **kwargs) -> None:
+        return None
+
+
+class ResilientMLFlowLogger:
+    """MLflow logger wrapper that never lets tracking outages stop training."""
+
+    def __init__(self, *args, **kwargs):
+        from pytorch_lightning.loggers import MLFlowLogger
+
+        self._logger = MLFlowLogger(*args, **kwargs)
+        self._disabled = False
+        self._disabled_reason: str | None = None
+        self._noop_run_id = "mlflow_unavailable"
+        self._noop_client = _NoopMLflowClient(self._noop_run_id)
+
+    def _disable(self, error: Exception) -> None:
+        if not self._disabled:
+            self._disabled_reason = str(error)
+            log.warning(
+                f"MLflow logging disabled for this run after tracking failure: {error}"
+            )
+        self._disabled = True
+
+    @property
+    def experiment(self):
+        if self._disabled:
+            return self._noop_client
+        try:
+            return self._logger.experiment
+        except Exception as e:
+            self._disable(e)
+            return self._noop_client
+
+    @property
+    def run_id(self) -> str:
+        if self._disabled:
+            return self._noop_run_id
+        try:
+            run_id = self._logger.run_id
+            return run_id or self._noop_run_id
+        except Exception as e:
+            self._disable(e)
+            return self._noop_run_id
+
+    @property
+    def name(self) -> str:
+        return getattr(self._logger, "name", "mlflow")
+
+    @property
+    def version(self) -> str:
+        return str(self.run_id)
+
+    def log_hyperparams(self, params, *args, **kwargs) -> None:
+        if self._disabled:
+            return
+        try:
+            self._logger.log_hyperparams(params, *args, **kwargs)
+        except Exception as e:
+            self._disable(e)
+
+    def log_metrics(self, metrics, step=None, *args, **kwargs) -> None:
+        if self._disabled:
+            return
+        try:
+            self._logger.log_metrics(metrics, step=step, *args, **kwargs)
+        except Exception as e:
+            self._disable(e)
+
+    def finalize(self, status: str = "success") -> None:
+        if self._disabled:
+            return
+        try:
+            self._logger.finalize(status)
+        except Exception as e:
+            self._disable(e)
+
+    def after_save_checkpoint(self, checkpoint_callback) -> None:
+        if self._disabled:
+            return
+        try:
+            self._logger.after_save_checkpoint(checkpoint_callback)
+        except Exception as e:
+            self._disable(e)
+
+
+def mlflow_tracking_uri_available(
+    tracking_uri: str, timeout_seconds: float = 2.0
+) -> bool:
+    parsed = urlparse(tracking_uri)
+    if parsed.scheme in {"", "file"}:
+        return True
+    if not parsed.hostname:
+        log.warning(f"MLflow tracking URI has no hostname: {tracking_uri}")
+        return False
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    previous_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(timeout_seconds)
+    try:
+        socket.getaddrinfo(parsed.hostname, port)
+        return True
+    except OSError as e:
+        log.warning(
+            "MLflow tracking URI unavailable; continuing with local logging only: "
+            f"{tracking_uri} ({e})"
+        )
+        return False
+    finally:
+        socket.setdefaulttimeout(previous_timeout)
 
 
 def main():
@@ -489,11 +628,15 @@ def main():
     else:
         loggers = [TensorBoardLogger(save_dir=f"{output_dir}/{run_name}/logs", name="")]
 
-        if mlflow_enabled and MLFLOW_AVAILABLE and experiment_name:
+        mlflow_ready = (
+            mlflow_enabled
+            and MLFLOW_AVAILABLE
+            and experiment_name
+            and mlflow_tracking_uri_available(args.tracking_uri)
+        )
+        if mlflow_ready:
             try:
-                from pytorch_lightning.loggers import MLFlowLogger
-
-                mlflow_logger = MLFlowLogger(
+                mlflow_logger = ResilientMLFlowLogger(
                     experiment_name=experiment_name,
                     run_name=run_name,
                     tracking_uri=args.tracking_uri,
@@ -507,6 +650,11 @@ def main():
             except Exception as e:
                 log.warning(f"Failed to setup MLflow logger: {e}")
                 mlflow_logger = None
+        elif mlflow_enabled and MLFLOW_AVAILABLE and experiment_name:
+            log.warning(
+                "MLflow logger not added; training will continue with TensorBoard "
+                "and local checkpoints/test metrics"
+            )
 
     error_handler = None
     if not args.no_output and ERROR_HANDLER_AVAILABLE:

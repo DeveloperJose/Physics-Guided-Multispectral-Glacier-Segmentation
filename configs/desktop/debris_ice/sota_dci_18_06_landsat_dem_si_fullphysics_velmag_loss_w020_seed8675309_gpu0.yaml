@@ -1,6 +1,6 @@
 training_opts:
-  dataset_name: "gen_robust_comprehensive_dci"
-  run_name: "sota_dci_16_00_velmag_noloss_seed8675309"
+  dataset_name: "gen_robust_comprehensive_dci_clean_v2"
+  run_name: "sota_dci_18_06_landsat_dem_si_fullphysics_velmag_loss_w020_seed8675309"
   seed: 8675309
   augmentation_seed: 1000
   deterministic: true
@@ -9,19 +9,22 @@ training_opts:
   test_eval_n: 0
 
 loader_opts:
-  processed_dir: "/home/devj/local-arch/data/HKH/gen_robust_comprehensive_dci/"
+  processed_dir: "/home/devj/local-arch/data/HKH/gen_robust_comprehensive_dci_clean_v2/"
   batch_size: 12
   landsat_channels: true
   dem_channels: true
-  spectral_indices_channels: false
+  spectral_indices_channels: true
   hsv_channels: false
   velocity_channels: ["velocity"]
-  physics_channels: false
+  physics_channels: true
   robust_scaling: false
 
 loss_opts:
-  use_velocity_loss: false
-  velocity_loss_weight: 0.0
+  use_velocity_loss: true
+  velocity_loss_weight: 0.20
+  velocity_high_speed_threshold: 3.16
+  velocity_loss_warmup_epochs: 10
+  velocity_loss_ramp_epochs: 10
 
 model_opts:
   framework: "smp"

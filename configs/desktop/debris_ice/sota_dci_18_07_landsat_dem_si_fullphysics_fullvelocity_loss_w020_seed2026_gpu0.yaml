@@ -1,7 +1,7 @@
 training_opts:
-  dataset_name: "gen_robust_comprehensive_dci"
-  run_name: "sota_dci_16_03_velmag_loss_w020_seed42"
-  seed: 42
+  dataset_name: "gen_robust_comprehensive_dci_clean_v2"
+  run_name: "sota_dci_18_07_landsat_dem_si_fullphysics_fullvelocity_loss_w020_seed2026"
+  seed: 2026
   augmentation_seed: 1000
   deterministic: true
   early_stopping: 35
@@ -9,14 +9,14 @@ training_opts:
   test_eval_n: 0
 
 loader_opts:
-  processed_dir: "/home/devj/local-arch/data/HKH/gen_robust_comprehensive_dci/"
+  processed_dir: "/home/devj/local-arch/data/HKH/gen_robust_comprehensive_dci_clean_v2/"
   batch_size: 12
   landsat_channels: true
   dem_channels: true
-  spectral_indices_channels: false
+  spectral_indices_channels: true
   hsv_channels: false
-  velocity_channels: ["velocity"]
-  physics_channels: false
+  velocity_channels: true
+  physics_channels: true
   robust_scaling: false
 
 loss_opts:
