@@ -1,12 +1,15 @@
 training_opts:
   dataset_name: "gen_robust_comprehensive_dci_clean_v2"
-  run_name: "sota_dci_18_07_landsat_dem_si_fullphysics_fullvelocity_loss_w020_seed8675309"
+  run_name: "sota_dci_19_00_speed_current_bs12_w4_lrmon"
   seed: 8675309
   augmentation_seed: 1000
   deterministic: true
-  early_stopping: 35
-  run_test_eval: true
+  epochs: 8
+  early_stopping: 0
+  run_test_eval: false
   test_eval_n: 0
+  lr_monitor: true
+  check_val_every_n_epoch: 1
 
 profiling_opts:
   enabled: true
@@ -15,6 +18,9 @@ profiling_opts:
 loader_opts:
   processed_dir: "/home/devj/local-arch/data/HKH/gen_robust_comprehensive_dci_clean_v2/"
   batch_size: 12
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: false
   landsat_channels: true
   dem_channels: true
   spectral_indices_channels: true

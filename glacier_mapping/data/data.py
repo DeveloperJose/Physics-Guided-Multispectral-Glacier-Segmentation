@@ -322,6 +322,7 @@ class GlacierDataset(Dataset):
         normalize,
         robust_scaling=True,
         transforms=None,
+        mmap_mode=None,
     ):
         self.folder_path = folder_path
         self.use_channels = use_channels
@@ -329,6 +330,7 @@ class GlacierDataset(Dataset):
         self.normalize = normalize
         self.robust_scaling = robust_scaling
         self.transforms = transforms
+        self.mmap_mode = mmap_mode
 
         if isinstance(self.folder_path, str):
             self.folder_path = pathlib.Path(self.folder_path)
@@ -416,7 +418,7 @@ class GlacierDataset(Dataset):
             )
 
     def __getitem__(self, index):
-        file_data = np.load(self.img_files[index])
+        file_data = np.load(self.img_files[index], mmap_mode=self.mmap_mode)
         data = file_data[:, :, self.use_channels]
 
         # Store original values for channels that should not be normalized (binary masks etc)
@@ -474,7 +476,9 @@ class GlacierDataset(Dataset):
 
         self._zero_missing_velocity_values(data)
 
-        label_int = np.load(self.mask_files[index]).astype(np.uint8)
+        label_int = np.load(self.mask_files[index], mmap_mode=self.mmap_mode).astype(
+            np.uint8
+        )
         label_int = np.expand_dims(label_int, axis=2)
 
         if len(self.output_classes) == 1:

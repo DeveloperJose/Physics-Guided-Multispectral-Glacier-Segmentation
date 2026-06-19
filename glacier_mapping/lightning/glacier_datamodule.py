@@ -31,6 +31,9 @@ class GlacierDataModule(pl.LightningDataModule):
         robust_scaling: bool = True,
         num_workers: int = 4,
         pin_memory: bool = True,
+        persistent_workers: bool = False,
+        prefetch_factor: Optional[int] = None,
+        mmap_mode: Optional[str] = None,
         seed: int = 42,
         augmentation_seed: Optional[int] = None,
     ):
@@ -49,6 +52,9 @@ class GlacierDataModule(pl.LightningDataModule):
         self.robust_scaling = robust_scaling
         self.num_workers = num_workers
         self.pin_memory = pin_memory
+        self.persistent_workers = persistent_workers
+        self.prefetch_factor = prefetch_factor
+        self.mmap_mode = mmap_mode
         self.seed = seed
         self.augmentation_seed = (
             augmentation_seed if augmentation_seed is not None else seed
@@ -105,6 +111,7 @@ class GlacierDataModule(pl.LightningDataModule):
                 self.normalize,
                 robust_scaling=self.robust_scaling,
                 transforms=self.train_transform,
+                mmap_mode=self.mmap_mode,
             )
 
             self.val_dataset = GlacierDataset(
@@ -114,9 +121,11 @@ class GlacierDataModule(pl.LightningDataModule):
                 self.normalize,
                 robust_scaling=self.robust_scaling,
                 transforms=self.val_transform,
+                mmap_mode=self.mmap_mode,
             )
 
     def train_dataloader(self) -> DataLoader:
+        worker_opts = self._worker_opts()
         return DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
@@ -126,9 +135,11 @@ class GlacierDataModule(pl.LightningDataModule):
             drop_last=True,
             worker_init_fn=self.seed_worker,
             generator=self._generator(),
+            **worker_opts,
         )
 
     def val_dataloader(self) -> DataLoader:
+        worker_opts = self._worker_opts()
         return DataLoader(
             self.val_dataset,
             batch_size=self.batch_size,
@@ -138,4 +149,14 @@ class GlacierDataModule(pl.LightningDataModule):
             drop_last=False,
             worker_init_fn=self.seed_worker,
             generator=self._generator(),
+            **worker_opts,
         )
+
+    def _worker_opts(self) -> dict:
+        if self.num_workers <= 0:
+            return {}
+
+        opts = {"persistent_workers": self.persistent_workers}
+        if self.prefetch_factor is not None:
+            opts["prefetch_factor"] = self.prefetch_factor
+        return opts

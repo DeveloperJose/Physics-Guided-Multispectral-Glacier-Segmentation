@@ -16,6 +16,7 @@ import torch
 import yaml
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import (
+    BatchSizeFinder,
     ModelCheckpoint,
     LearningRateMonitor,
     EarlyStopping,
@@ -489,6 +490,9 @@ def main():
     scheduler_opts = config.get("scheduler_opts", {})
     metrics_opts = config.get("metrics_opts", {})
     profiling_opts = config.get("profiling_opts", training_opts.get("profiling", {}))
+    batch_size_finder_opts = config.get(
+        "batch_size_finder_opts", training_opts.get("batch_size_finder", {})
+    )
 
     mlflow_enabled = args.mlflow_enabled.lower() == "true"
     if args.mlflow_artifacts_enabled is not None:
@@ -638,6 +642,10 @@ def main():
         normalize=loader_opts.get("normalize", "mean-std"),
         robust_scaling=loader_opts.get("robust_scaling", True),
         num_workers=loader_opts.get("num_workers", 4),
+        pin_memory=loader_opts.get("pin_memory", True),
+        persistent_workers=loader_opts.get("persistent_workers", False),
+        prefetch_factor=loader_opts.get("prefetch_factor", None),
+        mmap_mode=loader_opts.get("mmap_mode", None),
         seed=seed,
         augmentation_seed=augmentation_seed,
     )
@@ -711,19 +719,27 @@ def main():
     viz_scale_factor = 1
 
     if not args.no_output:
-        callbacks.extend(
-            [
-                ModelCheckpoint(
-                    dirpath=f"{output_dir}/{run_name}/checkpoints",
-                    monitor="val_loss",
-                    mode="min",
-                    save_top_k=3,
-                    save_last=True,
-                    filename=f"{run_name}_{{epoch:03d}}_{{val_loss:.4f}}",
-                ),
-                LearningRateMonitor(logging_interval="step"),
-            ]
+        callbacks.append(
+            ModelCheckpoint(
+                dirpath=f"{output_dir}/{run_name}/checkpoints",
+                monitor="val_loss",
+                mode="min",
+                save_top_k=3,
+                save_last=True,
+                filename=f"{run_name}_{{epoch:03d}}_{{val_loss:.4f}}",
+            )
         )
+
+        if training_opts.get("lr_monitor", True):
+            callbacks.append(
+                LearningRateMonitor(
+                    logging_interval=training_opts.get(
+                        "lr_monitor_logging_interval", "step"
+                    )
+                )
+            )
+        else:
+            log.info("LearningRateMonitor disabled by config")
 
         early_stopping_patience = training_opts.get("early_stopping", None)
         if early_stopping_patience and early_stopping_patience > 0:
@@ -774,6 +790,24 @@ def main():
             )
         )
 
+    if batch_size_finder_opts.get("enabled", False):
+        callbacks.append(
+            BatchSizeFinder(
+                mode=batch_size_finder_opts.get("mode", "binsearch"),
+                steps_per_trial=batch_size_finder_opts.get("steps_per_trial", 3),
+                init_val=batch_size_finder_opts.get(
+                    "init_val", loader_opts.get("batch_size", 8)
+                ),
+                max_trials=batch_size_finder_opts.get("max_trials", 25),
+                batch_arg_name=batch_size_finder_opts.get(
+                    "batch_arg_name", "batch_size"
+                ),
+                margin=batch_size_finder_opts.get("margin", 0.05),
+                max_val=batch_size_finder_opts.get("max_val", 8192),
+            )
+        )
+        log.info(f"BatchSizeFinder enabled: {batch_size_finder_opts}")
+
     if not callbacks:
         log.info("No callbacks enabled")
 
@@ -803,11 +837,12 @@ def main():
         max_epochs=max_epochs,
         logger=loggers,
         callbacks=callbacks,
-        precision="16-mixed",
-        log_every_n_steps=10,
+        precision=training_opts.get("precision", "16-mixed"),
+        log_every_n_steps=training_opts.get("log_every_n_steps", 10),
         val_check_interval=1.0,
+        check_val_every_n_epoch=training_opts.get("check_val_every_n_epoch", 1),
         enable_progress_bar=True,
-        num_sanity_val_steps=2,
+        num_sanity_val_steps=training_opts.get("num_sanity_val_steps", 2),
         deterministic=deterministic,
         profiler=profiler,
     )
