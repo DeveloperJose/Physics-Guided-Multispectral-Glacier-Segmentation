@@ -21,6 +21,11 @@ from pytorch_lightning.callbacks import (
     EarlyStopping,
 )
 from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.profilers import (
+    AdvancedProfiler,
+    PyTorchProfiler,
+    SimpleProfiler,
+)
 from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
 from glacier_mapping.lightning.glacier_datamodule import GlacierDataModule
 from glacier_mapping.lightning.callbacks import (
@@ -123,6 +128,11 @@ def seed_reproducibility(seed: int, deterministic: bool) -> None:
         torch.use_deterministic_algorithms(deterministic, warn_only=not deterministic)
     except TypeError:
         torch.use_deterministic_algorithms(deterministic)
+
+
+def configure_torch_performance() -> None:
+    if hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision("high")
 
 
 class TrainingLogUploadCallback(pl.Callback):
@@ -349,6 +359,42 @@ def mlflow_tracking_uri_available(
         socket.setdefaulttimeout(previous_timeout)
 
 
+def build_lightning_profiler(profiling_opts: dict, profile_dir: pathlib.Path):
+    if not profiling_opts.get("enabled", False):
+        return None
+
+    mode = str(profiling_opts.get("mode", "simple")).lower()
+    filename = f"{mode}_profiler"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+
+    if mode == "simple":
+        return SimpleProfiler(
+            dirpath=profile_dir,
+            filename=filename,
+            extended=bool(profiling_opts.get("extended", True)),
+        )
+    if mode == "advanced":
+        return AdvancedProfiler(
+            dirpath=profile_dir,
+            filename=filename,
+            line_count_restriction=float(
+                profiling_opts.get("line_count_restriction", 1.0)
+            ),
+            dump_stats=bool(profiling_opts.get("dump_stats", False)),
+        )
+    if mode in {"pytorch", "torch"}:
+        return PyTorchProfiler(
+            dirpath=profile_dir,
+            filename=filename,
+            export_to_chrome=bool(profiling_opts.get("export_to_chrome", True)),
+            row_limit=int(profiling_opts.get("row_limit", 20)),
+        )
+
+    raise ValueError(
+        f"Unsupported profiling mode '{mode}'. Use simple, advanced, or pytorch."
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train glacier mapping with Lightning")
     parser.add_argument("--config", type=str, required=True, help="Path to config file")
@@ -442,6 +488,7 @@ def main():
     optim_opts = config.get("optim_opts", {})
     scheduler_opts = config.get("scheduler_opts", {})
     metrics_opts = config.get("metrics_opts", {})
+    profiling_opts = config.get("profiling_opts", training_opts.get("profiling", {}))
 
     mlflow_enabled = args.mlflow_enabled.lower() == "true"
     if args.mlflow_artifacts_enabled is not None:
@@ -457,6 +504,7 @@ def main():
     augmentation_seed = training_opts.get("augmentation_seed", None)
     deterministic = bool(training_opts.get("deterministic", True))
     seed_reproducibility(seed, deterministic)
+    configure_torch_performance()
 
     landsat_channels = loader_opts.get("landsat_channels", True)
     dem_channels = loader_opts.get("dem_channels", True)
@@ -547,6 +595,8 @@ def main():
     log.info(f"Deterministic mode: {deterministic}")
     log.info(f"MLflow enabled: {mlflow_enabled}")
     log.info(f"MLflow artifact upload enabled: {mlflow_artifacts_enabled}")
+    if profiling_opts.get("enabled", False):
+        log.info(f"Profiling enabled: {profiling_opts}")
     if mlflow_enabled and MLFLOW_AVAILABLE:
         log.info(f"MLflow experiment: {experiment_name}")
         log.info(f"MLflow run name: {run_name}")
@@ -740,6 +790,12 @@ def main():
     if default_root:
         log.info(f"Lightning default_root_dir: {default_root}")
 
+    profiler = None
+    if profiling_opts.get("enabled", False) and not args.no_output:
+        profile_dir = config_output_dir / "profiling"
+        profiler = build_lightning_profiler(profiling_opts, profile_dir)
+        log.info(f"Lightning profiler enabled: {type(profiler).__name__}")
+
     trainer = pl.Trainer(
         default_root_dir=default_root,
         accelerator="gpu",
@@ -753,6 +809,7 @@ def main():
         enable_progress_bar=True,
         num_sanity_val_steps=2,
         deterministic=deterministic,
+        profiler=profiler,
     )
 
     log.info(f"Starting training for {max_epochs} epochs...")

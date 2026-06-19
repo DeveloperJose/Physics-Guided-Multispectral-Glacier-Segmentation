@@ -8,6 +8,10 @@ training_opts:
   run_test_eval: true
   test_eval_n: 0
 
+profiling_opts:
+  enabled: true
+  mode: "simple"
+
 loader_opts:
   processed_dir: "/home/devj/local-arch/data/HKH/gen_robust_comprehensive_dci_clean_v2/"
   batch_size: 12
