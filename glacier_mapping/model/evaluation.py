@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 import pandas as pd
@@ -63,14 +63,22 @@ def full_metric_name(split: str, target: str, metric: str) -> str:
     return metric_name("full", split, target, metric)
 
 
-def get_probabilities(module, x_full):
+def get_probabilities(module, x_full, *, preprocessed_chw: bool = False):
     """Get a probability cube from a Lightning module using softmax."""
-    use_ch = module.use_channels
-    x = x_full[:, :, use_ch]
-    x_norm = module.normalize(x)
-
-    inp = torch.from_numpy(np.expand_dims(x_norm, 0)).float().to(module.device)
-    logits = module.forward(inp.permute(0, 3, 1, 2))
+    if preprocessed_chw:
+        x_chw = np.array(x_full, dtype=np.float32, copy=True)
+        inp = torch.from_numpy(np.expand_dims(x_chw, 0)).to(module.device)
+    else:
+        use_ch = module.use_channels
+        x = x_full[:, :, use_ch]
+        x_norm = module.normalize(x)
+        inp = (
+            torch.from_numpy(np.expand_dims(x_norm, 0))
+            .permute(0, 3, 1, 2)
+            .float()
+            .to(module.device)
+        )
+    logits = module.forward(inp)
     probs = (
         torch.nn.functional.softmax(logits, dim=1)[0]
         .permute(1, 2, 0)
@@ -248,6 +256,39 @@ def get_split_tiles(module: GlacierSegmentationModule, split: str) -> list[Path]
     return sorted(data_dir.glob("tiff*"))
 
 
+def _iter_split_samples(
+    module: GlacierSegmentationModule, split: str
+) -> tuple[Iterator[tuple[str, np.ndarray, np.ndarray, bool]], int]:
+    """Yield legacy HWC or packed normalized CHW split samples."""
+    data_dir = Path(module.processed_dir) / split
+    tiles = sorted(data_dir.glob("tiff*"))
+    if tiles:
+        def iter_tiles() -> Iterator[tuple[str, np.ndarray, np.ndarray, bool]]:
+            for tile in tiles:
+                y_path = tile.with_name(tile.name.replace("tiff", "mask"))
+                yield tile.name, np.load(tile), np.load(y_path).astype(np.uint8), False
+
+        return iter_tiles(), len(tiles)
+
+    x_path = data_dir / "X.npy"
+    y_path = data_dir / "y.npy"
+    if not x_path.exists() or not y_path.exists():
+        raise FileNotFoundError(
+            f"No legacy tiles or packed X.npy/y.npy found under {data_dir}"
+        )
+
+    x = np.load(x_path, mmap_mode="r")
+    y = np.load(y_path, mmap_mode="r")
+    if x.ndim != 4 or y.ndim != 3 or x.shape[0] != y.shape[0]:
+        raise ValueError(f"Invalid packed split shapes: X={x.shape}, y={y.shape}")
+
+    def iter_packed() -> Iterator[tuple[str, np.ndarray, np.ndarray, bool]]:
+        for index in range(len(x)):
+            yield f"sample_{index:06d}", x[index], y[index], True
+
+    return iter_packed(), len(x)
+
+
 def evaluate_full_split_modules(
     *,
     frame_ci: GlacierSegmentationModule | None = None,
@@ -269,9 +310,7 @@ def evaluate_full_split_modules(
     if module is None:
         raise RuntimeError("No valid model loaded for full split evaluation")
 
-    tiles = get_split_tiles(module, split)
-    if not tiles:
-        raise FileNotFoundError(f"No {split} tiles found under {module.processed_dir}")
+    samples, sample_count = _iter_split_samples(module, split)
 
     out_path = Path(output_dir) if output_dir is not None else None
     preds_dir = None
@@ -279,14 +318,15 @@ def evaluate_full_split_modules(
         preds_dir = out_path / "preds"
         preds_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Running full {split} evaluation on {len(tiles)} tiles...")
+    print(f"Running full {split} evaluation on {sample_count} samples...")
 
     rows, acc = _run_full_split_prediction(
         frame_ci=frame_ci,
         frame_dci=frame_dci,
         ci_threshold=ci_threshold,
         dci_threshold=dci_threshold,
-        tiles=tiles,
+        samples=samples,
+        sample_count=sample_count,
         preds_dir=preds_dir,
         save_probabilities=save_probabilities,
         progress=progress,
@@ -308,6 +348,10 @@ def evaluate_full_split_modules(
         pd.DataFrame(rows_with_checkpoint, columns=columns).to_csv(
             out_path / "metrics.csv", index=False
         )
+        import json
+
+        with open(out_path / "test_metrics.json", "w") as file:
+            json.dump(metrics, file, indent=2)
 
     return FullSplitEvaluationResult(
         metrics=metrics,
@@ -382,7 +426,8 @@ def _run_full_split_prediction(
     frame_dci: GlacierSegmentationModule | None,
     ci_threshold: float,
     dci_threshold: float,
-    tiles: list[Path],
+    samples: Iterator[tuple[str, np.ndarray, np.ndarray, bool]],
+    sample_count: int,
     preds_dir: Path | None,
     save_probabilities: bool,
     progress: bool,
@@ -399,18 +444,18 @@ def _run_full_split_prediction(
 
     has_ci = frame_ci is not None
     has_dci = frame_dci is not None
-    iterator = tqdm(tiles, desc="Predicting") if progress else tiles
+    iterator = (
+        tqdm(samples, total=sample_count, desc="Predicting") if progress else samples
+    )
 
     with torch.no_grad():
-        for tile in iterator:
-            name = tile.name
-            base = tile.stem
-
-            x_full = np.load(tile)
-            y_full = np.load(tile.parent / name.replace("tiff", "mask")).astype(
-                np.uint8
+        for name, x_full, y_full, preprocessed_chw in iterator:
+            base = Path(name).stem
+            invalid = (
+                y_full == 255
+                if preprocessed_chw
+                else create_invalid_mask(x_full, y_full)
             )
-            invalid = create_invalid_mask(x_full, y_full)
             valid = ~invalid
 
             if has_ci ^ has_dci:
@@ -421,9 +466,17 @@ def _run_full_split_prediction(
                 model_class = CLASS_TO_INDEX[target]
                 threshold = ci_threshold if has_ci else dci_threshold
 
-                y_pred, mask = predict_slice(frame, x_full, threshold, fill_holes=True)
+                y_pred, mask = predict_slice(
+                    frame,
+                    x_full,
+                    threshold,
+                    fill_holes=True,
+                    preprocessed_chw=preprocessed_chw,
+                )
                 if save_probabilities and preds_dir is not None:
-                    probs = get_probabilities(frame, x_full)
+                    probs = get_probabilities(
+                        frame, x_full, preprocessed_chw=preprocessed_chw
+                    )
                     np.save(preds_dir / f"{base}_probs.npy", probs)
 
                 p_, r_, iou_, tp_, fp_, fn_ = calculate_binary_metrics(
@@ -559,20 +612,29 @@ def predict_slice(
     *,
     use_mask: bool = True,
     fill_holes: bool = True,
+    preprocessed_chw: bool = False,
 ) -> tuple[np.ndarray, np.ndarray | None]:
     """Unified slice prediction with optional binary_fill_holes.
 
     All evaluation code should use this instead of module.predict_slice() to
     ensure consistent post-processing (fill_holes, masking).
     """
-    slice_arr = slice_arr[:, :, module.use_channels]
-    slice_arr = module.normalize(slice_arr)
-
-    _mask = np.sum(slice_arr, axis=2) == 0 if use_mask else None
-
-    _x = torch.from_numpy(np.expand_dims(slice_arr, axis=0)).float().to(module.device)
+    if preprocessed_chw:
+        _mask = None
+        chw = np.array(slice_arr, dtype=np.float32, copy=True)
+        _x = torch.from_numpy(np.expand_dims(chw, axis=0)).to(module.device)
+    else:
+        slice_arr = slice_arr[:, :, module.use_channels]
+        slice_arr = module.normalize(slice_arr)
+        _mask = np.sum(slice_arr, axis=2) == 0 if use_mask else None
+        _x = (
+            torch.from_numpy(np.expand_dims(slice_arr, axis=0))
+            .permute(0, 3, 1, 2)
+            .float()
+            .to(module.device)
+        )
     with torch.no_grad():
-        _y = module.forward(_x.permute(0, 3, 1, 2))
+        _y = module.forward(_x)
 
     if len(module.output_classes) == 1:
         if threshold is None:

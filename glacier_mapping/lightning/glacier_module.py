@@ -54,7 +54,10 @@ class GlacierSegmentationModule(pl.LightningModule):
         )
         self.reg_opts = reg_opts
         self.class_names = class_names
-        self.output_classes = output_classes
+        self.output_classes = (
+            loader_opts.get("output_classes", output_classes)
+            if loader_opts else output_classes
+        )
 
         self.landsat_channels = landsat_channels
         self.dem_channels = dem_channels
@@ -97,6 +100,11 @@ class GlacierSegmentationModule(pl.LightningModule):
                 inchannels=n_channels, outchannels=out_channels, **model_args
             )
 
+        channels_last = bool(model_opts.get("channels_last", False))
+        if channels_last:
+            self.model = self.model.to(memory_format=torch.channels_last)
+        self.channels_last = channels_last
+
         supported_loss_args = {
             "act",
             "smooth",
@@ -111,6 +119,7 @@ class GlacierSegmentationModule(pl.LightningModule):
         }
         loss_args = {k: v for k, v in loss_opts.items() if k in supported_loss_args}
 
+        loss_args["output_classes"] = self.output_classes
         self.loss_fn = customloss(**loss_args)
 
         sigma_init = float(model_opts.get("sigma_init", 0.5))
@@ -247,14 +256,18 @@ class GlacierSegmentationModule(pl.LightningModule):
             )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.channels_last:
+            x = x.contiguous(memory_format=torch.channels_last)
         return self.model(x)
 
     def training_step(self, batch: tuple, batch_idx: int) -> torch.Tensor:
         x, y_uint8 = batch
-        y_int = y_uint8.long()
+        if x.dtype != torch.float32:
+            x = x.float()
+        if self.channels_last:
+            x = x.contiguous(memory_format=torch.channels_last)
 
         y_hat = self(x)
-        y_onehot = self._make_onehot_target(y_int, y_hat.shape[1])
 
         velocity = None
         velocity_mask = None
@@ -272,8 +285,7 @@ class GlacierSegmentationModule(pl.LightningModule):
 
         loss = self.compute_loss(
             y_hat,
-            y_onehot,
-            y_int,
+            y_uint8,
             velocity=velocity,
             velocity_mask=velocity_mask,
             stage="train",
@@ -292,11 +304,13 @@ class GlacierSegmentationModule(pl.LightningModule):
 
     def validation_step(self, batch: tuple, batch_idx: int) -> torch.Tensor:
         x, y_uint8 = batch
-        y_int = y_uint8.long()
+        if x.dtype != torch.float32:
+            x = x.float()
+        if self.channels_last:
+            x = x.contiguous(memory_format=torch.channels_last)
 
         with torch.no_grad():
             y_hat = self(x)
-            y_onehot = self._make_onehot_target(y_int, y_hat.shape[1])
 
             velocity = None
             velocity_mask = None
@@ -314,15 +328,14 @@ class GlacierSegmentationModule(pl.LightningModule):
 
             loss = self.compute_loss(
                 y_hat,
-                y_onehot,
-                y_int,
+                y_uint8,
                 velocity=velocity,
                 velocity_mask=velocity_mask,
                 stage="val",
             )
 
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        self._update_metrics(y_hat, y_int, self.val_metrics, "val")
+        self._update_metrics(y_hat, y_uint8, self.val_metrics, "val")
 
         loss_value = loss.detach().item()
         if loss_value < self.best_val_loss:
@@ -335,34 +348,6 @@ class GlacierSegmentationModule(pl.LightningModule):
         )
 
         return loss
-
-    def _make_onehot_target(
-        self, y_int: torch.Tensor, num_classes: int
-    ) -> torch.Tensor:
-        valid = y_int != 255
-
-        if len(self.output_classes) == 1:
-            binary_class = int(self.output_classes[0])
-            target = torch.stack(
-                (
-                    (y_int != binary_class) & valid,
-                    (y_int == binary_class) & valid,
-                ),
-                dim=1,
-            )
-        else:
-            target = torch.stack(
-                [(y_int == int(class_idx)) & valid for class_idx in self.output_classes],
-                dim=1,
-            )
-
-        if target.shape[1] != num_classes:
-            raise ValueError(
-                f"Target has {target.shape[1]} channels but model has {num_classes} "
-                "output channels"
-            )
-
-        return target.to(dtype=torch.float32)
 
     def _update_metrics(
         self,
@@ -439,8 +424,7 @@ class GlacierSegmentationModule(pl.LightningModule):
     def compute_loss(
         self,
         y_hat: torch.Tensor,
-        y_onehot: torch.Tensor,
-        y_int: torch.Tensor,
+        y_uint8: torch.Tensor,
         velocity: Optional[torch.Tensor] = None,
         velocity_mask: Optional[torch.Tensor] = None,
         stage: Optional[str] = None,
@@ -449,45 +433,32 @@ class GlacierSegmentationModule(pl.LightningModule):
         log_on_step = stage == "train" and self.diagnostic_log_on_step
         log_diagnostics = self.diagnostic_log_on_step
 
-        velocity_valid = False
         if (
             self.use_velocity_loss
             and velocity_mask is not None
-            and y_int is not None
+            and y_uint8 is not None
             and velocity_mask.numel() > 0
         ):
-            ignore_mask = (y_int != 255).unsqueeze(1)
+            ignore_mask = (y_uint8 != 255).unsqueeze(1)
             masked_velocity = velocity_mask * ignore_mask
             valid_pixels = masked_velocity.sum()
             total_pixels = ignore_mask.sum()
-            if log_diagnostics and total_pixels > 0:
-                coverage = valid_pixels.float() / total_pixels.float()
+            if log_diagnostics:
+                coverage = valid_pixels.float() / total_pixels.float().clamp_min(1.0)
                 self.log(
                     f"{log_prefix}velocity_valid_fraction",
                     coverage,
                     on_step=log_on_step,
                     on_epoch=True,
                 )
-            velocity_valid = valid_pixels > 0
 
-        if self.use_velocity_loss:
-            losses = self.loss_fn(
-                y_hat,
-                y_onehot,
-                y_int,
-                velocity=velocity,
-                velocity_mask=velocity_mask,
-                current_epoch=self.current_epoch,
-            )
-        else:
-            losses = self.loss_fn(
-                y_hat,
-                y_onehot,
-                y_int,
-                velocity=None,
-                velocity_mask=None,
-                current_epoch=self.current_epoch,
-            )
+        losses = self.loss_fn(
+            y_hat,
+            y_uint8,
+            velocity=velocity,
+            velocity_mask=velocity_mask,
+            current_epoch=self.current_epoch,
+        )
 
         total_loss = y_hat.new_zeros(())
         if log_diagnostics:
@@ -585,7 +556,7 @@ class GlacierSegmentationModule(pl.LightningModule):
                     on_epoch=True,
                 )
 
-        if self.use_velocity_loss and velocity_valid and len(losses) >= 3:
+        if self.use_velocity_loss and len(losses) >= 3:
             total_loss = total_loss + losses[2]
             if log_diagnostics:
                 self.log(
@@ -617,6 +588,12 @@ class GlacierSegmentationModule(pl.LightningModule):
             except ValueError:
                 optimizer_args["lr"] = float(optimizer_args["lr"].replace("e", "e-"))
 
+        fused = optimizer_args.pop("fused", None)
+        if fused is True and not torch.cuda.is_available():
+            raise RuntimeError(
+                "optimizer fused=True requires CUDA, but no GPU is available"
+            )
+
         param_groups = [
             {"params": self.model.parameters(), **optimizer_args},
         ]
@@ -627,12 +604,30 @@ class GlacierSegmentationModule(pl.LightningModule):
                 {"params": [self.raw_log_var_boundary], **optimizer_args}
             )
 
+        kw = {**optimizer_args}
+        if fused is True:
+            kw["fused"] = True
+
         if optimizer_name == "AdamW":
-            optimizer = torch.optim.AdamW(param_groups, **optimizer_args)
+            try:
+                optimizer = torch.optim.AdamW(param_groups, **kw)
+            except (TypeError, RuntimeError) as e:
+                raise RuntimeError(
+                    f"Failed to create AdamW with fused=True: {e}. "
+                    "Remove fused from the config or install a PyTorch build that "
+                    "supports fused AdamW."
+                ) from e
         elif optimizer_name == "Adam":
-            optimizer = torch.optim.Adam(param_groups, **optimizer_args)
+            if fused:
+                raise RuntimeError(
+                    "fused=True is not supported for Adam optimizer. "
+                    "Use AdamW with fused=True instead."
+                )
+            optimizer = torch.optim.Adam(param_groups, **kw)
         else:
             raise ValueError(f"Unsupported optimizer: {optimizer_name}")
+        self._optimizer_name = optimizer_name
+        self._fused_enabled = fused is True
 
         scheduler = None
         if self.scheduler_opts:

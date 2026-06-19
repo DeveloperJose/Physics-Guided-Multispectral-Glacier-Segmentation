@@ -33,7 +33,6 @@ from glacier_mapping.lightning.glacier_datamodule import GlacierDataModule
 from glacier_mapping.lightning.callbacks import (
     ValidationVisualizationCallback,
     TestEvaluationCallback,
-    TrainingTimerCallback,
 )
 import glacier_mapping.utils.mlflow_utils as mlflow_utils
 from glacier_mapping.utils.error_handler import setup_error_handler
@@ -686,6 +685,14 @@ def main():
         class_names=loader_opts.get("class_names", ["BG", "CleanIce", "Debris"]),
     )
 
+    log.info(f"optimizer = {optim_opts.get('name', 'AdamW')}")
+    optim_args = optim_opts.get("args", {})
+    log.info(
+        f"optimizer args: lr={optim_args.get('lr')} "
+        f"weight_decay={optim_args.get('weight_decay')} "
+        f"fused={optim_args.get('fused', False)}"
+    )
+
     log.info("Setting up logging...")
     from pytorch_lightning.loggers import Logger
 
@@ -734,10 +741,6 @@ def main():
 
     callbacks = []
     viz_scale_factor = 1
-
-    if training_opts.get("timer_enabled", False):
-        callbacks.append(TrainingTimerCallback())
-        log.info("TrainingTimerCallback enabled — per-batch timing breakdown")
 
     if not args.no_output:
         callbacks.append(
@@ -862,7 +865,7 @@ def main():
         log_every_n_steps=training_opts.get("log_every_n_steps", 10),
         val_check_interval=1.0,
         check_val_every_n_epoch=training_opts.get("check_val_every_n_epoch", 1),
-        enable_progress_bar=True,
+        enable_progress_bar=training_opts.get("progress_bar", False),
         num_sanity_val_steps=training_opts.get("num_sanity_val_steps", 2),
         deterministic=deterministic,
         profiler=profiler,

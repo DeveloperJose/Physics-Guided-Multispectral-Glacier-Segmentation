@@ -153,7 +153,7 @@ class GlacierDataset(Dataset):
         self._x = None
         self._y = None
 
-        band_names = load_band_names(folder_path.parent)
+        band_names = load_band_names(self.folder_path.parent)
         if len(band_names) != self.num_channels:
             raise ValueError(
                 f"Band metadata has {len(band_names)} bands but X.npy has "
@@ -185,7 +185,7 @@ class GlacierDataset(Dataset):
         if self.transforms:
             data, label_int = self.transforms(data, label_int)
 
-        data = torch.from_numpy(data).float()
+        data = torch.from_numpy(data)
 
         return data, torch.from_numpy(label_int)
 
@@ -234,13 +234,9 @@ class ChwGeometricAugmentations:
         self, image: np.ndarray, label_int: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         if np.random.random() < self.h_flip_prob:
-            image, label_int = apply_chw_geometric_transform(
-                image, label_int, "h_flip"
-            )
+            image, label_int = apply_chw_geometric_transform(image, label_int, "h_flip")
         if np.random.random() < self.v_flip_prob:
-            image, label_int = apply_chw_geometric_transform(
-                image, label_int, "v_flip"
-            )
+            image, label_int = apply_chw_geometric_transform(image, label_int, "v_flip")
         if np.random.random() < self.rotate90_prob:
             image, label_int = apply_chw_geometric_transform(
                 image, label_int, "rotate90"

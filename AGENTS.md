@@ -68,7 +68,37 @@ uv run python scripts/predict.py --ci-run-name ci_run_name --deb-run-name dci_ru
 - 4-level merge: `configs/train.yaml` (global defaults) → `configs/servers.yaml` (server) → `configs/tasks/{task}.yaml` (task) → experiment file.
 - Experiment files live under `configs/{server}/{task}/`. Only override what differs from upstream levels.
 - Keep experiment configs minimal and descriptive.
+- Always use MLflow experiment `sota_replication` for every training batch so all
+  runs remain comparable in one experiment. Do not create batch-specific experiments.
 - Keep MLflow metrics enabled by default, but leave `training_opts.mlflow_artifacts_enabled: false` unless the artifact store is writable from the training machine.
+
+## Measured Training Performance
+
+Evidence from desktop batches 23-32 on RTX 3060 Ti:
+
+- Canonical loader: packed recipe-specific float32 NCHW `X.npy`/`y.npy` memmaps,
+  batch size 12, 2 workers, pinned memory, persistent workers, prefetch factor 2.
+- Do not restore prebatched arrays, RAM caching, forced contiguous copies, float16
+  storage selection, or `torch.compile`. They were slower, unstable, or unproven.
+- Batch size 24 was slower than 12 in isolated tests despite unused VRAM.
+- More than 2 workers and prefetch factor 4 did not improve wall time.
+- Keep fused AdamW; measured wall-time gain was small, but no regression occurred.
+- Keep `channels_last` support. One full run improved about 15.79 to 13.74
+  seconds/epoch (13%); confirm before making it the publication default.
+- Use Lightning SimpleProfiler for whole-run attribution and PyTorchProfiler for
+  CUDA kernels/transfers. AdvancedProfiler mostly duplicated their evidence.
+- Do not add custom timing callbacks. Removed timer mixed validation/checkpoint time
+  into `data_wait_ms` and produced misleading attribution.
+- Full batch-32 profiling found train DataLoader wait near 1% and validation loading
+  near 0.7%. Data loading is no longer primary bottleneck.
+- Main measured bottleneck was `customloss`: about 89.5% of profiled
+  `training_step` wall time and 82% of validation-step wall time. Avoid CUDA tensor
+  values in Python conditionals because they force host synchronization.
+- Rich progress reporting was charged about 100 ms/batch in PyTorch traces, but part
+  may be deferred CUDA synchronization. Keep progress disabled by default and verify
+  gains using profiler plus wall time.
+- Reference, SimpleProfiler, AdvancedProfiler, and PyTorchProfiler batch-32 runs had
+  identical test IoU, showing profiler instrumentation did not change results.
 
 ## Public Documentation
 - Keep README and public docs focused on this repository's software, workflows, results, and assets.

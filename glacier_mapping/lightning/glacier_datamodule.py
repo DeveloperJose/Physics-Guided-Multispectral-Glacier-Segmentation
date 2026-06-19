@@ -94,7 +94,6 @@ class GlacierDataModule(pl.LightningDataModule):
                 robust_scaling=self.robust_scaling,
                 transforms=self.train_transform,
             )
-
             self.val_dataset = GlacierDataset(
                 self.processed_dir / "val",
                 self.output_classes,
@@ -103,26 +102,12 @@ class GlacierDataModule(pl.LightningDataModule):
                 transforms=self.val_transform,
             )
 
-    def train_dataloader(self) -> DataLoader:
+    def _dataloader(self, dataset, shuffle: bool) -> DataLoader:
         worker_opts = self._worker_opts()
         return DataLoader(
-            self.train_dataset,
+            dataset,
             batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            drop_last=True,
-            worker_init_fn=self.seed_worker,
-            generator=self._generator(),
-            **worker_opts,
-        )
-
-    def val_dataloader(self) -> DataLoader:
-        worker_opts = self._worker_opts()
-        return DataLoader(
-            self.val_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
+            shuffle=shuffle,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             drop_last=False,
@@ -130,6 +115,12 @@ class GlacierDataModule(pl.LightningDataModule):
             generator=self._generator(),
             **worker_opts,
         )
+
+    def train_dataloader(self) -> DataLoader:
+        return self._dataloader(self.train_dataset, shuffle=True)
+
+    def val_dataloader(self) -> DataLoader:
+        return self._dataloader(self.val_dataset, shuffle=False)
 
     def _worker_opts(self) -> dict:
         if self.num_workers <= 0:

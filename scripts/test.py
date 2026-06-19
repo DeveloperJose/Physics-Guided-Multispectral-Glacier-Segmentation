@@ -64,6 +64,8 @@ from glacier_mapping.model.evaluation import (
     metric_name,
     full_metric_name,
     merge_ci_debris,
+    predict_slice,
+    _iter_split_samples,
     CLASS_TO_INDEX,
 )
 import rasterio
@@ -859,11 +861,6 @@ class GlacierTaskTestSuite:
 
             # Test loss computation
             with torch.no_grad():
-                target_int = y_int
-                target_onehot = model._make_onehot_target(
-                    target_int, logits.shape[1]
-                )
-
                 # Extract velocity data for loss function
                 velocity = None
                 velocity_mask = None
@@ -903,8 +900,7 @@ class GlacierTaskTestSuite:
 
                 dice_loss, boundary_loss, velocity_loss = loss_fn(
                     logits,
-                    target_onehot,
-                    target_int,
+                    y_int,
                     velocity=velocity,
                     velocity_mask=velocity_mask,
                 )
@@ -1206,19 +1202,17 @@ class TestVelocityLossMath(unittest.TestCase):
     def test_velocity_loss_basic_functionality(self):
         batch_size, height, width = 2, 32, 32
         pred_logits = torch.randn(batch_size, 2, height, width)
-        target_onehot = torch.zeros(batch_size, 2, height, width)
-        target_onehot[:, 1] = 1.0
         target_int = torch.ones(batch_size, height, width).long()
         velocity = torch.abs(torch.randn(batch_size, 1, height, width)) * 5.0
         velocity_mask = torch.ones(batch_size, 1, height, width)
-        loss_fn = customloss()
+        loss_fn = customloss(output_classes=[1])
         dice_loss, boundary_loss, velocity_loss = loss_fn(
-            pred_logits, target_onehot, target_int, velocity, velocity_mask
+            pred_logits, target_int, velocity=velocity, velocity_mask=velocity_mask
         )
         self.assertGreater(velocity_loss.item(), 0.0)
         self.assertLess(velocity_loss.item(), 100.0)
         dice_loss_no_vel, boundary_loss_no_vel, velocity_loss_no_vel = loss_fn(
-            pred_logits, target_onehot, target_int, None, None
+            pred_logits, target_int, velocity=None, velocity_mask=None
         )
         self.assertEqual(velocity_loss_no_vel.item(), 0.0)
 
@@ -1277,23 +1271,75 @@ class TestVelocityLossMath(unittest.TestCase):
         self.assertTrue(torch.isfinite(expected_total))
 
     def test_velocity_loss_edge_cases(self):
-        loss_fn = customloss()
+        loss_fn = customloss(output_classes=[1])
         pred_logits = torch.randn(2, 2, 32, 32)
-        target_onehot = torch.zeros(2, 2, 32, 32)
-        target_onehot[:, 1] = 1.0
         target_int = torch.ones(2, 32, 32).long()
         velocity = torch.zeros(2, 1, 32, 32)
         velocity_mask = torch.ones(2, 1, 32, 32)
         dice_loss, boundary_loss, velocity_loss = loss_fn(
-            pred_logits, target_onehot, target_int, velocity, velocity_mask
+            pred_logits, target_int, velocity=velocity, velocity_mask=velocity_mask
         )
         self.assertGreaterEqual(velocity_loss.item(), 0.0)
         self.assertLess(velocity_loss.item(), 0.01)
         velocity_mask = torch.zeros(2, 1, 32, 32)
         dice_loss, boundary_loss, velocity_loss = loss_fn(
-            pred_logits, target_onehot, target_int, velocity, velocity_mask
+            pred_logits, target_int, velocity=velocity, velocity_mask=velocity_mask
         )
         self.assertEqual(velocity_loss.item(), 0.0)
+
+    def test_velocity_loss_sync_free_matches_guarded_formula(self):
+        torch.manual_seed(42)
+        logits = torch.randn(2, 2, 16, 16, requires_grad=True)
+        target = torch.randint(0, 2, (2, 16, 16), dtype=torch.uint8)
+        velocity = torch.rand(2, 1, 16, 16) * 10.0
+        velocity_mask = (torch.rand(2, 1, 16, 16) > 0.25).float()
+        loss_fn = customloss(
+            output_classes=[1],
+            velocity_loss_weight=0.2,
+            velocity_high_speed_threshold=3.16,
+        )
+
+        new_velocity_loss = loss_fn(
+            logits,
+            target,
+            velocity=velocity,
+            velocity_mask=velocity_mask,
+            current_epoch=20,
+        )[2]
+
+        probabilities = torch.softmax(logits, dim=1)
+        valid = (target != 255).unsqueeze(1).float()
+        moving = torch.sigmoid((velocity - 3.16) * 0.5)
+        combined_mask = velocity_mask * valid
+        valid_count = combined_mask.sum()
+        guarded_base = (
+            probabilities[:, :1] * moving * combined_mask
+        ).sum() / valid_count
+        guarded_velocity_loss = guarded_base * 0.2
+
+        torch.testing.assert_close(new_velocity_loss, guarded_velocity_loss)
+        new_gradient = torch.autograd.grad(new_velocity_loss, logits, retain_graph=True)[0]
+        old_gradient = torch.autograd.grad(guarded_velocity_loss, logits)[0]
+        torch.testing.assert_close(new_gradient, old_gradient)
+
+    def test_velocity_loss_sync_free_empty_mask_is_zero(self):
+        logits = torch.randn(1, 2, 8, 8, requires_grad=True)
+        target = torch.ones(1, 8, 8, dtype=torch.uint8)
+        velocity = torch.rand(1, 1, 8, 8) * 10.0
+        velocity_mask = torch.zeros(1, 1, 8, 8)
+        loss_fn = customloss(output_classes=[1], velocity_loss_weight=0.2)
+
+        velocity_loss = loss_fn(
+            logits,
+            target,
+            velocity=velocity,
+            velocity_mask=velocity_mask,
+            current_epoch=20,
+        )[2]
+
+        self.assertEqual(velocity_loss.item(), 0.0)
+        gradient = torch.autograd.grad(velocity_loss, logits)[0]
+        torch.testing.assert_close(gradient, torch.zeros_like(gradient))
 
     def test_sigma_minimum_constraint(self):
         from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
@@ -1314,13 +1360,11 @@ class TestVelocityLossMath(unittest.TestCase):
             model.raw_log_var_dice.data = torch.tensor(-20.0)
             model.raw_log_var_boundary.data = torch.tensor(-20.0)
         pred_logits = torch.randn(1, 2, 32, 32)
-        target_onehot = torch.zeros(1, 2, 32, 32)
-        target_onehot[:, 1] = 1.0
-        target_int = torch.ones(1, 32, 32).long()
+        y_uint8 = torch.ones(1, 32, 32).byte()
         velocity = torch.randn(1, 1, 32, 32)
         velocity_mask = torch.ones(1, 1, 32, 32)
         test_loss = model.compute_loss(
-            pred_logits, target_onehot, target_int, velocity, velocity_mask
+            pred_logits, y_uint8, velocity=velocity, velocity_mask=velocity_mask
         )
         self.assertTrue(torch.isfinite(test_loss))
         self.assertGreater(test_loss.item(), 0.0)
@@ -1427,12 +1471,10 @@ class TestClassWeights(unittest.TestCase):
     def test_binary_class_weights(self):
         batch_size, height, width = 2, 32, 32
         pred_logits = torch.randn(batch_size, 2, height, width)
-        target_onehot = torch.zeros(batch_size, 2, height, width)
-        target_onehot[:, 1] = 1.0
         target_int = torch.ones(batch_size, height, width).long()
-        loss_fn = customloss(class_weights=[0, 1])
+        loss_fn = customloss(class_weights=[0, 1], output_classes=[1])
         dice_loss, boundary_loss, velocity_loss = loss_fn(
-            pred_logits, target_onehot, target_int
+            pred_logits, target_int
         )
         self.assertTrue(torch.isfinite(dice_loss))
         self.assertGreaterEqual(dice_loss.item(), 0.0)
@@ -1441,12 +1483,10 @@ class TestClassWeights(unittest.TestCase):
     def test_multiclass_class_weights(self):
         batch_size, height, width = 2, 32, 32
         pred_logits = torch.randn(batch_size, 3, height, width)
-        target_onehot = torch.zeros(batch_size, 3, height, width)
-        target_onehot[:, 1] = 1.0
         target_int = torch.ones(batch_size, height, width).long()
-        loss_fn = customloss(class_weights=[0, 1, 1])
+        loss_fn = customloss(class_weights=[0, 1, 1], output_classes=[0, 1, 2])
         dice_loss, boundary_loss, velocity_loss = loss_fn(
-            pred_logits, target_onehot, target_int
+            pred_logits, target_int
         )
         self.assertTrue(torch.isfinite(dice_loss))
         self.assertGreaterEqual(dice_loss.item(), 0.0)
@@ -1455,22 +1495,18 @@ class TestClassWeights(unittest.TestCase):
     def test_class_weights_length_mismatch(self):
         batch_size, height, width = 2, 32, 32
         pred_logits = torch.randn(batch_size, 2, height, width)
-        target_onehot = torch.zeros(batch_size, 2, height, width)
-        target_onehot[:, 1] = 1.0
         target_int = torch.ones(batch_size, height, width).long()
-        loss_fn = customloss(class_weights=[0, 1, 1])
+        loss_fn = customloss(class_weights=[0, 1, 1], output_classes=[1])
         with self.assertRaises(ValueError):
-            loss_fn(pred_logits, target_onehot, target_int)
+            loss_fn(pred_logits, target_int)
 
     def test_no_class_weights_fallback(self):
         batch_size, height, width = 2, 32, 32
         pred_logits = torch.randn(batch_size, 2, height, width)
-        target_onehot = torch.zeros(batch_size, 2, height, width)
-        target_onehot[:, 1] = 1.0
         target_int = torch.ones(batch_size, height, width).long()
-        loss_fn = customloss()
+        loss_fn = customloss(output_classes=[1])
         dice_loss, boundary_loss, velocity_loss = loss_fn(
-            pred_logits, target_onehot, target_int
+            pred_logits, target_int
         )
         self.assertTrue(torch.isfinite(dice_loss))
         self.assertGreaterEqual(dice_loss.item(), 0.0)
@@ -1624,6 +1660,56 @@ class TestEvaluationFunctions(unittest.TestCase):
         module.metrics_opts = {"threshold": [0.5]}
         pred = predict_from_probs(probs, module, threshold=None, fill_holes=False)
         self.assertEqual(pred[0, 0], 1)
+
+    def test_predict_slice_packed_chw_matches_legacy_hwc(self):
+        class ThresholdModel:
+            device = torch.device("cpu")
+            use_channels = [0, 1]
+            output_classes = [2]
+
+            @staticmethod
+            def normalize(x):
+                return x
+
+            @staticmethod
+            def forward(x):
+                score = x[:, :1]
+                return torch.cat((-score, score), dim=1)
+
+        chw = np.ones((2, 4, 4), dtype=np.float32)
+        chw[0, 0, 0] = -1.0
+        hwc = np.transpose(chw, (1, 2, 0))
+        module = ThresholdModel()
+
+        legacy, _ = predict_slice(module, hwc, fill_holes=False)
+        packed, packed_mask = predict_slice(
+            module, chw, fill_holes=False, preprocessed_chw=True
+        )
+
+        np.testing.assert_array_equal(packed, legacy)
+        self.assertIsNone(packed_mask)
+
+    def test_iter_split_samples_reads_packed_arrays(self):
+        from types import SimpleNamespace
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            split_dir = Path(tmp_dir) / "test"
+            split_dir.mkdir()
+            x = np.arange(24, dtype=np.float32).reshape(2, 3, 2, 2)
+            y = np.arange(8, dtype=np.uint8).reshape(2, 2, 2)
+            np.save(split_dir / "X.npy", x)
+            np.save(split_dir / "y.npy", y)
+
+            samples, count = _iter_split_samples(
+                SimpleNamespace(processed_dir=tmp_dir), "test"
+            )
+            loaded = list(samples)
+
+        self.assertEqual(count, 2)
+        self.assertEqual(loaded[0][0], "sample_000000")
+        self.assertTrue(loaded[0][3])
+        np.testing.assert_array_equal(loaded[1][1], x[1])
+        np.testing.assert_array_equal(loaded[1][2], y[1])
 
     def test_merge_ci_debris(self):
         h, w = 10, 10

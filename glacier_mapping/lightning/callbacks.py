@@ -1,4 +1,3 @@
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -16,116 +15,6 @@ from glacier_mapping.utils.callback_utils import (
     log_visualizations_to_all_loggers,
 )
 import glacier_mapping.utils.logging as log
-
-
-class TrainingTimerCallback(Callback):
-    """Low-overhead wall-clock timing breakdown per training batch.
-
-    Measures five phases using ``time.perf_counter()`` — no CUDA sync per
-    batch, so GPU compute times are approximate but the *relative* split
-    between data-wait / forward / backward / optimizer is reliable.
-
-    Logs epoch-averaged timings (ms) as scalars to all active loggers
-    (TB, MLflow).
-
-    Phases measured (within a training step):
-      inter_batch_wait  —  time between previous batch end and current start
-      training_step     —  forward + loss (includes batch transfer to GPU)
-      backward          —  loss.backward()
-      optimizer_step    —  optimizer.step() + zero_grad + clipping
-
-    Validation total per batch is logged separately.
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.batch_t0 = 0.0
-        self.t_before_bwd = 0.0
-        self.t_after_bwd = 0.0
-        self.prev_batch_end = 0.0
-
-        self._sum_wait = 0.0
-        self._sum_fwd = 0.0
-        self._sum_bwd = 0.0
-        self._sum_opt = 0.0
-        self._sum_total = 0.0
-        self._n = 0
-
-        self._sum_val = 0.0
-        self._n_val = 0
-
-    def on_train_batch_start(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule,
-        batch: Any, batch_idx: int,
-    ):
-        t = time.perf_counter()
-        self.batch_t0 = t
-        if self.prev_batch_end > 0:
-            self._sum_wait += t - self.prev_batch_end
-
-    def on_before_backward(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule, loss: Any,
-    ):
-        self.t_before_bwd = time.perf_counter()
-
-    def on_after_backward(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule,
-    ):
-        self.t_after_bwd = time.perf_counter()
-
-    def on_train_batch_end(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule,
-        outputs: Any, batch: Any, batch_idx: int,
-    ):
-        t = time.perf_counter()
-        self.prev_batch_end = t
-
-        self._sum_fwd += self.t_before_bwd - self.batch_t0
-        self._sum_bwd += self.t_after_bwd - self.t_before_bwd
-        self._sum_opt += t - self.t_after_bwd
-        self._sum_total += t - self.batch_t0
-        self._n += 1
-
-    def on_validation_batch_start(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule,
-        batch: Any, batch_idx: int, dataloader_idx: int = 0,
-    ):
-        self._val_t0 = time.perf_counter()
-
-    def on_validation_batch_end(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule,
-        outputs: Any, batch: Any, batch_idx: int, dataloader_idx: int = 0,
-    ):
-        self._sum_val += time.perf_counter() - self._val_t0
-        self._n_val += 1
-
-    def on_train_epoch_end(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule,
-    ):
-        if self._n == 0:
-            return
-        n = self._n
-        log_data = {
-            "timing/data_wait_ms": self._sum_wait / n * 1000,
-            "timing/forward_ms": self._sum_fwd / n * 1000,
-            "timing/backward_ms": self._sum_bwd / n * 1000,
-            "timing/optimizer_ms": self._sum_opt / n * 1000,
-            "timing/batch_total_ms": self._sum_total / n * 1000,
-        }
-        if self._n_val > 0:
-            log_data["timing/val_batch_ms"] = self._sum_val / self._n_val * 1000
-
-        for k, v in log_data.items():
-            pl_module.log(k, v, on_step=False, on_epoch=True, logger=True)
-
-        self._sum_wait = 0.0
-        self._sum_fwd = 0.0
-        self._sum_bwd = 0.0
-        self._sum_opt = 0.0
-        self._sum_total = 0.0
-        self._n = 0
-        self._sum_val = 0.0
-        self._n_val = 0
 
 
 class ValidationVisualizationCallback(Callback):
@@ -391,14 +280,36 @@ class TestEvaluationCallback(Callback):
         processed_dir = getattr(pl_module, "processed_dir", "data/processed")
         data_dir = Path(processed_dir) / "test"
         test_tiles_all = sorted(data_dir.glob("tiff*"))
+
+        import numpy as np
+
+        is_prebatched = False
+        prebatched_X = None
+        prebatched_y = None
         if not test_tiles_all:
-            log.warning("No test tiles found for test evaluation")
-            return
+            x_path = data_dir / "X.npy"
+            y_path = data_dir / "y.npy"
+            if x_path.exists() and y_path.exists():
+                log.info("Using prebatched test data (X.npy / y.npy)")
+                prebatched_X = np.load(x_path)
+                prebatched_y = np.load(y_path).astype(np.uint8)
+                test_tiles_all = [
+                    Path(data_dir / f"sample_{i:06d}")
+                    for i in range(len(prebatched_X))
+                ]
+                is_prebatched = True
+            else:
+                log.warning("No test tiles found for test evaluation")
+                return
 
         num_samples = 3 * self.viz_n if self.viz_n > 0 else 0
-        test_tiles, tile_rank_map, prediction_cache = select_informative_test_tiles(
-            test_tiles_all, pl_module, num_samples
-        )
+        if is_prebatched:
+            num_samples = 0
+            test_tiles, tile_rank_map, prediction_cache = [], {}, {}
+        else:
+            test_tiles, tile_rank_map, prediction_cache = select_informative_test_tiles(
+                test_tiles_all, pl_module, num_samples
+            )
 
         class_names = getattr(
             pl_module,
@@ -416,7 +327,6 @@ class TestEvaluationCallback(Callback):
         fn_sum = [0.0] * n_classes
 
         from tqdm import tqdm
-        import numpy as np
         import torch
         from glacier_mapping.model.evaluation import (
             IoU,
@@ -428,17 +338,28 @@ class TestEvaluationCallback(Callback):
         )
 
         for idx, x_path in enumerate(tqdm(test_tiles_all, desc="Test evaluation")):
-            if x_path not in prediction_cache:
-                x = np.load(x_path)
+            if is_prebatched:
+                x = prebatched_X[idx]
+                y_true_raw = prebatched_y[idx]
                 y_pred, invalid_mask = predict_slice(
-                    pl_module, x, threshold, fill_holes=True
+                    pl_module,
+                    x,
+                    threshold,
+                    fill_holes=True,
+                    preprocessed_chw=True,
                 )
             else:
-                y_pred, invalid_mask = prediction_cache[x_path]
+                if x_path not in prediction_cache:
+                    x = np.load(x_path)
+                    y_pred, invalid_mask = predict_slice(
+                        pl_module, x, threshold, fill_holes=True
+                    )
+                else:
+                    y_pred, invalid_mask = prediction_cache[x_path]
 
-            y_true_raw = np.load(
-                x_path.with_name(x_path.name.replace("tiff", "mask"))
-            ).astype(np.uint8)
+                y_true_raw = np.load(
+                    x_path.with_name(x_path.name.replace("tiff", "mask"))
+                ).astype(np.uint8)
 
             ignore = y_true_raw == 255
             if invalid_mask is not None:

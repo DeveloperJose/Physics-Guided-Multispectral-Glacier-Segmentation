@@ -221,20 +221,7 @@ def main_prediction_logic(args) -> dict:
         out_root.mkdir(parents=True, exist_ok=True)
         print(f"Output directory: {out_root}")
 
-        processed_data_path = Path(server_config["processed_data_path"])
-        configured_dataset = Path("configs/train.yaml")
-        dataset_name = "gen_robust_comprehensive"
-        if configured_dataset.exists():
-            train_config = yaml.safe_load(configured_dataset.read_text()) or {}
-            dataset_name = (
-                train_config.get("training_opts", {}).get("dataset_name")
-                or dataset_name
-            )
-
-        if not (processed_data_path / "test").exists():
-            dataset_path = processed_data_path / dataset_name
-            if dataset_path.exists():
-                processed_data_path = dataset_path
+        processed_data_path = getattr(args, "processed_data_path", None)
 
         result = run_prediction_on_models(
             ci_checkpoint_path,
@@ -243,7 +230,7 @@ def main_prediction_logic(args) -> dict:
             args.deb_threshold,
             out_root,
             args.gpu,
-            str(processed_data_path),
+            processed_data_path,
             args.split,
             getattr(args, "feature_importance", False),
             getattr(args, "fi_samples", None),
@@ -523,6 +510,11 @@ if __name__ == "__main__":
         default="test",
         choices=["train", "val", "test"],
         help="Dataset split to evaluate (default: test)",
+    )
+    parser.add_argument(
+        "--processed-data-path",
+        type=str,
+        help="Override the dataset path saved in the checkpoint.",
     )
 
     args = parser.parse_args()

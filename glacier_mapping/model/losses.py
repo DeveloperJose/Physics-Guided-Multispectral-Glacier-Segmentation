@@ -4,6 +4,38 @@ import torch.nn.functional as F
 from typing import Optional, List
 
 
+def make_onehot(
+    y_int: torch.Tensor,
+    num_classes: int,
+    output_classes: List[int],
+    device: torch.device,
+) -> torch.Tensor:
+    valid = y_int != 255
+    if len(output_classes) == 1:
+        binary_class = int(output_classes[0])
+        target = torch.stack(
+            (
+                (y_int != binary_class) & valid,
+                (y_int == binary_class) & valid,
+            ),
+            dim=1,
+        )
+    else:
+        target = torch.stack(
+            [
+                (y_int == int(class_idx)) & valid
+                for class_idx in output_classes
+            ],
+            dim=1,
+        )
+    if target.shape[1] != num_classes:
+        raise ValueError(
+            f"Target has {target.shape[1]} channels but model has {num_classes} "
+            "output channels"
+        )
+    return target.to(dtype=torch.float32, device=device)
+
+
 class customloss(nn.Module):
     def __init__(
         self,
@@ -18,6 +50,7 @@ class customloss(nn.Module):
         velocity_loss_weight: float = 0.05,
         velocity_loss_warmup_epochs: int = 10,
         velocity_loss_ramp_epochs: int = 10,
+        output_classes: Optional[List[int]] = None,
     ):
         super().__init__()
         self.act = act
@@ -37,6 +70,9 @@ class customloss(nn.Module):
         self.velocity_loss_weight = velocity_loss_weight
         self.velocity_loss_warmup_epochs = velocity_loss_warmup_epochs
         self.velocity_loss_ramp_epochs = velocity_loss_ramp_epochs
+        if output_classes is None:
+            output_classes = [0, 1, 2]
+        self.output_classes = output_classes
 
         self.last_velocity_loss: Optional[torch.Tensor] = None
         self.last_velocity_base: Optional[torch.Tensor] = None
@@ -46,7 +82,6 @@ class customloss(nn.Module):
     def forward(
         self,
         pred,
-        target,
         target_int,
         velocity=None,
         velocity_mask=None,
@@ -60,13 +95,12 @@ class customloss(nn.Module):
         self.last_velocity_weight = 0.0
         self.last_velocity_valid = False
 
-        target = target.detach()
-
-        if target_int is not None:
-            ignore_mask = target_int != 255
-        else:
-            ignore_mask = target.sum(dim=1) == 1
+        if target_int is None:
+            raise ValueError("target_int is required")
+        y_int = target_int.long()
+        ignore_mask = y_int != 255
         ignore_mask_exp = ignore_mask.unsqueeze(1).float().to(pred.device)
+        target = make_onehot(y_int, c, self.output_classes, pred.device).detach()
 
         if c <= 1:
             raise ValueError(
@@ -162,23 +196,15 @@ class customloss(nn.Module):
 
             combined_mask = velocity_mask * ignore_mask_exp
             valid_count = combined_mask.sum()
-            base_velocity_loss = zero
+            base_velocity_loss = (per_pixel_penalty * combined_mask).sum()
+            base_velocity_loss = base_velocity_loss / valid_count.clamp_min(1.0)
+            current_weight = self._compute_velocity_weight(current_epoch)
+            velocity_loss = base_velocity_loss * current_weight
 
-            if valid_count > 0:
-                base_velocity_loss = (
-                    per_pixel_penalty * combined_mask
-                ).sum() / valid_count
-
-            if base_velocity_loss > 0:
-                current_weight = self._compute_velocity_weight(current_epoch)
-                velocity_loss = base_velocity_loss * current_weight
-
-                self.last_velocity_base = base_velocity_loss.detach()
-                self.last_velocity_loss = velocity_loss.detach()
-                self.last_velocity_weight = float(current_weight)
-                self.last_velocity_valid = True
-            else:
-                velocity_loss = zero
+            self.last_velocity_base = base_velocity_loss.detach()
+            self.last_velocity_loss = velocity_loss.detach()
+            self.last_velocity_weight = float(current_weight)
+            self.last_velocity_valid = True
 
         return [dice_loss_scalar, boundary_loss, velocity_loss]
 
