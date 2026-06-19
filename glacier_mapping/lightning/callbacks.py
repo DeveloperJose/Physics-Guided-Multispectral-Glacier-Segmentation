@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -15,6 +16,116 @@ from glacier_mapping.utils.callback_utils import (
     log_visualizations_to_all_loggers,
 )
 import glacier_mapping.utils.logging as log
+
+
+class TrainingTimerCallback(Callback):
+    """Low-overhead wall-clock timing breakdown per training batch.
+
+    Measures five phases using ``time.perf_counter()`` — no CUDA sync per
+    batch, so GPU compute times are approximate but the *relative* split
+    between data-wait / forward / backward / optimizer is reliable.
+
+    Logs epoch-averaged timings (ms) as scalars to all active loggers
+    (TB, MLflow).
+
+    Phases measured (within a training step):
+      inter_batch_wait  —  time between previous batch end and current start
+      training_step     —  forward + loss (includes batch transfer to GPU)
+      backward          —  loss.backward()
+      optimizer_step    —  optimizer.step() + zero_grad + clipping
+
+    Validation total per batch is logged separately.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.batch_t0 = 0.0
+        self.t_before_bwd = 0.0
+        self.t_after_bwd = 0.0
+        self.prev_batch_end = 0.0
+
+        self._sum_wait = 0.0
+        self._sum_fwd = 0.0
+        self._sum_bwd = 0.0
+        self._sum_opt = 0.0
+        self._sum_total = 0.0
+        self._n = 0
+
+        self._sum_val = 0.0
+        self._n_val = 0
+
+    def on_train_batch_start(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule,
+        batch: Any, batch_idx: int,
+    ):
+        t = time.perf_counter()
+        self.batch_t0 = t
+        if self.prev_batch_end > 0:
+            self._sum_wait += t - self.prev_batch_end
+
+    def on_before_backward(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule, loss: Any,
+    ):
+        self.t_before_bwd = time.perf_counter()
+
+    def on_after_backward(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule,
+    ):
+        self.t_after_bwd = time.perf_counter()
+
+    def on_train_batch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule,
+        outputs: Any, batch: Any, batch_idx: int,
+    ):
+        t = time.perf_counter()
+        self.prev_batch_end = t
+
+        self._sum_fwd += self.t_before_bwd - self.batch_t0
+        self._sum_bwd += self.t_after_bwd - self.t_before_bwd
+        self._sum_opt += t - self.t_after_bwd
+        self._sum_total += t - self.batch_t0
+        self._n += 1
+
+    def on_validation_batch_start(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule,
+        batch: Any, batch_idx: int, dataloader_idx: int = 0,
+    ):
+        self._val_t0 = time.perf_counter()
+
+    def on_validation_batch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule,
+        outputs: Any, batch: Any, batch_idx: int, dataloader_idx: int = 0,
+    ):
+        self._sum_val += time.perf_counter() - self._val_t0
+        self._n_val += 1
+
+    def on_train_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule,
+    ):
+        if self._n == 0:
+            return
+        n = self._n
+        log_data = {
+            "timing/data_wait_ms": self._sum_wait / n * 1000,
+            "timing/forward_ms": self._sum_fwd / n * 1000,
+            "timing/backward_ms": self._sum_bwd / n * 1000,
+            "timing/optimizer_ms": self._sum_opt / n * 1000,
+            "timing/batch_total_ms": self._sum_total / n * 1000,
+        }
+        if self._n_val > 0:
+            log_data["timing/val_batch_ms"] = self._sum_val / self._n_val * 1000
+
+        for k, v in log_data.items():
+            pl_module.log(k, v, on_step=False, on_epoch=True, logger=True)
+
+        self._sum_wait = 0.0
+        self._sum_fwd = 0.0
+        self._sum_bwd = 0.0
+        self._sum_opt = 0.0
+        self._sum_total = 0.0
+        self._n = 0
+        self._sum_val = 0.0
+        self._n_val = 0
 
 
 class ValidationVisualizationCallback(Callback):

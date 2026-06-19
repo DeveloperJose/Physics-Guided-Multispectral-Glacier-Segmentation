@@ -48,6 +48,7 @@ from glacier_mapping.data.slice import (
     add_index,
     compute_dems,
 )
+from glacier_mapping.data.data import apply_chw_geometric_transform
 from glacier_mapping.model.losses import customloss
 from glacier_mapping.model.evaluation import (
     precision,
@@ -67,7 +68,7 @@ from glacier_mapping.model.evaluation import (
 )
 import rasterio
 
-TEST_DATASET_NAME = "gen_robust_comprehensive"
+TEST_DATASET_NAME = "comprehensive_v3"
 
 
 class GlacierTaskTestSuite:
@@ -259,9 +260,7 @@ class GlacierTaskTestSuite:
     def _run_preprocessing(self):
         """Run the preprocessing script for the test dataset."""
         print("=== PREPROCESSING STEP ===")
-        preprocess_config_path = (
-            "configs/datasets/bibek_w256_o64_f1_comprehensive_phys64_s1.yaml"
-        )
+        preprocess_config_path = "configs/datasets/comprehensive_v3.yaml"
 
         if not Path(preprocess_config_path).exists():
             print(
@@ -467,33 +466,55 @@ class GlacierTaskTestSuite:
         """Inspect raw mask files and class distribution."""
         dataset_path_obj = Path(dataset_path)
 
-        # Find mask files in each split
+        # Find mask data in each split
         splits = ["train", "val", "test"]
         mask_files = []
+        y_arrays = []
 
         for split in splits:
             split_dir = dataset_path_obj / split
             if split_dir.exists():
-                mask_files.extend(list(split_dir.glob("mask_*.npy")))
+                y_path = split_dir / "y.npy"
+                if y_path.exists():
+                    y_arrays.append(y_path)
+                else:
+                    mask_files.extend(list(split_dir.glob("mask_*.npy")))
 
         # Limit to subset size
         mask_files = mask_files[: self.subset_size]
 
-        if not mask_files:
+        if not mask_files and not y_arrays:
             raise ValueError(f"No mask files found in {dataset_path}")
 
         # Analyze class distribution
         class_counts = {0: 0, 1: 0, 2: 0, 255: 0}
         total_pixels = 0
 
-        for mask_file in mask_files:
-            mask = np.load(mask_file)
-            unique, counts = np.unique(mask, return_counts=True)
+        masks_seen = 0
+        if y_arrays:
+            for y_path in y_arrays:
+                y_arr = np.load(y_path, mmap_mode="r")
+                for mask in y_arr[: self.subset_size]:
+                    unique, counts = np.unique(mask, return_counts=True)
+                    for val, count in zip(unique, counts):
+                        if val in class_counts:
+                            class_counts[val] += count
+                            total_pixels += count
+                    masks_seen += 1
+                    if masks_seen >= self.subset_size:
+                        break
+                if masks_seen >= self.subset_size:
+                    break
+        else:
+            for mask_file in mask_files:
+                mask = np.load(mask_file)
+                unique, counts = np.unique(mask, return_counts=True)
 
-            for val, count in zip(unique, counts):
-                if val in class_counts:
-                    class_counts[val] += count
-                    total_pixels += count
+                for val, count in zip(unique, counts):
+                    if val in class_counts:
+                        class_counts[val] += count
+                        total_pixels += count
+                masks_seen += 1
 
         # Calculate percentages
         class_percentages = {}
@@ -503,12 +524,14 @@ class GlacierTaskTestSuite:
             )
 
         sample_shape = None
-        if mask_files:
+        if y_arrays:
+            sample_shape = np.load(y_arrays[0], mmap_mode="r").shape[1:]
+        elif mask_files:
             mask = np.load(mask_files[0])
             sample_shape = mask.shape
 
         return {
-            "mask_files": len(mask_files),
+            "mask_files": masks_seen,
             "class_counts": class_counts,
             "class_percentages": class_percentages,
             "total_pixels": total_pixels,
@@ -590,38 +613,40 @@ class GlacierTaskTestSuite:
             # Load a small batch
             train_loader = data_module.train_dataloader()
             batch = next(iter(train_loader))
-            x, y_onehot, y_int = batch
+            x, y_int = batch
 
             print(f"  ✓ Input shape: {x.shape}")
-            print(f"  ✓ One-hot target shape: {y_onehot.shape}")
             print(f"  ✓ Integer target shape: {y_int.shape}")
             print(f"  ✓ Input range: [{x.min():.3f}, {x.max():.3f}]")
 
-            # Verify one-hot encoding
+            valid_pixels = y_int != 255
+
+            # Verify target class distribution against raw masks.
             if len(output_classes) == 1:
-                # Binary case
                 target_class = output_classes[0]
-                channel_1_percentage = (
-                    y_onehot[..., 1] == 1
-                ).float().mean().item() * 100
+                target_percentage = (
+                    ((y_int == target_class) & valid_pixels).float().mean().item()
+                    * 100
+                )
                 expected_percentage = raw_data_info["class_percentages"][target_class]
                 print(
-                    f"  ✓ Binary: Channel 1 (target) = {channel_1_percentage:.1f}% "
+                    f"  ✓ Binary: target class {target_class} = {target_percentage:.1f}% "
                     f"(expected ~{expected_percentage:.1f}%)"
                 )
             else:
-                # Multi-class case
-                for i, cls in enumerate(output_classes):
-                    cls_percentage = (y_onehot[..., i] == 1).float().mean().item() * 100
+                for cls in output_classes:
+                    cls_percentage = (
+                        ((y_int == cls) & valid_pixels).float().mean().item() * 100
+                    )
                     expected_percentage = raw_data_info["class_percentages"][cls]
                     print(
-                        f"  ✓ Class {cls}: Channel {i} = {cls_percentage:.1f}% "
+                        f"  ✓ Class {cls}: {cls_percentage:.1f}% "
                         f"(expected ~{expected_percentage:.1f}%)"
                     )
 
             result["tests"]["data_loading"] = {
                 "input_shape": list(x.shape),
-                "target_shape": list(y_onehot.shape),
+                "target_shape": list(y_int.shape),
                 "passed": True,
             }
             print()
@@ -643,36 +668,10 @@ class GlacierTaskTestSuite:
             else:
                 all_band_names = []
 
-            # Get selected channel names from data module logs
-            selected_channel_names = []
-            if hasattr(data_module, "use_channels"):
-                # Try to get band names from dataset
-                try:
-                    from glacier_mapping.data.data import resolve_channel_selection
+            selected_channel_names = all_band_names
 
-                    selected_channels = resolve_channel_selection(
-                        dataset_path,
-                        landsat_channels=loader_opts.get("landsat_channels", True),
-                        dem_channels=loader_opts.get("dem_channels", True),
-                        spectral_indices_channels=loader_opts.get(
-                            "spectral_indices_channels", True
-                        ),
-                        hsv_channels=loader_opts.get("hsv_channels", True),
-                        physics_channels=loader_opts.get("physics_channels", False),
-                        velocity_channels=loader_opts.get("velocity_channels", True),
-                    )
-                    # Get band names from dataset
-                    if metadata_path.exists():
-                        selected_channel_names = [
-                            all_band_names[i]
-                            for i in selected_channels
-                            if i < len(all_band_names)
-                        ]
-                except Exception:
-                    selected_channel_names = []
-
-            for i, band_name in enumerate(selected_channel_names[: x.shape[-1]]):
-                channel_data = x[..., i]
+            for i, band_name in enumerate(selected_channel_names[: x.shape[1]]):
+                channel_data = x[:, i, :, :]
                 channel_min = channel_data.min().item()
                 channel_max = channel_data.max().item()
                 channel_mean = channel_data.mean().item()
@@ -817,7 +816,7 @@ class GlacierTaskTestSuite:
 
             # Test forward pass
             with torch.no_grad():
-                logits = model.model(x.permute(0, 3, 1, 2))  # (B, C, H, W)
+                logits = model.model(x)
                 print(f"  ✓ Forward pass output shape: {logits.shape}")
 
                 # Check activation
@@ -860,26 +859,10 @@ class GlacierTaskTestSuite:
 
             # Test loss computation
             with torch.no_grad():
-                # Ensure target shapes match logits
-                target_onehot = y_onehot.permute(0, 3, 1, 2)
-                target_int = y_int.squeeze(-1).permute(0, 2, 1)
-
-                # Handle channel mismatch for binary vs multiclass
-                if target_onehot.shape[1] != logits.shape[1]:
-                    if logits.shape[1] == 2:  # Binary model, multiclass target
-                        # Convert to binary by combining foreground classes
-                        target_binary = torch.any(
-                            target_onehot[:, 1:, :, :], dim=1, keepdim=True
-                        ).float()
-                        target_onehot = torch.cat(
-                            [1 - target_binary, target_binary], dim=1
-                        )
-                    elif (
-                        logits.shape[1] == 3 and target_onehot.shape[1] == 2
-                    ):  # Multiclass model, binary target
-                        # Pad to 3 channels
-                        bg_channel = target_onehot[:, 0:1, :, :]
-                        target_onehot = torch.cat([bg_channel, target_onehot], dim=1)
+                target_int = y_int
+                target_onehot = model._make_onehot_target(
+                    target_int, logits.shape[1]
+                )
 
                 # Extract velocity data for loss function
                 velocity = None
@@ -889,11 +872,7 @@ class GlacierTaskTestSuite:
                     and model.velocity_idx is not None
                     and model.velocity_mask_idx is not None
                 ):
-                    # input x is (B, H, W, C), model uses (B, C, H, W)
-                    x_permuted = x.permute(0, 3, 1, 2)
-                    vel_norm = x_permuted[
-                        :, model.velocity_idx : model.velocity_idx + 1, :, :
-                    ]
+                    vel_norm = x[:, model.velocity_idx : model.velocity_idx + 1, :, :]
 
                     if model.normalization == "mean-std":
                         # These are numpy arrays, convert to tensor
@@ -918,7 +897,7 @@ class GlacierTaskTestSuite:
                             + _min[model.velocity_idx]
                         )
 
-                    velocity_mask = x_permuted[
+                    velocity_mask = x[
                         :, model.velocity_mask_idx : model.velocity_mask_idx + 1, :, :
                     ]
 
@@ -1095,65 +1074,44 @@ class GlacierTaskTestSuite:
             )
             return
 
-        all_slice_files = []
-        all_mask_files = []
+        corrupt_files = []
         for split in ["train", "val", "test"]:
             split_dir = dataset_path / split
             if split_dir.exists():
-                all_slice_files.extend(list(split_dir.glob("tiff_*.npy")))
-                all_mask_files.extend(list(split_dir.glob("mask_*.npy")))
+                x_path = split_dir / "X.npy"
+                y_path = split_dir / "y.npy"
+                if not x_path.exists() or not y_path.exists():
+                    corrupt_files.extend([x_path, y_path])
+                    continue
 
-        if not all_slice_files:
-            raise ValueError("No slice files found in the dataset.")
-
-        print(
-            f"  - Found {len(all_slice_files)} slice files and {len(all_mask_files)} mask files to verify."
-        )
-
-        corrupt_files = []
-
-        # Verify TIFF slices
-        for slice_file in all_slice_files:
-            try:
-                slice_data = np.load(slice_file)
-                if expected_spatial is None:
-                    expected_spatial = slice_data.shape[:2]
-                if slice_data.shape[:2] != expected_spatial:
-                    print(f"  - {slice_file.name}: Incorrect shape {slice_data.shape}")
-                    corrupt_files.append(slice_file)
-                if slice_data.ndim != 3 or slice_data.shape[2] != expected_channels:
+                x_data = np.load(x_path, mmap_mode="r")
+                y_data = np.load(y_path, mmap_mode="r")
+                if x_data.ndim != 4 or x_data.shape[1] != expected_channels:
                     print(
-                        f"  - {slice_file.name}: Expected {expected_channels} channels, "
-                        f"got shape {slice_data.shape}"
+                        f"  - {x_path.name}: Expected NCHW with {expected_channels} channels, got {x_data.shape}"
                     )
-                    corrupt_files.append(slice_file)
-
-                velocity_mask = slice_data[..., velocity_mask_channel]
+                    corrupt_files.append(x_path)
+                if y_data.ndim != 3 or y_data.shape[0] != x_data.shape[0]:
+                    print(f"  - {y_path.name}: Incorrect label shape {y_data.shape}")
+                    corrupt_files.append(y_path)
+                if (
+                    expected_spatial is not None
+                    and tuple(x_data.shape[2:]) != expected_spatial
+                ):
+                    print(
+                        f"  - {x_path.name}: Incorrect spatial shape {x_data.shape[2:]}"
+                    )
+                    corrupt_files.append(x_path)
+                velocity_mask = x_data[:, velocity_mask_channel, :, :]
                 if not np.all((velocity_mask == 0) | (velocity_mask == 1)):
                     unique_vals = np.unique(velocity_mask)
                     print(
-                        f"  - {slice_file.name}: Velocity mask not binary. Values: {unique_vals}"
+                        f"  - {x_path.name}: Velocity mask not binary. Values: {unique_vals}"
                     )
-                    corrupt_files.append(slice_file)
-            except Exception as e:
-                print(f"  - Error reading {slice_file}: {e}")
-                corrupt_files.append(slice_file)
-
-        # Verify Mask slices
-        for mask_file in all_mask_files:
-            try:
-                mask_data = np.load(mask_file)
-                if expected_spatial is not None and mask_data.shape != expected_spatial:
-                    print(f"  - {mask_file.name}: Incorrect shape {mask_data.shape}")
-                    corrupt_files.append(mask_file)
-
-                valid_labels = np.all(np.isin(mask_data, [0, 1, 2, 255]))
-                if not valid_labels:
-                    print(f"  - {mask_file.name}: Contains invalid labels.")
-                    corrupt_files.append(mask_file)
-            except Exception as e:
-                print(f"  - Error reading {mask_file}: {e}")
-                corrupt_files.append(mask_file)
+                    corrupt_files.append(x_path)
+                if not np.all(np.isin(y_data, [0, 1, 2, 255])):
+                    print(f"  - {y_path.name}: Contains invalid labels.")
+                    corrupt_files.append(y_path)
 
         if corrupt_files:
             print(f"  ❌ Found {len(corrupt_files)} corrupt files:")
@@ -1389,6 +1347,80 @@ class TestSliceFunctions(unittest.TestCase):
         self.assertEqual(result.shape, (10, 10, 2))
         self.assertTrue(np.all(result[..., 0] == 1000))
         self.assertTrue(np.all(result[..., 1] == 30))
+
+
+class TestChwAugmentations(unittest.TestCase):
+    def _real_high_valid_slices(self, limit: int = 2):
+        root = Path(
+            "/home/devj/local-arch/data/HKH/gen_robust_comprehensive_dci_clean_v2/train"
+        )
+        if not root.exists():
+            self.skipTest(f"Local reference dataset not found: {root}")
+
+        candidates = []
+        for mask_path in sorted(root.glob("mask_*.npy"))[:200]:
+            mask = np.load(mask_path, mmap_mode="r")
+            valid_fraction = float(np.mean(mask != 255))
+            if valid_fraction > 0.75:
+                tiff_path = mask_path.with_name(
+                    mask_path.name.replace("mask_", "tiff_")
+                )
+                if tiff_path.exists():
+                    candidates.append((valid_fraction, tiff_path, mask_path))
+
+        if len(candidates) < limit:
+            self.skipTest("Not enough high-validity local reference slices found")
+
+        candidates.sort(reverse=True, key=lambda row: row[0])
+        return candidates[:limit]
+
+    def _compare_with_albumentations_functional(
+        self, transform_name: str, fn_name: str
+    ):
+        import albumentations.augmentations.geometric.functional as F
+
+        albumentations_fn = getattr(F, fn_name)
+        for _, tiff_path, mask_path in self._real_high_valid_slices():
+            image_hwc = np.load(tiff_path).astype(np.float32)
+            label_int = np.load(mask_path).astype(np.uint8)
+
+            image_chw = np.transpose(image_hwc, (2, 0, 1))
+            got_image, got_label = apply_chw_geometric_transform(
+                image_chw, label_int, transform_name
+            )
+
+            expected_image = np.transpose(albumentations_fn(image_hwc), (2, 0, 1))
+            expected_label = albumentations_fn(label_int)
+
+            np.testing.assert_array_equal(got_image, expected_image)
+            np.testing.assert_array_equal(got_label, expected_label)
+
+    def test_h_flip_matches_albumentations_on_real_slices(self):
+        self._compare_with_albumentations_functional("h_flip", "hflip")
+
+    def test_v_flip_matches_albumentations_on_real_slices(self):
+        self._compare_with_albumentations_functional("v_flip", "vflip")
+
+    def test_transpose_matches_albumentations_on_real_slices(self):
+        self._compare_with_albumentations_functional("transpose", "transpose")
+
+    def test_rot90_matches_albumentations_on_real_slices(self):
+        import albumentations.augmentations.geometric.functional as F
+
+        for _, tiff_path, mask_path in self._real_high_valid_slices():
+            image_hwc = np.load(tiff_path).astype(np.float32)
+            label_int = np.load(mask_path).astype(np.uint8)
+            image_chw = np.transpose(image_hwc, (2, 0, 1))
+
+            got_image, got_label = apply_chw_geometric_transform(
+                image_chw, label_int, "rotate90"
+            )
+
+            expected_image = np.transpose(F.rot90(image_hwc, factor=1), (2, 0, 1))
+            expected_label = F.rot90(label_int, factor=1)
+
+            np.testing.assert_array_equal(got_image, expected_image)
+            np.testing.assert_array_equal(got_label, expected_label)
 
 
 class TestClassWeights(unittest.TestCase):

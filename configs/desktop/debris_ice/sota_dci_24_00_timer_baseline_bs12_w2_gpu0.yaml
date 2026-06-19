@@ -1,33 +1,24 @@
 training_opts:
-  dataset_name: "gen_robust_comprehensive_dci_clean_v2"
-  run_name: "sota_dci_19_01_speed_bs12_w8_persist_prefetch4"
+  dataset_name: "comprehensive_v3_complete_no_hsv"
+  run_name: "sota_dci_24_00_timer_baseline_bs12_w2"
   seed: 8675309
   augmentation_seed: 1000
   deterministic: true
-  epochs: 8
+  epochs: 3
   early_stopping: 0
   run_test_eval: false
   test_eval_n: 0
   lr_monitor: false
-  check_val_every_n_epoch: 1
+  diagnostic_log_on_step: false
+  timer_enabled: true
 
 profiling_opts:
-  enabled: true
-  mode: "simple"
+  enabled: false
 
 loader_opts:
-  processed_dir: "/home/devj/local-arch/data/HKH/gen_robust_comprehensive_dci_clean_v2/"
   batch_size: 12
-  num_workers: 8
+  num_workers: 2
   pin_memory: true
-  persistent_workers: true
-  prefetch_factor: 4
-  landsat_channels: true
-  dem_channels: true
-  spectral_indices_channels: true
-  hsv_channels: false
-  velocity_channels: true
-  physics_channels: true
   robust_scaling: false
 
 loss_opts:

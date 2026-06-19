@@ -4,13 +4,16 @@ import pathlib
 import random
 from typing import List, Optional
 
-import albumentations as A
 import numpy as np
 import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader
 
-from glacier_mapping.data.data import GlacierDataset
+from glacier_mapping.data.data import (
+    ChwGeometricAugmentations,
+    GlacierDataset,
+    load_band_names,
+)
 
 
 class GlacierDataModule(pl.LightningDataModule):
@@ -31,9 +34,8 @@ class GlacierDataModule(pl.LightningDataModule):
         robust_scaling: bool = True,
         num_workers: int = 4,
         pin_memory: bool = True,
-        persistent_workers: bool = False,
+        persistent_workers: Optional[bool] = None,
         prefetch_factor: Optional[int] = None,
-        mmap_mode: Optional[str] = None,
         seed: int = 42,
         augmentation_seed: Optional[int] = None,
     ):
@@ -54,7 +56,6 @@ class GlacierDataModule(pl.LightningDataModule):
         self.pin_memory = pin_memory
         self.persistent_workers = persistent_workers
         self.prefetch_factor = prefetch_factor
-        self.mmap_mode = mmap_mode
         self.seed = seed
         self.augmentation_seed = (
             augmentation_seed if augmentation_seed is not None else seed
@@ -78,50 +79,28 @@ class GlacierDataModule(pl.LightningDataModule):
         generator.manual_seed(self.seed)
         return generator
 
-    def create_augmentations(self, aug_opts: dict) -> A.Compose:
-        transforms = []
-        if aug_opts.get("h_flip_prob", 0) > 0:
-            transforms.append(A.HorizontalFlip(p=aug_opts["h_flip_prob"]))
-        if aug_opts.get("v_flip_prob", 0) > 0:
-            transforms.append(A.VerticalFlip(p=aug_opts["v_flip_prob"]))
-        if aug_opts.get("rotate90_prob", 0) > 0:
-            transforms.append(A.RandomRotate90(p=aug_opts["rotate90_prob"]))
-        if aug_opts.get("transpose_prob", 0) > 0:
-            transforms.append(A.Transpose(p=aug_opts["transpose_prob"]))
-        return A.Compose(transforms, seed=self.augmentation_seed)
+    def create_augmentations(self, aug_opts: dict) -> ChwGeometricAugmentations:
+        return ChwGeometricAugmentations(aug_opts, seed=self.augmentation_seed)
 
     def setup(self, stage: Optional[str] = None):
-        from glacier_mapping.data.data import resolve_channel_selection
-
-        self.use_channels = resolve_channel_selection(
-            self.processed_dir,
-            landsat_channels=self.landsat_channels,
-            dem_channels=self.dem_channels,
-            spectral_indices_channels=self.spectral_indices_channels,
-            hsv_channels=self.hsv_channels,
-            physics_channels=self.physics_channels,
-            velocity_channels=self.velocity_channels,
-        )
+        self.band_names = load_band_names(self.processed_dir)
+        self.use_channels = list(range(len(self.band_names)))
 
         if stage == "fit" or stage is None:
             self.train_dataset = GlacierDataset(
                 self.processed_dir / "train",
-                self.use_channels,
                 self.output_classes,
                 self.normalize,
                 robust_scaling=self.robust_scaling,
                 transforms=self.train_transform,
-                mmap_mode=self.mmap_mode,
             )
 
             self.val_dataset = GlacierDataset(
                 self.processed_dir / "val",
-                self.use_channels,
                 self.output_classes,
                 self.normalize,
                 robust_scaling=self.robust_scaling,
                 transforms=self.val_transform,
-                mmap_mode=self.mmap_mode,
             )
 
     def train_dataloader(self) -> DataLoader:
@@ -156,7 +135,9 @@ class GlacierDataModule(pl.LightningDataModule):
         if self.num_workers <= 0:
             return {}
 
-        opts = {"persistent_workers": self.persistent_workers}
+        opts = {}
+        if self.persistent_workers is not None:
+            opts["persistent_workers"] = self.persistent_workers
         if self.prefetch_factor is not None:
             opts["prefetch_factor"] = self.prefetch_factor
         return opts

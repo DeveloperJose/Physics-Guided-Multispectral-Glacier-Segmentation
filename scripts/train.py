@@ -2,6 +2,7 @@
 """Simple Lightning training for glacier mapping."""
 
 import argparse
+import json
 import os
 import pathlib
 import random
@@ -32,6 +33,7 @@ from glacier_mapping.lightning.glacier_datamodule import GlacierDataModule
 from glacier_mapping.lightning.callbacks import (
     ValidationVisualizationCallback,
     TestEvaluationCallback,
+    TrainingTimerCallback,
 )
 import glacier_mapping.utils.mlflow_utils as mlflow_utils
 from glacier_mapping.utils.error_handler import setup_error_handler
@@ -384,11 +386,27 @@ def build_lightning_profiler(profiling_opts: dict, profile_dir: pathlib.Path):
             dump_stats=bool(profiling_opts.get("dump_stats", False)),
         )
     if mode in {"pytorch", "torch"}:
+        profiler_kwargs = {
+            "profile_memory": bool(profiling_opts.get("profile_memory", False)),
+            "record_shapes": bool(profiling_opts.get("record_shapes", False)),
+            "with_stack": bool(profiling_opts.get("with_stack", False)),
+            "with_flops": bool(profiling_opts.get("with_flops", False)),
+        }
+        if "schedule" in profiling_opts:
+            schedule_opts = profiling_opts["schedule"]
+            profiler_kwargs["schedule"] = torch.profiler.schedule(
+                wait=int(schedule_opts.get("wait", 1)),
+                warmup=int(schedule_opts.get("warmup", 1)),
+                active=int(schedule_opts.get("active", 3)),
+                repeat=int(schedule_opts.get("repeat", 1)),
+                skip_first=int(schedule_opts.get("skip_first", 0)),
+            )
         return PyTorchProfiler(
             dirpath=profile_dir,
             filename=filename,
             export_to_chrome=bool(profiling_opts.get("export_to_chrome", True)),
             row_limit=int(profiling_opts.get("row_limit", 20)),
+            **profiler_kwargs,
         )
 
     raise ValueError(
@@ -607,18 +625,18 @@ def main():
     log.info(f"Base run name: {base_run_name}")
     log.info(f"Output directory: {output_dir} (source: {output_dir_source})")
     log.info(f"Data path: {loader_opts.get('processed_dir', 'NOT_SET')}")
-    log.info("\nChannel Selection:")
-    log.info(f"  Landsat: {landsat_channels}")
-    log.info(f"  DEM: {dem_channels}")
-    log.info(f"  Spectral Indices: {spectral_indices_channels}")
-    log.info(f"  HSV: {hsv_channels}")
-    log.info(f"  Physics: {physics_channels}")
-    log.info(f"  Velocity: {velocity_channels}")
+    band_metadata_path = data_path / "band_metadata.json"
+    if band_metadata_path.exists():
+        with open(band_metadata_path, "r") as f:
+            band_metadata = json.load(f)
+        band_names = band_metadata.get("band_names", [])
+        log.info(
+            f"Packed dataset channels ({len(band_names)}): {band_names}. "
+            "Training uses all stored channels."
+        )
     log.info(f"Output classes: {loader_opts.get('output_classes', 'NOT_SET')}")
 
     if not args.no_output:
-        import json
-
         config_json_path = config_output_dir / "conf.json"
         with open(config_json_path, "w") as f:
             json.dump(config, f, indent=2)
@@ -643,9 +661,8 @@ def main():
         robust_scaling=loader_opts.get("robust_scaling", True),
         num_workers=loader_opts.get("num_workers", 4),
         pin_memory=loader_opts.get("pin_memory", True),
-        persistent_workers=loader_opts.get("persistent_workers", False),
+        persistent_workers=loader_opts.get("persistent_workers", None),
         prefetch_factor=loader_opts.get("prefetch_factor", None),
-        mmap_mode=loader_opts.get("mmap_mode", None),
         seed=seed,
         augmentation_seed=augmentation_seed,
     )
@@ -717,6 +734,10 @@ def main():
 
     callbacks = []
     viz_scale_factor = 1
+
+    if training_opts.get("timer_enabled", False):
+        callbacks.append(TrainingTimerCallback())
+        log.info("TrainingTimerCallback enabled — per-batch timing breakdown")
 
     if not args.no_output:
         callbacks.append(
@@ -849,6 +870,8 @@ def main():
 
     log.info(f"Starting training for {max_epochs} epochs...")
     log.info(f"GPU available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
     if args.no_output:
         log.info("No-output mode: skipping all disk writes (Ray hyperparameter search)")
     else:
@@ -861,6 +884,18 @@ def main():
         )
 
         log.info("Training completed successfully!")
+        if torch.cuda.is_available():
+            max_allocated_gb = torch.cuda.max_memory_allocated() / 1024**3
+            max_reserved_gb = torch.cuda.max_memory_reserved() / 1024**3
+            current_allocated_gb = torch.cuda.memory_allocated() / 1024**3
+            current_reserved_gb = torch.cuda.memory_reserved() / 1024**3
+            log.info(
+                "CUDA memory GB: "
+                f"max_allocated={max_allocated_gb:.3f}, "
+                f"max_reserved={max_reserved_gb:.3f}, "
+                f"current_allocated={current_allocated_gb:.3f}, "
+                f"current_reserved={current_reserved_gb:.3f}"
+            )
 
         final_val_loss = float(trainer.callback_metrics.get("val_loss", 999.0))
         log.info(f"Final validation loss: {final_val_loss:.4f}")

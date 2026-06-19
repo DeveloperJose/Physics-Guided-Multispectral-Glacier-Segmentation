@@ -49,6 +49,9 @@ class GlacierSegmentationModule(pl.LightningModule):
             "threshold": [0.5, 0.5],
         }
         self.training_opts = training_opts or {}
+        self.diagnostic_log_on_step = bool(
+            self.training_opts.get("diagnostic_log_on_step", False)
+        )
         self.reg_opts = reg_opts
         self.class_names = class_names
         self.output_classes = output_classes
@@ -69,23 +72,16 @@ class GlacierSegmentationModule(pl.LightningModule):
             self.normalization = "mean-std"
             self.robust_scaling = True
 
-        from glacier_mapping.data.data import resolve_channel_selection
+        from glacier_mapping.data.data import load_band_names
 
-        self.use_channels = resolve_channel_selection(
-            self.processed_dir,
-            landsat_channels=landsat_channels,
-            dem_channels=dem_channels,
-            spectral_indices_channels=spectral_indices_channels,
-            hsv_channels=hsv_channels,
-            physics_channels=physics_channels,
-            velocity_channels=velocity_channels,
-        )
+        self.band_names = load_band_names(self.processed_dir)
+        self.use_channels = list(range(len(self.band_names)))
 
         self._load_normalization_params()
 
         model_args = model_opts.get("args", {})
         out_channels = 2 if len(output_classes) == 1 else len(output_classes)
-        n_channels = len(self.use_channels)
+        n_channels = len(self.band_names)
 
         framework = model_opts.get("framework", "custom")
         if framework == "smp":
@@ -148,16 +144,14 @@ class GlacierSegmentationModule(pl.LightningModule):
         self.velocity_idx = None
         self.velocity_mask_idx = None
 
-        from glacier_mapping.data.data import load_band_names
-
-        band_names = load_band_names(self.processed_dir)
-        used_band_names = band_names[self.use_channels]
+        used_band_names = self.band_names
         if "velocity" in used_band_names:
             self.velocity_idx = np.where(used_band_names == "velocity")[0][0]
 
         if "velocity_mask" in used_band_names:
             self.velocity_mask_idx = np.where(used_band_names == "velocity_mask")[0][0]
 
+        self._setup_velocity_denormalization()
         self._setup_metrics()
         self.automatic_optimization = True
         self.best_val_loss = float("inf")
@@ -175,6 +169,37 @@ class GlacierSegmentationModule(pl.LightningModule):
         buffer_name = f"raw_log_var_{name}_buffer"
         self.register_buffer(buffer_name, log_var_tensor)
         return getattr(self, buffer_name)
+
+    def _setup_velocity_denormalization(self) -> None:
+        self.velocity_denorm_mode = "none"
+        offset = torch.tensor(0.0, dtype=torch.float32)
+        scale = torch.tensor(1.0, dtype=torch.float32)
+
+        if self.velocity_idx is not None:
+            channel_idx = int(self.use_channels[int(self.velocity_idx)])
+            if self.robust_scaling:
+                max_val = max(float(self.norm_arr_full[3, channel_idx]), 1e-6)
+                self.velocity_denorm_mode = "robust"
+                scale = torch.tensor(math.log1p(max_val), dtype=torch.float32)
+            elif self.normalization == "mean-std":
+                self.velocity_denorm_mode = "affine"
+                offset = torch.tensor(
+                    float(self.norm_arr_full[0, channel_idx]), dtype=torch.float32
+                )
+                scale = torch.tensor(
+                    float(self.norm_arr_full[1, channel_idx]), dtype=torch.float32
+                )
+            elif self.normalization == "min-max":
+                self.velocity_denorm_mode = "affine"
+                min_val = float(self.norm_arr_full[2, channel_idx])
+                max_val = float(self.norm_arr_full[3, channel_idx])
+                offset = torch.tensor(min_val, dtype=torch.float32)
+                scale = torch.tensor(max_val - min_val, dtype=torch.float32)
+            else:
+                raise ValueError(f"Invalid normalization: {self.normalization}")
+
+        self.register_buffer("velocity_denorm_offset", offset, persistent=False)
+        self.register_buffer("velocity_denorm_scale", scale, persistent=False)
 
     def _clamp_log_var(self, raw_log_var: torch.Tensor) -> torch.Tensor:
         return torch.clamp(raw_log_var, min=self.min_log_var, max=self.max_log_var)
@@ -225,13 +250,11 @@ class GlacierSegmentationModule(pl.LightningModule):
         return self.model(x)
 
     def training_step(self, batch: tuple, batch_idx: int) -> torch.Tensor:
-        x, y_onehot, y_int = batch
-
-        x = x.permute(0, 3, 1, 2)
-        y_onehot = y_onehot.permute(0, 3, 1, 2)
-        y_int = y_int.squeeze(-1)
+        x, y_uint8 = batch
+        y_int = y_uint8.long()
 
         y_hat = self(x)
+        y_onehot = self._make_onehot_target(y_int, y_hat.shape[1])
 
         velocity = None
         velocity_mask = None
@@ -256,20 +279,24 @@ class GlacierSegmentationModule(pl.LightningModule):
             stage="train",
         )
 
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
-        self._update_metrics(y_hat, y_int, self.train_metrics, "train")
+        self.log(
+            "train_loss",
+            loss,
+            on_step=True,
+            on_epoch=False,
+            prog_bar=True,
+            logger=False,
+        )
 
         return loss
 
     def validation_step(self, batch: tuple, batch_idx: int) -> torch.Tensor:
-        x, y_onehot, y_int = batch
-
-        x = x.permute(0, 3, 1, 2)
-        y_onehot = y_onehot.permute(0, 3, 1, 2)
-        y_int = y_int.squeeze(-1)
+        x, y_uint8 = batch
+        y_int = y_uint8.long()
 
         with torch.no_grad():
             y_hat = self(x)
+            y_onehot = self._make_onehot_target(y_int, y_hat.shape[1])
 
             velocity = None
             velocity_mask = None
@@ -302,12 +329,40 @@ class GlacierSegmentationModule(pl.LightningModule):
             self.best_val_loss = loss_value
         self.log(
             "best_val_loss",
-            torch.tensor(self.best_val_loss, device=loss.device),
+            loss.new_tensor(self.best_val_loss),
             on_step=False,
             on_epoch=True,
         )
 
         return loss
+
+    def _make_onehot_target(
+        self, y_int: torch.Tensor, num_classes: int
+    ) -> torch.Tensor:
+        valid = y_int != 255
+
+        if len(self.output_classes) == 1:
+            binary_class = int(self.output_classes[0])
+            target = torch.stack(
+                (
+                    (y_int != binary_class) & valid,
+                    (y_int == binary_class) & valid,
+                ),
+                dim=1,
+            )
+        else:
+            target = torch.stack(
+                [(y_int == int(class_idx)) & valid for class_idx in self.output_classes],
+                dim=1,
+            )
+
+        if target.shape[1] != num_classes:
+            raise ValueError(
+                f"Target has {target.shape[1]} channels but model has {num_classes} "
+                "output channels"
+            )
+
+        return target.to(dtype=torch.float32)
 
     def _update_metrics(
         self,
@@ -347,19 +402,6 @@ class GlacierSegmentationModule(pl.LightningModule):
 
             if y_true_class.numel() == 0:
                 continue
-
-            self.log(
-                f"slice_{prefix}_{target}_pred_fraction",
-                y_pred_class.float().mean(),
-                on_step=False,
-                on_epoch=True,
-            )
-            self.log(
-                f"slice_{prefix}_{target}_true_fraction",
-                y_true_class.float().mean(),
-                on_step=False,
-                on_epoch=True,
-            )
 
             if f"{class_name}_iou" in metrics_dict:
                 iou_metric: Any = metrics_dict[f"{class_name}_iou"]
@@ -404,7 +446,8 @@ class GlacierSegmentationModule(pl.LightningModule):
         stage: Optional[str] = None,
     ) -> torch.Tensor:
         log_prefix = f"{stage}_" if stage else ""
-        log_on_step = stage == "train"
+        log_on_step = stage == "train" and self.diagnostic_log_on_step
+        log_diagnostics = self.diagnostic_log_on_step
 
         velocity_valid = False
         if (
@@ -417,7 +460,7 @@ class GlacierSegmentationModule(pl.LightningModule):
             masked_velocity = velocity_mask * ignore_mask
             valid_pixels = masked_velocity.sum()
             total_pixels = ignore_mask.sum()
-            if total_pixels > 0:
+            if log_diagnostics and total_pixels > 0:
                 coverage = valid_pixels.float() / total_pixels.float()
                 self.log(
                     f"{log_prefix}velocity_valid_fraction",
@@ -446,22 +489,24 @@ class GlacierSegmentationModule(pl.LightningModule):
                 current_epoch=self.current_epoch,
             )
 
-        total_loss = torch.zeros((), device=y_hat.device)
-        self.log(
-            f"{log_prefix}dice_loss_raw",
-            losses[0].detach(),
-            on_step=log_on_step,
-            on_epoch=True,
-        )
-        self.log(
-            f"{log_prefix}boundary_loss_raw",
-            losses[1].detach(),
-            on_step=log_on_step,
-            on_epoch=True,
-        )
+        total_loss = y_hat.new_zeros(())
+        if log_diagnostics:
+            self.log(
+                f"{log_prefix}dice_loss_raw",
+                losses[0].detach(),
+                on_step=log_on_step,
+                on_epoch=True,
+            )
+            self.log(
+                f"{log_prefix}boundary_loss_raw",
+                losses[1].detach(),
+                on_step=log_on_step,
+                on_epoch=True,
+            )
 
         if (
-            self.use_velocity_loss
+            log_diagnostics
+            and self.use_velocity_loss
             and getattr(self.loss_fn, "last_velocity_valid", False)
             and len(losses) >= 3
         ):
@@ -483,38 +528,36 @@ class GlacierSegmentationModule(pl.LightningModule):
             )
             self.log(
                 f"{log_prefix}velocity_loss_weight",
-                torch.tensor(
-                    getattr(self.loss_fn, "last_velocity_weight", 0.0),
-                    device=y_hat.device,
-                ),
+                y_hat.new_tensor(getattr(self.loss_fn, "last_velocity_weight", 0.0)),
                 on_step=log_on_step,
                 on_epoch=True,
             )
 
-        self.log(
-            f"{log_prefix}sigma_dice",
-            self._sigma_from_log_var(self.raw_log_var_dice),
-            on_step=log_on_step,
-            on_epoch=True,
-        )
-        self.log(
-            f"{log_prefix}sigma_boundary",
-            self._sigma_from_log_var(self.raw_log_var_boundary),
-            on_step=log_on_step,
-            on_epoch=True,
-        )
-        self.log(
-            f"{log_prefix}log_var_dice",
-            self._clamp_log_var(self.raw_log_var_dice),
-            on_step=log_on_step,
-            on_epoch=True,
-        )
-        self.log(
-            f"{log_prefix}log_var_boundary",
-            self._clamp_log_var(self.raw_log_var_boundary),
-            on_step=log_on_step,
-            on_epoch=True,
-        )
+        if log_diagnostics:
+            self.log(
+                f"{log_prefix}sigma_dice",
+                self._sigma_from_log_var(self.raw_log_var_dice),
+                on_step=log_on_step,
+                on_epoch=True,
+            )
+            self.log(
+                f"{log_prefix}sigma_boundary",
+                self._sigma_from_log_var(self.raw_log_var_boundary),
+                on_step=log_on_step,
+                on_epoch=True,
+            )
+            self.log(
+                f"{log_prefix}log_var_dice",
+                self._clamp_log_var(self.raw_log_var_dice),
+                on_step=log_on_step,
+                on_epoch=True,
+            )
+            self.log(
+                f"{log_prefix}log_var_boundary",
+                self._clamp_log_var(self.raw_log_var_boundary),
+                on_step=log_on_step,
+                on_epoch=True,
+            )
 
         weighted_components = [
             ("dice", losses[0], self.raw_log_var_dice),
@@ -528,27 +571,29 @@ class GlacierSegmentationModule(pl.LightningModule):
                 uncertainty_penalty,
             ) = self._uncertainty_weighted_loss(component_loss, raw_log_var)
             total_loss = total_loss + component_total
-            self.log(
-                f"{log_prefix}{name}_loss_uncertainty_weighted",
-                weighted_loss.detach(),
-                on_step=log_on_step,
-                on_epoch=True,
-            )
-            self.log(
-                f"{log_prefix}{name}_loss_uncertainty_penalty",
-                uncertainty_penalty.detach(),
-                on_step=log_on_step,
-                on_epoch=True,
-            )
+            if log_diagnostics:
+                self.log(
+                    f"{log_prefix}{name}_loss_uncertainty_weighted",
+                    weighted_loss.detach(),
+                    on_step=log_on_step,
+                    on_epoch=True,
+                )
+                self.log(
+                    f"{log_prefix}{name}_loss_uncertainty_penalty",
+                    uncertainty_penalty.detach(),
+                    on_step=log_on_step,
+                    on_epoch=True,
+                )
 
         if self.use_velocity_loss and velocity_valid and len(losses) >= 3:
             total_loss = total_loss + losses[2]
-            self.log(
-                f"{log_prefix}velocity_loss_fixed_weighted",
-                losses[2].detach(),
-                on_step=log_on_step,
-                on_epoch=True,
-            )
+            if log_diagnostics:
+                self.log(
+                    f"{log_prefix}velocity_loss_fixed_weighted",
+                    losses[2].detach(),
+                    on_step=log_on_step,
+                    on_epoch=True,
+                )
 
         return total_loss
 
@@ -681,36 +726,13 @@ class GlacierSegmentationModule(pl.LightningModule):
         if self.velocity_idx is None:
             raise ValueError("velocity_idx is None, cannot denormalize velocity.")
 
-        channel_idx = self.use_channels[int(self.velocity_idx)]
+        if self.velocity_denorm_mode == "robust":
+            return torch.expm1(vel_norm * self.velocity_denorm_scale)
 
-        if self.robust_scaling:
-            max_val = torch.tensor(
-                self.norm_arr_full[3, channel_idx], device=vel_norm.device
-            )
-            log_max = torch.log1p(
-                torch.maximum(max_val, torch.tensor(1e-6, device=vel_norm.device))
-            )
-            return torch.expm1(vel_norm * log_max)
+        if self.velocity_denorm_mode == "affine":
+            return vel_norm * self.velocity_denorm_scale + self.velocity_denorm_offset
 
-        if self.normalization == "mean-std":
-            mean = torch.tensor(
-                self.norm_arr_full[0, channel_idx], device=vel_norm.device
-            )
-            std = torch.tensor(
-                self.norm_arr_full[1, channel_idx], device=vel_norm.device
-            )
-            return vel_norm * std + mean
-
-        if self.normalization == "min-max":
-            min_val = torch.tensor(
-                self.norm_arr_full[2, channel_idx], device=vel_norm.device
-            )
-            max_val = torch.tensor(
-                self.norm_arr_full[3, channel_idx], device=vel_norm.device
-            )
-            return vel_norm * (max_val - min_val) + min_val
-
-        raise ValueError(f"Invalid normalization: {self.normalization}")
+        raise ValueError("Velocity denormalization is not configured.")
 
     def normalize(self, x):
         x_no_norm = None

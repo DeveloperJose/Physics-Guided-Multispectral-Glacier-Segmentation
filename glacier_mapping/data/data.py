@@ -1,7 +1,5 @@
-import glob
 import json
 import logging
-import os
 import pathlib
 
 import elasticdeform
@@ -90,27 +88,6 @@ def load_band_names(processed_dir):
         # return BAND_NAMES_LEGACY.copy()
 
 
-def resolve_channel_indices_by_name(band_names, channel_names):
-    """
-    Look up channel indices by name from band_names array.
-
-    Args:
-        band_names: np.ndarray of band names from dataset
-        channel_names: List of channel names to resolve
-
-    Returns:
-        Dict[str, Optional[int]]: Mapping of channel name to index (None if not found)
-    """
-    band_names_list = band_names.tolist()
-    indices = {}
-    for name in channel_names:
-        if name in band_names_list:
-            indices[name] = band_names_list.index(name)
-        else:
-            indices[name] = None
-    return indices
-
-
 def get_no_normalize_channel_names():
     """
     Return set of channel names that should NOT be normalized.
@@ -128,209 +105,20 @@ def get_no_normalize_channel_names():
     return no_norm
 
 
-def resolve_channel_selection(
-    processed_dir,
-    landsat_channels=None,
-    dem_channels=None,
-    spectral_indices_channels=None,
-    hsv_channels=None,
-    physics_channels=None,
-    velocity_channels=None,
-):
-    """
-    Resolve semantic channel group specifications to numerical indices.
-
-    Uses name-based lookup from band_metadata.json to dynamically resolve
-    channel indices, making the system robust to different band orderings.
-
-    Args:
-        processed_dir: Path to processed dataset directory
-        landsat_channels: true (all), false/None/[] (skip), or list of indices/names
-        dem_channels: true (all), false/None/[] (skip), or list of indices/names
-        spectral_indices_channels: true (all), false/None/[] (skip), or list of indices/names
-        hsv_channels: true (all), false/None/[] (skip), or list of indices/names
-        physics_channels: true (all), false/None/[] (skip), or list of indices/names
-        velocity_channels: true (all), false/None/[] (skip), or list of indices/names
-
-    Returns:
-        List[int]: Sorted list of channel indices to use
-
-    Raises:
-        ValueError: If no channels are selected
-
-    Warnings:
-        - Logs warning if requested channel not in dataset (graceful skip)
-    """
-    # Load band names from metadata - this is the source of truth for channel indices
-    band_names = load_band_names(processed_dir)
-
-    fn.log(logging.INFO, f"Available channels in dataset: {len(band_names)}")
-    fn.log(logging.DEBUG, f"Band names: {band_names.tolist()}")
-
-    # Build name-to-index lookup for all channels in dataset
-    all_channel_indices = resolve_channel_indices_by_name(
-        band_names, band_names.tolist()
-    )
-
-    selected_channels = []
-    selected_channel_names = []  # Track names for mandatory channel logic
-
-    # Process each channel group
-    channel_groups = [
-        ("landsat", landsat_channels),
-        ("dem", dem_channels),
-        ("spectral_indices", spectral_indices_channels),
-        ("hsv", hsv_channels),
-        ("velocity", velocity_channels),
-        ("physics", physics_channels),
-    ]
-
-    for group_name, group_value in channel_groups:
-        if group_value is None or group_value is False:
-            fn.log(logging.DEBUG, f"Skipping channel group: {group_name}")
-            continue
-
-        if group_value == []:
-            fn.log(logging.DEBUG, f"Skipping channel group (empty list): {group_name}")
-            continue
-
-        group_def = CHANNEL_GROUP_DEFINITIONS[group_name]
-        group_channel_names = group_def["names"]
-
-        # Resolve indices for this group's channels by name
-        group_indices = resolve_channel_indices_by_name(band_names, group_channel_names)
-
-        if group_value is True:
-            # Use all channels in this group (if available in dataset)
-            fn.log(logging.INFO, f"Enabling all {group_name} channels")
-            for name in group_channel_names:
-                idx = group_indices.get(name)
-                if idx is not None:
-                    selected_channels.append(idx)
-                    selected_channel_names.append(name)
-                else:
-                    fn.log(
-                        logging.WARNING,
-                        f"Channel '{name}' from {group_name} not found in dataset. Skipping.",
-                    )
-
-        elif isinstance(group_value, list):
-            # Parse list of indices (within group) and/or names
-            fn.log(
-                logging.INFO, f"Enabling selected {group_name} channels: {group_value}"
-            )
-            for item in group_value:
-                if isinstance(item, int):
-                    # Treat as index WITHIN the group (0-based)
-                    if 0 <= item < len(group_channel_names):
-                        name = group_channel_names[item]
-                        idx = group_indices.get(name)
-                        if idx is not None:
-                            selected_channels.append(idx)
-                            selected_channel_names.append(name)
-                        else:
-                            fn.log(
-                                logging.WARNING,
-                                f"Channel '{name}' (group index {item}) from {group_name} "
-                                f"not found in dataset. Skipping.",
-                            )
-                    else:
-                        fn.log(
-                            logging.WARNING,
-                            f"Index {item} out of range for {group_name} "
-                            f"(valid: 0-{len(group_channel_names) - 1})",
-                        )
-
-                elif isinstance(item, str):
-                    # Channel name - resolve to index
-                    if item in group_channel_names:
-                        idx = group_indices.get(item)
-                        if idx is not None:
-                            selected_channels.append(idx)
-                            selected_channel_names.append(item)
-                        else:
-                            fn.log(
-                                logging.WARNING,
-                                f"Channel '{item}' from {group_name} not found in dataset. Skipping.",
-                            )
-                    else:
-                        fn.log(
-                            logging.WARNING,
-                            f"Channel name '{item}' not in {group_name} group. "
-                            f"Valid names: {group_channel_names}",
-                        )
-                else:
-                    fn.log(
-                        logging.WARNING,
-                        f"Invalid channel specification in {group_name}: {item}. "
-                        f"Must be int (group index) or str (name).",
-                    )
-
-    # Add mandatory channels for groups that have them (e.g., velocity_mask for velocity)
-    for group_name, group_value in channel_groups:
-        if group_value is None or group_value is False or group_value == []:
-            continue
-
-        group_def = CHANNEL_GROUP_DEFINITIONS[group_name]
-        mandatory = group_def.get("mandatory", [])
-
-        for mandatory_name in mandatory:
-            if mandatory_name not in selected_channel_names:
-                # Check if any channel from this group was selected
-                group_channel_names = group_def["names"]
-                if any(name in selected_channel_names for name in group_channel_names):
-                    # Try to add the mandatory channel
-                    idx = all_channel_indices.get(mandatory_name)
-                    if idx is not None:
-                        selected_channels.append(idx)
-                        selected_channel_names.append(mandatory_name)
-                        fn.log(
-                            logging.INFO,
-                            f"Auto-included mandatory '{mandatory_name}' channel (index {idx})",
-                        )
-                    else:
-                        fn.log(
-                            logging.WARNING,
-                            f"Mandatory channel '{mandatory_name}' not found in dataset!",
-                        )
-
-    # Remove duplicates and sort
-    selected_channels = sorted(list(set(selected_channels)))
-
-    if not selected_channels:
-        raise ValueError(
-            "No channels selected! At least one channel group must be enabled. "
-            "Set landsat_channels, dem_channels, spectral_indices_channels, "
-            "hsv_channels, physics_channels, or velocity_channels to true or provide a list."
-        )
-
-    fn.log(logging.INFO, f"Resolved channel selection: {selected_channels}")
-    fn.log(
-        logging.INFO, f"Selected band names: {band_names[selected_channels].tolist()}"
-    )
-    fn.log(logging.INFO, f"Total channels: {len(selected_channels)}")
-
-    return selected_channels
-
-
 class GlacierDataset(Dataset):
     def __init__(
         self,
         folder_path,
-        use_channels,
         output_classes,
         normalize,
         robust_scaling=True,
         transforms=None,
-        mmap_mode=None,
     ):
         self.folder_path = folder_path
-        self.use_channels = use_channels
         self.output_classes = np.array(output_classes, dtype=np.uint8)
         self.normalize = normalize
         self.robust_scaling = robust_scaling
         self.transforms = transforms
-        self.mmap_mode = mmap_mode
 
         if isinstance(self.folder_path, str):
             self.folder_path = pathlib.Path(self.folder_path)
@@ -343,23 +131,36 @@ class GlacierDataset(Dataset):
             "output_classes must be either 0 (BG), 1 (CleanIce), or 2 (Debris)"
         )
 
-        self.img_files = glob.glob(os.path.join(folder_path, "*tiff*"))
-        self.mask_files = [s.replace("tiff", "mask") for s in self.img_files]
+        self.x_path = self.folder_path / "X.npy"
+        self.y_path = self.folder_path / "y.npy"
+        if not self.x_path.exists() or not self.y_path.exists():
+            raise FileNotFoundError(
+                f"comprehensive_v3 dataset requires {self.x_path} and {self.y_path}"
+            )
 
-        arr = np.load(folder_path.parent / "normalize_train.npy")
-        if self.normalize == "min-max":
-            self.min, self.max = arr[2][use_channels], arr[3][use_channels]
-        elif self.normalize == "mean-std":
-            self.mean, self.std = arr[0], arr[1]
-            self.mean, self.std = self.mean[use_channels], self.std[use_channels]
-            self.min, self.max = arr[2][use_channels], arr[3][use_channels]
-        else:
-            raise ValueError("normalize must be 'min-max' or 'mean-std'")
+        x_meta = np.load(self.x_path, mmap_mode="r")
+        y_meta = np.load(self.y_path, mmap_mode="r")
+        if x_meta.ndim != 4:
+            raise ValueError(f"Expected X.npy shape [N,C,H,W], got {x_meta.shape}")
+        if y_meta.ndim != 3:
+            raise ValueError(f"Expected y.npy shape [N,H,W], got {y_meta.shape}")
+        if x_meta.shape[0] != y_meta.shape[0] or x_meta.shape[2:] != y_meta.shape[1:]:
+            raise ValueError(f"X/y shape mismatch: {x_meta.shape} vs {y_meta.shape}")
+
+        self.num_samples = int(x_meta.shape[0])
+        self.num_channels = int(x_meta.shape[1])
+        self.spatial_shape = tuple(x_meta.shape[2:])
+        self._x = None
+        self._y = None
 
         band_names = load_band_names(folder_path.parent)
-        no_norm_names = get_no_normalize_channel_names()
+        if len(band_names) != self.num_channels:
+            raise ValueError(
+                f"Band metadata has {len(band_names)} bands but X.npy has "
+                f"{self.num_channels} channels"
+            )
 
-        self.channel_names = [band_names[ch] for ch in use_channels]
+        self.channel_names = band_names.tolist()
         self.velocity_mask_pos = (
             self.channel_names.index("velocity_mask")
             if "velocity_mask" in self.channel_names
@@ -371,154 +172,84 @@ class GlacierDataset(Dataset):
             if name in {"velocity", "velocity_x", "velocity_y"}
         ]
 
-        self.log_mask = np.array([name in LOG_CHANNELS for name in self.channel_names])
-        self.symlog_mask = np.array(
-            [name in SYMLOG_CHANNELS for name in self.channel_names]
-        )
-
-        if self.robust_scaling:
-            self.no_normalize_mask = np.array(
-                [
-                    (name in no_norm_names)
-                    or (name in LOG_CHANNELS)
-                    or (name in SYMLOG_CHANNELS)
-                    for name in self.channel_names
-                ]
-            )
-        else:
-            self.no_normalize_mask = np.array(
-                [name in no_norm_names for name in self.channel_names]
-            )
-
-        if self.robust_scaling and (np.any(self.log_mask) or np.any(self.symlog_mask)):
-            fn.log(
-                logging.INFO,
-                f"Applied robust scaling to: {[n for n in self.channel_names if n in LOG_CHANNELS or n in SYMLOG_CHANNELS]}",
-            )
-        elif not self.robust_scaling:
-            fn.log(
-                logging.INFO,
-                "Robust scaling DISABLED. Using linear scaling for all physics/velocity channels.",
-            )
-
-        self.log_max = np.log1p(np.maximum(self.max, 1e-6))
-
-        max_abs = np.maximum(np.abs(self.min), np.abs(self.max))
-        self.symlog_max = np.log1p(np.maximum(max_abs, 1e-6))
-
-        if np.any(self.no_normalize_mask):
-            skip_names = [
-                band_names[ch]
-                for ch, skip in zip(use_channels, self.no_normalize_mask)
-                if skip
-            ]
-            fn.log(
-                logging.INFO,
-                f"Channels excluded from standard normalization: {skip_names}",
-            )
+    def _lazy_open(self):
+        if self._x is None:
+            self._x = np.load(self.x_path, mmap_mode="r")
+            self._y = np.load(self.y_path, mmap_mode="r")
 
     def __getitem__(self, index):
-        file_data = np.load(self.img_files[index], mmap_mode=self.mmap_mode)
-        data = file_data[:, :, self.use_channels]
-
-        # Store original values for channels that should not be normalized (binary masks etc)
-        # AND for special channels (log/symlog) which we will process manually
-        data_no_norm = None
-        if np.any(self.no_normalize_mask):
-            data_no_norm = data[:, :, self.no_normalize_mask].copy()
-
-        # Apply Standard Normalization (Min-Max or Mean-Std)
-        # This will affect all channels, but we will overwrite the "no_normalize" ones later.
-        # Ideally we'd only touch the relevant ones, but masking in place is tricky.
-        # Overwriting is cleaner.
-        if self.normalize == "min-max":
-            data = np.clip(data, self.min, self.max)
-            data = (data - self.min) / (self.max - self.min)
-        elif self.normalize == "mean-std":
-            data = (data - self.mean) / self.std
-
-        # Restore/Process special channels
-        if data_no_norm is not None:
-            # First restore everything
-            data[:, :, self.no_normalize_mask] = data_no_norm
-
-            # Now apply custom transforms for Log/Symlog channels
-            # We iterate because boolean masking 3D array flattens it
-            # But we can use boolean indexing on the last dim if we are careful
-
-            # Apply Log Transform: log1p(x) / log_max -> [0, 1]
-            if self.robust_scaling and np.any(self.log_mask):
-                # We need to act only on log_mask channels.
-                # Since data_no_norm contains ALL no_norm channels, we need to map
-                # global indices to no_norm indices? No.
-                # data is (H, W, C). self.log_mask is (C,).
-                # We can update in place using fancy indexing on axis 2?
-                # No, data[:, :, mask] returns copy or flattened.
-
-                # Loop is safest for clarity and avoiding shape errors
-                for i in range(data.shape[2]):
-                    if self.log_mask[i]:
-                        # Clip to 0 just in case
-                        val = np.maximum(data[:, :, i], 0)
-                        data[:, :, i] = np.log1p(val) / self.log_max[i]
-
-            # Apply SymLog Transform: sign(x) * log1p(abs(x)) / symlog_max -> [-1, 1]
-            if self.robust_scaling and np.any(self.symlog_mask):
-                for i in range(data.shape[2]):
-                    if self.symlog_mask[i]:
-                        val = data[:, :, i]
-                        # symlog
-                        data[:, :, i] = (
-                            np.sign(val) * np.log1p(np.abs(val)) / self.symlog_max[i]
-                        )
-
-            # Binary masks (no_norm but NOT log/symlog) are already restored and left untouched.
-
-        self._zero_missing_velocity_values(data)
-
-        label_int = np.load(self.mask_files[index], mmap_mode=self.mmap_mode).astype(
-            np.uint8
-        )
-        label_int = np.expand_dims(label_int, axis=2)
-
-        if len(self.output_classes) == 1:
-            binary_class = self.output_classes[0]
-            label = np.concatenate(
-                (label_int != binary_class, label_int == binary_class), axis=2
-            )
-        else:
-            label = np.concatenate(
-                [label_int == x for x in self.output_classes], axis=2
-            )
-
-        # Convert boolean mask to uint8 for OpenCV/Albumentations compatibility
-        label = label.astype(np.uint8)
+        self._lazy_open()
+        data = np.array(self._x[index], dtype=np.float32, copy=True)
+        label_int = np.array(self._y[index], dtype=np.uint8, copy=True)
 
         if self.transforms:
-            transformed = self.transforms(image=data, mask=label)
-            data = transformed["image"]
-            label = transformed["mask"]
+            data, label_int = self.transforms(data, label_int)
 
         data = torch.from_numpy(data).float()
-        label = torch.from_numpy(label).float()
 
-        return data, label, torch.from_numpy(label_int).long()
-
-    def _zero_missing_velocity_values(self, data):
-        if self.velocity_mask_pos is None or not self.velocity_value_positions:
-            return
-
-        missing_velocity = data[:, :, self.velocity_mask_pos] <= 0.5
-        if not np.any(missing_velocity):
-            return
-
-        for channel_idx in self.velocity_value_positions:
-            channel = data[:, :, channel_idx]
-            channel[missing_velocity] = 0.0
-            data[:, :, channel_idx] = channel
+        return data, torch.from_numpy(label_int)
 
     def __len__(self):
-        return len(self.img_files)
+        return self.num_samples
+
+
+def apply_chw_geometric_transform(
+    image: np.ndarray, label_int: np.ndarray, transform_name: str
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply an Albumentations-equivalent geometric transform to CHW arrays."""
+    if transform_name == "h_flip":
+        return (
+            np.ascontiguousarray(image[:, :, ::-1]),
+            np.ascontiguousarray(label_int[:, ::-1]),
+        )
+    if transform_name == "v_flip":
+        return (
+            np.ascontiguousarray(image[:, ::-1, :]),
+            np.ascontiguousarray(label_int[::-1, :]),
+        )
+    if transform_name == "rotate90":
+        return (
+            np.ascontiguousarray(np.rot90(image, k=1, axes=(1, 2))),
+            np.ascontiguousarray(np.rot90(label_int, k=1, axes=(0, 1))),
+        )
+    if transform_name == "transpose":
+        return (
+            np.ascontiguousarray(np.swapaxes(image, 1, 2)),
+            np.ascontiguousarray(label_int.T),
+        )
+    raise ValueError(f"Unsupported transform: {transform_name}")
+
+
+class ChwGeometricAugmentations:
+    """Fast CHW replacement for the previous Albumentations geometric transforms."""
+
+    def __init__(self, aug_opts: dict, seed: int):
+        self.h_flip_prob = float(aug_opts.get("h_flip_prob", 0.0))
+        self.v_flip_prob = float(aug_opts.get("v_flip_prob", 0.0))
+        self.rotate90_prob = float(aug_opts.get("rotate90_prob", 0.0))
+        self.transpose_prob = float(aug_opts.get("transpose_prob", 0.0))
+        self.seed = seed
+
+    def __call__(
+        self, image: np.ndarray, label_int: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if np.random.random() < self.h_flip_prob:
+            image, label_int = apply_chw_geometric_transform(
+                image, label_int, "h_flip"
+            )
+        if np.random.random() < self.v_flip_prob:
+            image, label_int = apply_chw_geometric_transform(
+                image, label_int, "v_flip"
+            )
+        if np.random.random() < self.rotate90_prob:
+            image, label_int = apply_chw_geometric_transform(
+                image, label_int, "rotate90"
+            )
+        if np.random.random() < self.transpose_prob:
+            image, label_int = apply_chw_geometric_transform(
+                image, label_int, "transpose"
+            )
+        return image, label_int
 
 
 class DropoutChannels(object):

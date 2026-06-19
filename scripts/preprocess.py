@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import hashlib
 import json
 import multiprocessing
 import multiprocessing.pool
@@ -19,6 +20,11 @@ from addict import Dict
 from tqdm import tqdm
 
 import glacier_mapping.data.slice as fn
+from glacier_mapping.data.data import (
+    CHANNEL_GROUP_DEFINITIONS,
+    get_no_normalize_channel_names,
+    load_band_names,
+)
 
 import matplotlib
 
@@ -50,6 +56,37 @@ def istarmap(pool_self, func, iterable, chunksize=1):
 
 
 multiprocessing.pool.Pool.istarmap = istarmap
+
+
+PACKED_RECIPES: dict[str, list[str]] = {
+    "comprehensive_v3_landsat": CHANNEL_GROUP_DEFINITIONS["landsat"]["names"],
+    "comprehensive_v3_landsat_dem": (
+        CHANNEL_GROUP_DEFINITIONS["landsat"]["names"]
+        + CHANNEL_GROUP_DEFINITIONS["dem"]["names"]
+    ),
+    "comprehensive_v3_landsat_dem_flowacc": (
+        CHANNEL_GROUP_DEFINITIONS["landsat"]["names"]
+        + CHANNEL_GROUP_DEFINITIONS["dem"]["names"]
+        + ["flow_accumulation"]
+    ),
+    "comprehensive_v3_landsat_dem_velmag": (
+        CHANNEL_GROUP_DEFINITIONS["landsat"]["names"]
+        + CHANNEL_GROUP_DEFINITIONS["dem"]["names"]
+        + ["velocity", "velocity_mask"]
+    ),
+    "comprehensive_v3_landsat_dem_flowacc_velmag": (
+        CHANNEL_GROUP_DEFINITIONS["landsat"]["names"]
+        + CHANNEL_GROUP_DEFINITIONS["dem"]["names"]
+        + ["flow_accumulation", "velocity", "velocity_mask"]
+    ),
+    "comprehensive_v3_complete_no_hsv": (
+        CHANNEL_GROUP_DEFINITIONS["landsat"]["names"]
+        + CHANNEL_GROUP_DEFINITIONS["dem"]["names"]
+        + CHANNEL_GROUP_DEFINITIONS["spectral_indices"]["names"]
+        + CHANNEL_GROUP_DEFINITIONS["velocity"]["names"]
+        + CHANNEL_GROUP_DEFINITIONS["physics"]["names"]
+    ),
+}
 
 
 def load_config_with_server_paths(config_path, server_name="desktop"):
@@ -142,6 +179,309 @@ def compute_model_visible_normalization(
     return stats
 
 
+def normalize_slice_for_v3(
+    data: np.ndarray, norm_stats: np.ndarray, band_names: list[str]
+) -> np.ndarray:
+    """Apply train-stat mean/std normalization for v3 packed arrays."""
+    mean = norm_stats[0]
+    std = norm_stats[1]
+    normalized = (data - mean) / std
+
+    no_norm_names = get_no_normalize_channel_names()
+    no_norm_mask = np.array([name in no_norm_names for name in band_names])
+    if np.any(no_norm_mask):
+        normalized[:, :, no_norm_mask] = data[:, :, no_norm_mask]
+
+    if "velocity_mask" in band_names:
+        velocity_mask_idx = band_names.index("velocity_mask")
+        velocity_value_indices = [
+            idx
+            for idx, name in enumerate(band_names)
+            if name in {"velocity", "velocity_x", "velocity_y"}
+        ]
+        if velocity_value_indices:
+            missing_velocity = normalized[:, :, velocity_mask_idx] <= 0.5
+            for channel_idx in velocity_value_indices:
+                normalized[:, :, channel_idx][missing_velocity] = 0.0
+
+    return normalized.astype(np.float32, copy=False)
+
+
+def pack_split_v3(
+    split_dir: Path,
+    band_names: list[str],
+    train_norm_stats: np.ndarray,
+    delete_slice_files: bool = True,
+) -> dict:
+    """Pack generated per-slice files into v3 split-level NCHW arrays."""
+    tiff_files = sorted(split_dir.glob("tiff_*.npy"))
+    if not tiff_files:
+        raise FileNotFoundError(f"No tiff_*.npy files found in {split_dir}")
+
+    first = np.load(tiff_files[0], mmap_mode="r")
+    if first.ndim != 3:
+        raise ValueError(f"Expected HWC slice, got {first.shape} in {tiff_files[0]}")
+
+    height, width, channels = first.shape
+    if channels != len(band_names):
+        raise ValueError(
+            f"Band metadata has {len(band_names)} bands but slices have {channels}"
+        )
+
+    x_path = split_dir / "X.npy"
+    y_path = split_dir / "y.npy"
+    x_arr = np.lib.format.open_memmap(
+        x_path,
+        mode="w+",
+        dtype=np.float32,
+        shape=(len(tiff_files), channels, height, width),
+    )
+    y_arr = np.lib.format.open_memmap(
+        y_path, mode="w+", dtype=np.uint8, shape=(len(tiff_files), height, width)
+    )
+
+    packed_records = []
+    mask_files = []
+    for idx, tiff_file in enumerate(tqdm(tiff_files, desc=f"Packing {split_dir.name}")):
+        mask_file = mask_path_for_tiff(tiff_file)
+        if not mask_file.exists():
+            raise FileNotFoundError(f"Missing mask for {tiff_file}: {mask_file}")
+
+        data = np.load(tiff_file)
+        mask = np.load(mask_file).astype(np.uint8, copy=False)
+        normalized = normalize_slice_for_v3(data, train_norm_stats, band_names)
+
+        x_arr[idx] = np.transpose(normalized, (2, 0, 1))
+        y_arr[idx] = mask
+        packed_records.append(
+            {
+                "index": idx,
+                "source_tiff_file": tiff_file.name,
+                "source_mask_file": mask_file.name,
+            }
+        )
+        mask_files.append(mask_file)
+
+    x_arr.flush()
+    y_arr.flush()
+
+    manifest = {
+        "format": "comprehensive_v3",
+        "layout": "NCHW",
+        "normalized": True,
+        "normalization": "mean-std",
+        "x": x_path.name,
+        "y": y_path.name,
+        "num_samples": len(tiff_files),
+        "shape": [len(tiff_files), channels, height, width],
+        "label_shape": [len(tiff_files), height, width],
+        "dtype": {"x": "float32", "y": "uint8"},
+        "records": packed_records,
+    }
+    with open(split_dir / "manifest.json", "w") as f:
+        json.dump(manifest, f, indent=2)
+
+    if delete_slice_files:
+        for path in [*tiff_files, *mask_files]:
+            path.unlink()
+
+    return manifest
+
+
+def sha256_file(path: Path, chunk_size: int = 16 * 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def link_or_copy(src: Path, dst: Path) -> str:
+    if dst.exists():
+        dst.unlink()
+    try:
+        os.link(src, dst)
+        return "hardlink"
+    except OSError:
+        shutil.copy2(src, dst)
+        return "copy"
+
+
+def load_full_dataset_config(source_dir: Path) -> dict:
+    metadata_path = source_dir / "band_metadata.json"
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"Missing band metadata: {metadata_path}")
+    with open(metadata_path, "r") as f:
+        return json.load(f)
+
+
+def pack_recipe_split(
+    source_split_dir: Path,
+    target_split_dir: Path,
+    channel_indices: list[int],
+    channel_names: list[str],
+    x_dtype: np.dtype,
+) -> dict:
+    source_x_path = source_split_dir / "X.npy"
+    source_y_path = source_split_dir / "y.npy"
+    if not source_x_path.exists() or not source_y_path.exists():
+        raise FileNotFoundError(f"Missing source X/y files in {source_split_dir}")
+
+    source_x = np.load(source_x_path, mmap_mode="r")
+    source_y = np.load(source_y_path, mmap_mode="r")
+    if source_x.ndim != 4 or source_y.ndim != 3:
+        raise ValueError(
+            f"Expected source X [N,C,H,W] and y [N,H,W], got "
+            f"{source_x.shape} and {source_y.shape}"
+        )
+
+    target_split_dir.mkdir(parents=True, exist_ok=True)
+    target_x_path = target_split_dir / "X.npy"
+    target_y_path = target_split_dir / "y.npy"
+
+    n, _c, h, w = source_x.shape
+    target_x = np.lib.format.open_memmap(
+        target_x_path,
+        mode="w+",
+        dtype=x_dtype,
+        shape=(n, len(channel_indices), h, w),
+    )
+
+    for sample_idx in tqdm(
+        range(n),
+        desc=f"Packing {target_split_dir.parent.name}/{target_split_dir.name}",
+    ):
+        target_x[sample_idx] = source_x[sample_idx, channel_indices, :, :].astype(
+            x_dtype, copy=False
+        )
+    target_x.flush()
+
+    label_storage = link_or_copy(source_y_path, target_y_path)
+
+    manifest = {
+        "format": "comprehensive_v3_packed",
+        "layout": "NCHW",
+        "normalized": True,
+        "normalization": "mean-std",
+        "x": target_x_path.name,
+        "y": target_y_path.name,
+        "num_samples": int(n),
+        "shape": [int(n), len(channel_indices), int(h), int(w)],
+        "label_shape": [int(source_y.shape[0]), int(source_y.shape[1]), int(source_y.shape[2])],
+        "dtype": {"x": str(np.dtype(x_dtype)), "y": str(source_y.dtype)},
+        "channels": channel_names,
+        "source_channel_indices": channel_indices,
+        "source_split": str(source_split_dir),
+        "label_storage": label_storage,
+    }
+    with open(target_split_dir / "manifest.json", "w") as f:
+        json.dump(manifest, f, indent=2)
+    return manifest
+
+
+def pack_recipe_dataset(
+    source_dir: Path,
+    output_root: Path,
+    recipe_name: str,
+    recipe_channels: list[str],
+    x_dtype: np.dtype,
+    dry_run: bool = False,
+) -> None:
+    source_band_names = load_band_names(source_dir).tolist()
+    missing = [name for name in recipe_channels if name not in source_band_names]
+    if missing:
+        raise ValueError(f"{recipe_name} requested missing channels: {missing}")
+
+    channel_indices = [source_band_names.index(name) for name in recipe_channels]
+    target_dir = output_root / recipe_name
+
+    print(f"\nRecipe: {recipe_name}")
+    print(f"  Source: {source_dir}")
+    print(f"  Target: {target_dir}")
+    print(f"  Channels ({len(recipe_channels)}): {recipe_channels}")
+    print(f"  Source indices: {channel_indices}")
+    if dry_run:
+        return
+
+    remove_and_create(target_dir)
+
+    source_metadata = load_full_dataset_config(source_dir)
+    band_metadata = {
+        "band_names": recipe_channels,
+        "num_bands": len(recipe_channels),
+        "source_dataset": source_dir.name,
+        "source_channel_indices": channel_indices,
+        "source_band_names": source_band_names,
+        "source_config": source_metadata.get("config", {}),
+        "x_dtype": str(np.dtype(x_dtype)),
+    }
+    with open(target_dir / "band_metadata.json", "w") as f:
+        json.dump(band_metadata, f, indent=2)
+
+    source_norm = source_dir / "normalize_train.npy"
+    if source_norm.exists():
+        norm_arr = np.load(source_norm)
+        np.save(target_dir / "normalize_train.npy", norm_arr[:, channel_indices])
+
+    for metadata_file in [
+        "dataset_statistics.json",
+        "slice_meta.csv",
+        "skipped_slices_meta.csv",
+    ]:
+        src = source_dir / metadata_file
+        if src.exists():
+            shutil.copy2(src, target_dir / metadata_file)
+
+    split_manifests = {}
+    label_hashes = {}
+    for split in ["train", "val", "test"]:
+        split_manifests[split] = pack_recipe_split(
+            source_dir / split,
+            target_dir / split,
+            channel_indices,
+            recipe_channels,
+            x_dtype,
+        )
+        label_hashes[split] = sha256_file(target_dir / split / "y.npy")
+
+    recipe_manifest = {
+        "format": "comprehensive_v3_packed",
+        "recipe_name": recipe_name,
+        "source_dataset": source_dir.name,
+        "source_path": str(source_dir),
+        "channels": recipe_channels,
+        "source_channel_indices": channel_indices,
+        "x_dtype": str(np.dtype(x_dtype)),
+        "splits": split_manifests,
+        "label_sha256": label_hashes,
+    }
+    with open(target_dir / "recipe_manifest.json", "w") as f:
+        json.dump(recipe_manifest, f, indent=2)
+
+
+def pack_recipe_datasets(
+    source_dir: Path,
+    output_root: Path,
+    recipe_names: list[str],
+    x_dtype: np.dtype,
+    dry_run: bool = False,
+) -> None:
+    if not source_dir.exists():
+        raise FileNotFoundError(f"Source full dataset does not exist: {source_dir}")
+    for recipe_name in recipe_names:
+        if recipe_name not in PACKED_RECIPES:
+            valid = ", ".join(sorted(PACKED_RECIPES))
+            raise ValueError(f"Unknown recipe '{recipe_name}'. Valid recipes: {valid}")
+        pack_recipe_dataset(
+            source_dir=source_dir,
+            output_root=output_root,
+            recipe_name=recipe_name,
+            recipe_channels=PACKED_RECIPES[recipe_name],
+            x_dtype=x_dtype,
+            dry_run=dry_run,
+        )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Slice and preprocess glacier data")
     parser.add_argument(
@@ -152,13 +492,41 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         type=str,
-        default="./configs/datasets/gen_robust_comprehensive_dci_clean_v2.yaml",
+        default="./configs/datasets/comprehensive_v3.yaml",
         help="Path to preprocessing config file",
     )
     parser.add_argument(
         "--save-skipped-visualizations",
         action="store_true",
         help="Save PNG visualizations of skipped slices (overrides config file)",
+    )
+    parser.add_argument(
+        "--regenerate-full",
+        action="store_true",
+        help="Regenerate the canonical full dataset from raw source files.",
+    )
+    parser.add_argument(
+        "--source-dataset",
+        type=str,
+        default=None,
+        help="Existing full dataset to pack from. Defaults to config output_name.",
+    )
+    parser.add_argument(
+        "--recipes",
+        type=str,
+        default=",".join(PACKED_RECIPES.keys()),
+        help="Comma-separated packed recipe dataset names to create, or 'all'.",
+    )
+    parser.add_argument(
+        "--packed-dtype",
+        choices=["float32", "float16"],
+        default="float32",
+        help="Feature dtype for packed recipe X.npy arrays.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print recipe packing actions without writing datasets.",
     )
     args = parser.parse_args()
 
@@ -174,6 +542,26 @@ if __name__ == "__main__":
         conf.save_skipped_visualizations = conf.get(
             "save_skipped_visualizations", False
         )
+
+    if not args.regenerate_full:
+        source_dataset = args.source_dataset or conf.output_name
+        servers_cfg = Dict(yaml.safe_load(Path("configs/servers.yaml").read_text()))
+        output_root = Path(servers_cfg[args.server].processed_data_path)
+        source_dir = output_root / source_dataset
+        recipe_names = (
+            list(PACKED_RECIPES.keys())
+            if args.recipes == "all"
+            else [name.strip() for name in args.recipes.split(",") if name.strip()]
+        )
+        pack_recipe_datasets(
+            source_dir=source_dir,
+            output_root=output_root,
+            recipe_names=recipe_names,
+            x_dtype=np.dtype(args.packed_dtype),
+            dry_run=args.dry_run,
+        )
+        print("\nPacked recipe generation completed successfully.")
+        raise SystemExit(0)
 
     saved_df = pd.DataFrame(
         columns=[
@@ -236,6 +624,7 @@ if __name__ == "__main__":
 
     band_names_metadata = None
 
+    split_norm_stats = {}
     with tqdm(total=1, desc="temp") as pbar:
         for split, meta in splits.items():
             savepath = Path(conf["out_dir"]) / split
@@ -271,11 +660,22 @@ if __name__ == "__main__":
             norm_stats = compute_model_visible_normalization(
                 savepath, band_names_metadata
             )
+            split_norm_stats[split] = norm_stats
             np.save(
                 Path(conf["out_dir"]) / f"normalize_{split}",
                 norm_stats,
             )
             print(f"Saved normalization stats for {split}")
+
+    train_norm_stats = split_norm_stats["train"]
+    v3_manifests = {}
+    for split in ["train", "val", "test"]:
+        v3_manifests[split] = pack_split_v3(
+            Path(conf["out_dir"]) / split,
+            band_names_metadata,
+            train_norm_stats,
+            delete_slice_files=True,
+        )
 
     saved_df.to_csv(
         Path(conf["out_dir"]) / "slice_meta.csv", encoding="utf-8", index=False

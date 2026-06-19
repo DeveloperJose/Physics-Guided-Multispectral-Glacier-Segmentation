@@ -27,6 +27,12 @@ class customloss(nn.Module):
         self.theta = theta
         self.verbose = verbose
         self.class_weights = class_weights
+        class_weights_tensor = (
+            torch.as_tensor(class_weights, dtype=torch.float32)
+            if class_weights is not None
+            else None
+        )
+        self.register_buffer("class_weights_tensor", class_weights_tensor)
         self.velocity_high_speed_threshold = velocity_high_speed_threshold
         self.velocity_loss_weight = velocity_loss_weight
         self.velocity_loss_warmup_epochs = velocity_loss_warmup_epochs
@@ -47,10 +53,10 @@ class customloss(nn.Module):
         current_epoch: Optional[int] = None,
     ):
         n, c, h, w = pred.shape
-        device = pred.device
 
-        self.last_velocity_loss = torch.tensor(0.0, device=device)
-        self.last_velocity_base = torch.tensor(0.0, device=device)
+        zero = pred.new_zeros(())
+        self.last_velocity_loss = zero
+        self.last_velocity_base = zero
         self.last_velocity_weight = 0.0
         self.last_velocity_valid = False
 
@@ -60,7 +66,7 @@ class customloss(nn.Module):
             ignore_mask = target_int != 255
         else:
             ignore_mask = target.sum(dim=1) == 1
-        ignore_mask_exp = ignore_mask.unsqueeze(1).float().to(device)
+        ignore_mask_exp = ignore_mask.unsqueeze(1).float().to(pred.device)
 
         if c <= 1:
             raise ValueError(
@@ -83,22 +89,20 @@ class customloss(nn.Module):
             )
         target_prob = target_prob * ignore_mask_exp
 
-        weights_tensor = None
-        if self.class_weights is not None:
-            if len(self.class_weights) != C_eff:
+        weights_tensor = self.class_weights_tensor
+        if weights_tensor is not None:
+            if weights_tensor.numel() != C_eff:
                 raise ValueError(
-                    f"Length of class_weights ({len(self.class_weights)}) "
+                    f"Length of class_weights ({weights_tensor.numel()}) "
                     f"must match number of effective classes ({C_eff})"
                 )
-            weights_tensor = torch.tensor(
-                self.class_weights, device=device, dtype=pred_prob.dtype
-            )
+            weights_tensor = weights_tensor.to(dtype=pred_prob.dtype)
 
         pred_flat = pred_prob.permute(0, 2, 3, 1)[ignore_mask]
         targ_flat = target_prob.permute(0, 2, 3, 1)[ignore_mask]
 
         if pred_flat.numel() == 0:
-            dice_loss_scalar = torch.tensor(0.0, device=device)
+            dice_loss_scalar = zero
         else:
             numerator = 2 * (pred_flat * targ_flat).sum(dim=0) + self.smooth
             denominator = pred_flat.sum(dim=0) + targ_flat.sum(dim=0) + self.smooth
@@ -143,7 +147,7 @@ class customloss(nn.Module):
         else:
             boundary_loss = torch.mean(boundary_loss_unreduced)
 
-        velocity_loss = torch.tensor(0.0, device=device)
+        velocity_loss = zero
         if velocity is not None and velocity_mask is not None:
             if C_eff == 2:
                 bg_prob = pred_prob[:, 0:1]
@@ -158,7 +162,7 @@ class customloss(nn.Module):
 
             combined_mask = velocity_mask * ignore_mask_exp
             valid_count = combined_mask.sum()
-            base_velocity_loss = torch.tensor(0.0, device=device)
+            base_velocity_loss = zero
 
             if valid_count > 0:
                 base_velocity_loss = (
@@ -174,7 +178,7 @@ class customloss(nn.Module):
                 self.last_velocity_weight = float(current_weight)
                 self.last_velocity_valid = True
             else:
-                velocity_loss = torch.tensor(0.0, device=device)
+                velocity_loss = zero
 
         return [dice_loss_scalar, boundary_loss, velocity_loss]
 
