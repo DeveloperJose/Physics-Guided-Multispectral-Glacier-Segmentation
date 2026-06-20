@@ -264,9 +264,6 @@ class GlacierSegmentationModule(pl.LightningModule):
         x, y_uint8 = batch
         if x.dtype != torch.float32:
             x = x.float()
-        if self.channels_last:
-            x = x.contiguous(memory_format=torch.channels_last)
-
         y_hat = self(x)
 
         velocity = None
@@ -306,9 +303,6 @@ class GlacierSegmentationModule(pl.LightningModule):
         x, y_uint8 = batch
         if x.dtype != torch.float32:
             x = x.float()
-        if self.channels_last:
-            x = x.contiguous(memory_format=torch.channels_last)
-
         with torch.no_grad():
             y_hat = self(x)
 
