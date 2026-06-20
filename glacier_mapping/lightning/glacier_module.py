@@ -434,7 +434,8 @@ class GlacierSegmentationModule(pl.LightningModule):
         log_diagnostics = self.diagnostic_log_on_step
 
         if (
-            self.use_velocity_loss
+            log_diagnostics
+            and self.use_velocity_loss
             and velocity_mask is not None
             and y_uint8 is not None
             and velocity_mask.numel() > 0
@@ -443,14 +444,13 @@ class GlacierSegmentationModule(pl.LightningModule):
             masked_velocity = velocity_mask * ignore_mask
             valid_pixels = masked_velocity.sum()
             total_pixels = ignore_mask.sum()
-            if log_diagnostics:
-                coverage = valid_pixels.float() / total_pixels.float().clamp_min(1.0)
-                self.log(
-                    f"{log_prefix}velocity_valid_fraction",
-                    coverage,
-                    on_step=log_on_step,
-                    on_epoch=True,
-                )
+            coverage = valid_pixels.float() / total_pixels.float().clamp_min(1.0)
+            self.log(
+                f"{log_prefix}velocity_valid_fraction",
+                coverage,
+                on_step=log_on_step,
+                on_epoch=True,
+            )
 
         losses = self.loss_fn(
             y_hat,
