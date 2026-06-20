@@ -256,26 +256,16 @@ def generate_single_visualization(
     slice_num = extract_slice_number(x_path)
 
     # Load and process data
-    x_full = np.load(x_path)
-    y_true_raw = np.load(x_path.with_name(x_path.name.replace("tiff", "mask")))
+    x_full = np.load(x_path, mmap_mode="r")
+    y_true_raw = np.load(
+        x_path.with_name(x_path.name.replace("tiff", "mask")), mmap_mode="r"
+    )
 
     # Get predictions and prepare labels
     metrics_opts = getattr(pl_module, "metrics_opts", {"threshold": [0.5, 0.5]})
     threshold = metrics_opts.get("threshold", [0.5, 0.5])
     probs = get_probabilities(pl_module, x_full)
     y_pred = predict_from_probs(probs, pl_module, threshold[0] if threshold else None)
-
-    output_classes = getattr(pl_module, "output_classes", [1])
-    class_names = getattr(pl_module, "class_names", ["BG", "CleanIce", "Debris"])
-
-    # Validate configuration consistency
-    if len(output_classes) > 1:  # Multiclass
-        max_class = max(output_classes)
-        if len(class_names) <= max_class:
-            raise ValueError(
-                f"class_names length ({len(class_names)}) insufficient for max class index ({max_class}). "
-                f"output_classes: {output_classes}, class_names: {class_names}"
-            )
 
     y_gt_vis, y_pred_vis = prepare_labels_for_visualization(
         y_true_raw, y_pred, output_classes
@@ -469,7 +459,7 @@ def select_slices_by_iou_thirds(
     # info(f"Computing IoU for {len(slice_paths)} validation slices...")
     # for idx, x_path in enumerate(tqdm(slice_paths, desc="Val IoU computation")):
     for idx, x_path in enumerate(slice_paths):
-        x = np.load(x_path)
+        x = np.load(x_path, mmap_mode="r")
         y_pred, invalid_mask = pl_module.predict_slice(x, threshold)
 
         y_true_raw = np.load(
@@ -582,7 +572,7 @@ def select_informative_test_tiles(
     # from tqdm import tqdm
     # for idx, x_path in enumerate(tqdm(tile_paths, desc="IoU computation + caching")):
     for idx, x_path in enumerate(tile_paths):
-        x = np.load(x_path)
+        x = np.load(x_path, mmap_mode="r")
         y_pred, invalid_mask = pl_module.predict_slice(x, threshold, fill_holes=True)
 
         # Cache prediction for reuse in full evaluation

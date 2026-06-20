@@ -125,7 +125,17 @@ class ValidationVisualizationCallback(Callback):
 
 
 class GlacierModelCheckpoint(ModelCheckpoint):
-    pass
+    def __init__(self, *args, start_epoch: int = 0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.start_epoch = max(0, int(start_epoch))
+
+    def on_train_epoch_end(self, trainer, pl_module) -> None:
+        if trainer.current_epoch + 1 < self.start_epoch:
+            if self.save_last:
+                monitor_candidates = self._monitor_candidates(trainer)
+                self._save_last_checkpoint(trainer, monitor_candidates)
+            return
+        super().on_train_epoch_end(trainer, pl_module)
 
 
 class GlacierTrainingMonitor(Callback):

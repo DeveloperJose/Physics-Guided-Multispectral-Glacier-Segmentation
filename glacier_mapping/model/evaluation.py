@@ -174,8 +174,17 @@ def calculate_binary_metrics(y_pred, y_true, target_class, mask=None):
 
 
 def create_invalid_mask(x_full, y_true):
-    """Create invalid mask where pixels are empty imagery or ignored labels."""
-    return (np.sum(x_full, axis=2) == 0) | (y_true == 255)
+    """Create invalid mask for legacy HWC imagery evaluation.
+
+    Ignore-label pixels are always invalid. Empty-imagery detection only applies to
+    legacy HWC inputs where the last axis is the channel dimension.
+    """
+    invalid = y_true == 255
+    if x_full.ndim != 3:
+        return invalid
+    if x_full.shape[:2] != y_true.shape:
+        return invalid
+    return (np.all(x_full == 0, axis=2)) | invalid
 
 
 def merge_ci_debris(
@@ -266,7 +275,9 @@ def _iter_split_samples(
         def iter_tiles() -> Iterator[tuple[str, np.ndarray, np.ndarray, bool]]:
             for tile in tiles:
                 y_path = tile.with_name(tile.name.replace("tiff", "mask"))
-                yield tile.name, np.load(tile), np.load(y_path).astype(np.uint8), False
+                yield tile.name, np.load(tile, mmap_mode="r"), np.load(
+                    y_path, mmap_mode="r"
+                ).astype(np.uint8), False
 
         return iter_tiles(), len(tiles)
 

@@ -18,7 +18,6 @@ import yaml
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import (
     BatchSizeFinder,
-    ModelCheckpoint,
     LearningRateMonitor,
     EarlyStopping,
 )
@@ -31,6 +30,7 @@ from pytorch_lightning.profilers import (
 from glacier_mapping.lightning.glacier_module import GlacierSegmentationModule
 from glacier_mapping.lightning.glacier_datamodule import GlacierDataModule
 from glacier_mapping.lightning.callbacks import (
+    GlacierModelCheckpoint,
     ValidationVisualizationCallback,
     TestEvaluationCallback,
 )
@@ -744,13 +744,14 @@ def main():
 
     if not args.no_output:
         callbacks.append(
-            ModelCheckpoint(
+            GlacierModelCheckpoint(
                 dirpath=f"{output_dir}/{run_name}/checkpoints",
                 monitor="val_loss",
                 mode="min",
                 save_top_k=3,
                 save_last=True,
                 filename=f"{run_name}_{{epoch:03d}}_{{val_loss:.4f}}",
+                start_epoch=training_opts.get("checkpoint_monitor_start_epoch", 0),
             )
         )
 
