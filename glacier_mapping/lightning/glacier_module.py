@@ -296,7 +296,7 @@ class GlacierSegmentationModule(pl.LightningModule):
             loss,
             on_step=True,
             on_epoch=False,
-            prog_bar=True,
+            prog_bar=False,
             logger=False,
         )
 
