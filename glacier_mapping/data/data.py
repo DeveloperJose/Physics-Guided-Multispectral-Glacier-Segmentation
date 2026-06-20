@@ -2,7 +2,6 @@ import json
 import logging
 import pathlib
 
-import elasticdeform
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -247,39 +246,3 @@ class ChwGeometricAugmentations:
             )
         return image, label_int
 
-
-class DropoutChannels(object):
-    """Random channel dropout augmentation."""
-
-    def __init__(self, p):
-        if (p < 0) or (p > 1):
-            raise ValueError("Probability should be between 0 and 1")
-        self.p = p
-
-    def __call__(self, sample):
-        data, label = sample["image"], sample["mask"]
-        if torch.rand(1) < self.p:
-            # When channel count is very small, np.random.randint(size=0) fails.
-            if data.shape[2] >= 5:
-                rand_channel_index = np.random.randint(
-                    low=0, high=data.shape[2], size=int(data.shape[2] / 5)
-                )
-                data[:, :, rand_channel_index] = 0
-        return {"image": data, "mask": label}
-
-
-class ElasticDeform(object):
-    """Elastic deformation augmentation."""
-
-    def __init__(self, p):
-        if (p < 0) or (p > 1):
-            raise ValueError("Probability should be between 0 and 1")
-        self.p = p
-
-    def __call__(self, sample):
-        data, label = sample["image"], sample["mask"]
-        label = label.astype(np.float32)
-        if torch.rand(1) < self.p:
-            [data, label] = elasticdeform.deform_random_grid([data, label], axis=(0, 1))
-        label = np.round(label).astype(bool)
-        return {"image": data, "mask": label}

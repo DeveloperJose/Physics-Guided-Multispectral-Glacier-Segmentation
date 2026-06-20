@@ -89,23 +89,31 @@ def get_probabilities(module, x_full, *, preprocessed_chw: bool = False):
     return probs
 
 
+def resolve_prediction_threshold(module, threshold=None) -> float | list[float] | None:
+    """Resolve explicit or config-driven prediction thresholds."""
+    if threshold is not None:
+        return threshold
+
+    config_threshold = getattr(module, "metrics_opts", {}).get("threshold", [0.5])
+    if len(module.output_classes) == 1:
+        return (
+            config_threshold[0]
+            if isinstance(config_threshold, list)
+            else config_threshold
+        )
+    return config_threshold
+
+
 def predict_from_probs(probs, module, threshold=None, *, fill_holes=True):
     """Convert probabilities to hard predictions using module configuration."""
+    threshold = resolve_prediction_threshold(module, threshold)
     if len(module.output_classes) == 1:
-        if threshold is None:
-            config_threshold = module.metrics_opts.get("threshold", [0.5])
-            threshold = (
-                config_threshold[0]
-                if isinstance(config_threshold, list)
-                else config_threshold
-            )
         y_pred = (probs[:, :, 1] >= threshold).astype(np.uint8)
         if fill_holes:
             y_pred = binary_fill_holes(y_pred).astype(np.uint8)
         return y_pred
 
     return np.argmax(probs, axis=2).astype(np.uint8)
-
 
 def predict_whole(module, whole_arr, window_size, threshold=None):
     """Predict on a whole image using sliding windows, stitching results."""
@@ -648,9 +656,8 @@ def predict_slice(
         _y = module.forward(_x)
 
     if len(module.output_classes) == 1:
-        if threshold is None:
-            threshold = [0.5]
-        elif isinstance(threshold, (int, float)):
+        threshold = resolve_prediction_threshold(module, threshold)
+        if isinstance(threshold, (int, float)):
             threshold = [threshold]
 
         _y = torch.nn.functional.softmax(_y, dim=1)

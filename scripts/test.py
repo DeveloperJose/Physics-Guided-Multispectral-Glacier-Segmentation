@@ -49,7 +49,7 @@ from glacier_mapping.data.slice import (
     compute_dems,
 )
 from glacier_mapping.data.data import apply_chw_geometric_transform
-from glacier_mapping.model.losses import customloss
+from glacier_mapping.model.losses import customloss, make_onehot
 from glacier_mapping.model.evaluation import (
     precision,
     recall,
@@ -1465,6 +1465,109 @@ class TestChwAugmentations(unittest.TestCase):
 
             np.testing.assert_array_equal(got_image, expected_image)
             np.testing.assert_array_equal(got_label, expected_label)
+
+
+def dice_loss_broadcast(
+    pred_prob: torch.Tensor,
+    target_prob: torch.Tensor,
+    ignore_mask_exp: torch.Tensor,
+    smooth: float,
+    class_weights_tensor: torch.Tensor | None,
+) -> torch.Tensor:
+    """Broadcast-mask Dice loss reference implementation for parity tests."""
+    weighted_pred = pred_prob * ignore_mask_exp
+    weighted_target = target_prob * ignore_mask_exp
+    weighted_prod = pred_prob * target_prob * ignore_mask_exp
+
+    numerator = 2 * weighted_prod.sum(dim=(0, 2, 3)) + smooth
+    denominator = (
+        weighted_pred.sum(dim=(0, 2, 3))
+        + weighted_target.sum(dim=(0, 2, 3))
+        + smooth
+    )
+    dice_per_class = 1 - numerator / denominator
+
+    if class_weights_tensor is not None:
+        return (dice_per_class * class_weights_tensor).sum()
+    return dice_per_class.mean()
+
+
+class TestDiceParity(unittest.TestCase):
+    def setUp(self):
+        torch.manual_seed(42)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    def test_binary_dice_loss_value_parity(self):
+        pred = torch.randn(4, 2, 32, 32, device=self.device, requires_grad=True)
+        target_int = torch.randint(
+            0, 2, (4, 32, 32), device=self.device, dtype=torch.uint8
+        )
+        target_int[0, 0, 0] = 255
+        target_int[1, -1, -1] = 255
+
+        pred_prob = torch.softmax(pred, dim=1)
+        target = make_onehot(target_int, 2, [1], self.device).detach()
+        ignore_mask_exp = (target_int != 255).unsqueeze(1).float().to(self.device)
+
+        expected = dice_loss_broadcast(pred_prob, target, ignore_mask_exp, 1.0, None)
+        dice_loss = customloss(output_classes=[1])(pred, target_int)[0]
+        self.assertAlmostEqual(dice_loss.item(), expected.item(), places=6)
+
+    def test_multiclass_dice_loss_value_parity(self):
+        pred = torch.randn(4, 3, 32, 32, device=self.device, requires_grad=True)
+        target_int = torch.randint(
+            0, 3, (4, 32, 32), device=self.device, dtype=torch.uint8
+        )
+        target_int[0, 0, 0] = 255
+        target_int[2, -1, -1] = 255
+
+        pred_prob = torch.softmax(pred, dim=1)
+        target = make_onehot(target_int, 3, [0, 1, 2], self.device).detach()
+        ignore_mask_exp = (target_int != 255).unsqueeze(1).float().to(self.device)
+
+        expected = dice_loss_broadcast(pred_prob, target, ignore_mask_exp, 1.0, None)
+        dice_loss = customloss(output_classes=[0, 1, 2])(pred, target_int)[0]
+        self.assertAlmostEqual(dice_loss.item(), expected.item(), places=6)
+
+    def test_binary_dice_with_class_weights(self):
+        pred = torch.randn(4, 2, 32, 32, device=self.device)
+        target_int = torch.randint(
+            0, 2, (4, 32, 32), device=self.device, dtype=torch.uint8
+        )
+        target_int[0, 0, 0] = 255
+
+        pred_prob = torch.softmax(pred, dim=1)
+        target = make_onehot(target_int, 2, [1], self.device).detach()
+        ignore_mask_exp = (target_int != 255).unsqueeze(1).float().to(self.device)
+        class_weights = torch.tensor([0.3, 0.7], device=self.device)
+
+        expected = dice_loss_broadcast(
+            pred_prob, target, ignore_mask_exp, 1.0, class_weights
+        )
+        loss_fn = customloss(class_weights=[0.3, 0.7], output_classes=[1]).to(
+            self.device
+        )
+        dice_loss = loss_fn(pred, target_int)[0]
+        self.assertAlmostEqual(dice_loss.item(), expected.item(), places=6)
+
+    def test_gradient_parity(self):
+        pred = torch.randn(2, 2, 16, 16, device=self.device, requires_grad=True)
+        target_int = torch.randint(
+            0, 2, (2, 16, 16), device=self.device, dtype=torch.uint8
+        )
+        target_int[0, 0, 0] = 255
+
+        pred_prob = torch.softmax(pred, dim=1)
+        target = make_onehot(target_int, 2, [1], self.device).detach()
+        ignore_mask_exp = (target_int != 255).unsqueeze(1).float().to(self.device)
+
+        expected = dice_loss_broadcast(pred_prob, target, ignore_mask_exp, 1.0, None)
+        expected_grad = torch.autograd.grad(expected, pred, retain_graph=True)[0]
+
+        dice_loss = customloss(output_classes=[1])(pred, target_int)[0]
+        actual_grad = torch.autograd.grad(dice_loss, pred)[0]
+
+        torch.testing.assert_close(expected_grad, actual_grad, rtol=1e-5, atol=1e-5)
 
 
 class TestClassWeights(unittest.TestCase):

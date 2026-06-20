@@ -1,0 +1,24 @@
+training_opts:
+  dataset_name: "comprehensive_v3_landsat_dem_flowacc_velmag"
+  run_name: "pub_dci_40_50_flowacc_velmag_noloss"
+  mlflow_experiment_name: "sota_replication"
+  checkpoint_monitor_start_epoch: 50
+
+loader_opts:
+  batch_size: 12
+  num_workers: 2
+  velocity_channels: true
+
+loss_opts:
+  use_velocity_loss: false
+
+model_opts:
+  framework: "smp"
+  name: "Unet"
+  channels_last: true
+  sigma_init: 0.5
+  min_log_var: -3.0
+  max_log_var: 2.0
+  args:
+    encoder_name: "resnet18"
+    encoder_weights: null

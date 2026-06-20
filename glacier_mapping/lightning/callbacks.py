@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pytorch_lightning as pl
@@ -136,41 +136,6 @@ class GlacierModelCheckpoint(ModelCheckpoint):
                 self._save_last_checkpoint(trainer, monitor_candidates)
             return
         super().on_train_epoch_end(trainer, pl_module)
-
-
-class GlacierTrainingMonitor(Callback):
-    def __init__(self, log_every_n_steps: int = 50):
-        super().__init__()
-        self.log_every_n_steps = log_every_n_steps
-
-    def on_train_batch_end(
-        self,
-        trainer: pl.Trainer,
-        pl_module: pl.LightningModule,
-        outputs: Any,
-        batch: Any,
-        batch_idx: int,
-    ):
-        if batch_idx % self.log_every_n_steps == 0:
-            import torch
-
-            if torch.cuda.is_available():
-                gpu_memory = torch.cuda.memory_allocated() / 1024**3
-                pl_module.log("gpu_memory_gb", gpu_memory, on_step=True, on_epoch=False)
-
-            optimizer = trainer.optimizers[0]
-            current_lr = optimizer.param_groups[0]["lr"]
-            pl_module.log("learning_rate", current_lr, on_step=True, on_epoch=False)
-
-    def on_validation_epoch_end(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule
-    ):
-        if (
-            hasattr(trainer, "callback_metrics")
-            and "val_loss" in trainer.callback_metrics
-        ):
-            pl_module.log("epoch", trainer.current_epoch, on_step=False, on_epoch=True)
-
 
 
 class TestEvaluationCallback(Callback):
@@ -310,10 +275,7 @@ class TestEvaluationCallback(Callback):
             getattr(pl_module.hparams, "class_names", ["background", "target"]),
         )
         n_classes = len(class_names)
-        metrics_opts = getattr(pl_module, "metrics_opts", {"threshold": [0.5, 0.5]})
-        threshold = metrics_opts.get("threshold", [0.5, 0.5])
         output_classes = getattr(pl_module, "output_classes", [1])
-
         rows = []
         tp_sum = [0.0] * n_classes
         fp_sum = [0.0] * n_classes
@@ -337,7 +299,6 @@ class TestEvaluationCallback(Callback):
                 y_pred, invalid_mask = predict_slice(
                     pl_module,
                     x,
-                    threshold,
                     fill_holes=True,
                     preprocessed_chw=True,
                 )
@@ -345,7 +306,7 @@ class TestEvaluationCallback(Callback):
                 if x_path not in prediction_cache:
                     x = np.load(x_path)
                     y_pred, invalid_mask = predict_slice(
-                        pl_module, x, threshold, fill_holes=True
+                        pl_module, x, fill_holes=True
                     )
                 else:
                     y_pred, invalid_mask = prediction_cache[x_path]

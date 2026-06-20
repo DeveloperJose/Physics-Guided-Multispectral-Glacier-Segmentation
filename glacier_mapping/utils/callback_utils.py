@@ -262,10 +262,8 @@ def generate_single_visualization(
     )
 
     # Get predictions and prepare labels
-    metrics_opts = getattr(pl_module, "metrics_opts", {"threshold": [0.5, 0.5]})
-    threshold = metrics_opts.get("threshold", [0.5, 0.5])
     probs = get_probabilities(pl_module, x_full)
-    y_pred = predict_from_probs(probs, pl_module, threshold[0] if threshold else None)
+    y_pred = predict_from_probs(probs, pl_module)
 
     y_gt_vis, y_pred_vis = prepare_labels_for_visualization(
         y_true_raw, y_pred, output_classes
@@ -453,14 +451,11 @@ def select_slices_by_iou_thirds(
     # Calculate IoU for each slice
     slice_ious = []
     output_classes = getattr(pl_module, "output_classes", [1])
-    metrics_opts = getattr(pl_module, "metrics_opts", {"threshold": [0.5, 0.5]})
-    threshold = metrics_opts.get("threshold", [0.5, 0.5])
-
     # info(f"Computing IoU for {len(slice_paths)} validation slices...")
     # for idx, x_path in enumerate(tqdm(slice_paths, desc="Val IoU computation")):
     for idx, x_path in enumerate(slice_paths):
         x = np.load(x_path, mmap_mode="r")
-        y_pred, invalid_mask = pl_module.predict_slice(x, threshold)
+        y_pred, invalid_mask = pl_module.predict_slice(x)
 
         y_true_raw = np.load(
             x_path.with_name(x_path.name.replace("tiff", "mask"))
@@ -564,16 +559,13 @@ def select_informative_test_tiles(
     tile_ious = []
     prediction_cache: Dict[Path, Tuple[np.ndarray, np.ndarray]] = {}
     output_classes = getattr(pl_module, "output_classes", [1])
-    metrics_opts = getattr(pl_module, "metrics_opts", {"threshold": [0.5, 0.5]})
-    threshold = metrics_opts.get("threshold", [0.5, 0.5])
-
     # info(f"Computing IoU for {len(tile_paths)} tiles (predictions cached for reuse)...")
 
     # from tqdm import tqdm
     # for idx, x_path in enumerate(tqdm(tile_paths, desc="IoU computation + caching")):
     for idx, x_path in enumerate(tile_paths):
         x = np.load(x_path, mmap_mode="r")
-        y_pred, invalid_mask = pl_module.predict_slice(x, threshold, fill_holes=True)
+        y_pred, invalid_mask = pl_module.predict_slice(x, fill_holes=True)
 
         # Cache prediction for reuse in full evaluation
         prediction_cache[x_path] = (y_pred, invalid_mask)
