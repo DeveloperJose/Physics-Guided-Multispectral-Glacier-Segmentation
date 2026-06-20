@@ -1,16 +1,16 @@
 training_opts:
   dataset_name: "comprehensive_v3_landsat_dem_flowacc_velmag"
-  run_name: "sota_dci_33_00_syncfree_progress_on"
+  run_name: "sota_dci_prof_old_dice_5epoch"
   mlflow_experiment_name: "sota_replication"
   seed: 8675309
-  epochs: 10
+  epochs: 5
   early_stopping: 0
   run_test_eval: false
   lr_monitor: false
-  progress_bar: true
+  progress_bar: false
 
 loader_opts:
-  batch_size: 12
+  batch_size: 4
   num_workers: 2
 
 loss_opts:
@@ -19,9 +19,15 @@ loss_opts:
 model_opts:
   framework: "smp"
   name: "Unet"
+  channels_last: true
   sigma_init: 0.5
   min_log_var: -3.0
   max_log_var: 2.0
   args:
     encoder_name: "resnet18"
     encoder_weights: null
+
+profiling_opts:
+  enabled: true
+  mode: "simple"
+  extended: true

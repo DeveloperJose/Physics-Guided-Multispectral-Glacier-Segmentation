@@ -1,9 +1,9 @@
 training_opts:
   dataset_name: "comprehensive_v3_landsat_dem_flowacc_velmag"
-  run_name: "sota_dci_33_03_prof_simple_channels_last"
+  run_name: "sota_dci_prof_pytorch_dice_rewrite"
   mlflow_experiment_name: "sota_replication"
   seed: 8675309
-  epochs: 10
+  epochs: 3
   early_stopping: 0
   run_test_eval: false
   lr_monitor: false
@@ -29,5 +29,15 @@ model_opts:
 
 profiling_opts:
   enabled: true
-  mode: "simple"
-  extended: true
+  mode: "pytorch"
+  profile_memory: false
+  record_shapes: true
+  with_stack: false
+  export_to_chrome: true
+  row_limit: 40
+  schedule:
+    wait: 1
+    warmup: 1
+    active: 5
+    repeat: 1
+    skip_first: 5

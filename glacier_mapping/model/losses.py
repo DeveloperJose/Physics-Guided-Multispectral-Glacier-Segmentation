@@ -132,20 +132,21 @@ class customloss(nn.Module):
                 )
             weights_tensor = weights_tensor.to(dtype=pred_prob.dtype)
 
-        pred_flat = pred_prob.permute(0, 2, 3, 1)[ignore_mask]
-        targ_flat = target_prob.permute(0, 2, 3, 1)[ignore_mask]
+        # Broadcast-mask Dice: avoids permute()[ignore_mask] advanced indexing
+        # which creates dynamic compacted tensors and unnecessary memory movement.
+        # Uses element-wise multiply + sum over (batch, height, width).
+        weighted_pred = pred_prob * ignore_mask_exp
+        weighted_target = target_prob * ignore_mask_exp
+        weighted_prod = pred_prob * target_prob * ignore_mask_exp
 
-        if pred_flat.numel() == 0:
-            dice_loss_scalar = zero
+        numerator = 2 * weighted_prod.sum(dim=(0, 2, 3)) + self.smooth
+        denominator = weighted_pred.sum(dim=(0, 2, 3)) + weighted_target.sum(dim=(0, 2, 3)) + self.smooth
+        dice_per_class = 1 - numerator / denominator
+
+        if weights_tensor is not None:
+            dice_loss_scalar = (dice_per_class * weights_tensor).sum()
         else:
-            numerator = 2 * (pred_flat * targ_flat).sum(dim=0) + self.smooth
-            denominator = pred_flat.sum(dim=0) + targ_flat.sum(dim=0) + self.smooth
-            dice_per_class = 1 - numerator / denominator
-
-            if weights_tensor is not None:
-                dice_loss_scalar = (dice_per_class * weights_tensor).sum()
-            else:
-                dice_loss_scalar = dice_per_class.mean()
+            dice_loss_scalar = dice_per_class.mean()
 
         pred_b_in = pred_prob
         targ_b_in = target_prob
