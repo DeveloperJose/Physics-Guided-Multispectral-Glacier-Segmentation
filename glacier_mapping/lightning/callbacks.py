@@ -159,22 +159,8 @@ class GlacierTrainingMonitor(Callback):
             hasattr(trainer, "callback_metrics")
             and "val_loss" in trainer.callback_metrics
         ):
-            val_loss = trainer.callback_metrics["val_loss"]
             pl_module.log("epoch", trainer.current_epoch, on_step=False, on_epoch=True)
 
-            if (
-                hasattr(pl_module, "best_val_loss")
-                and pl_module.best_val_loss is not None
-            ):
-                best_loss = pl_module.best_val_loss
-                if isinstance(best_loss, (int, float)):
-                    improvement = best_loss - float(val_loss)
-                    pl_module.log(
-                        "val_loss_improvement",
-                        improvement,
-                        on_step=False,
-                        on_epoch=True,
-                    )
 
 
 class TestEvaluationCallback(Callback):
@@ -198,7 +184,6 @@ class TestEvaluationCallback(Callback):
         self.viz_n = viz_n
         self.image_dir = Path(image_dir) if image_dir else None
         self.scale_factor = scale_factor
-        self.best_val_loss = float("inf")
         self.best_test_metrics = {}
         self.baseline_epoch = baseline_epoch
         self.aggressive_threshold = aggressive_threshold
@@ -237,8 +222,6 @@ class TestEvaluationCallback(Callback):
         if trainer.sanity_checking:
             return
         current_val_loss = float(trainer.callback_metrics.get("val_loss", float("inf")))
-        if current_val_loss < self.best_val_loss:
-            self.best_val_loss = current_val_loss
         if current_val_loss < self.last_val_loss:
             self.last_val_loss = current_val_loss
 
@@ -291,8 +274,8 @@ class TestEvaluationCallback(Callback):
             y_path = data_dir / "y.npy"
             if x_path.exists() and y_path.exists():
                 log.info("Using prebatched test data (X.npy / y.npy)")
-                prebatched_X = np.load(x_path)
-                prebatched_y = np.load(y_path).astype(np.uint8)
+                prebatched_X = np.load(x_path, mmap_mode="r")
+                prebatched_y = np.load(y_path, mmap_mode="r")
                 test_tiles_all = [
                     Path(data_dir / f"sample_{i:06d}")
                     for i in range(len(prebatched_X))

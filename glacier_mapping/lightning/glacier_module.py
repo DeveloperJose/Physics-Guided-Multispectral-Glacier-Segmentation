@@ -163,7 +163,6 @@ class GlacierSegmentationModule(pl.LightningModule):
         self._setup_velocity_denormalization()
         self._setup_metrics()
         self.automatic_optimization = True
-        self.best_val_loss = float("inf")
         self.class_name_to_short = {"BG": "bg", "CleanIce": "ci", "Debris": "dci"}
 
     def _make_log_var(
@@ -330,16 +329,6 @@ class GlacierSegmentationModule(pl.LightningModule):
 
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         self._update_metrics(y_hat, y_uint8, self.val_metrics, "val")
-
-        loss_value = loss.detach().item()
-        if loss_value < self.best_val_loss:
-            self.best_val_loss = loss_value
-        self.log(
-            "best_val_loss",
-            loss.new_tensor(self.best_val_loss),
-            on_step=False,
-            on_epoch=True,
-        )
 
         return loss
 
