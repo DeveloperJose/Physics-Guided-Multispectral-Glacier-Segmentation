@@ -591,11 +591,14 @@ class GlacierSegmentationModule(pl.LightningModule):
         param_groups = [
             {"params": self.model.parameters(), **optimizer_args},
         ]
+        log_var_optimizer_args = {**optimizer_args, "weight_decay": 0.0}
         if isinstance(self.raw_log_var_dice, nn.Parameter):
-            param_groups.append({"params": [self.raw_log_var_dice], **optimizer_args})
+            param_groups.append(
+                {"params": [self.raw_log_var_dice], **log_var_optimizer_args}
+            )
         if isinstance(self.raw_log_var_boundary, nn.Parameter):
             param_groups.append(
-                {"params": [self.raw_log_var_boundary], **optimizer_args}
+                {"params": [self.raw_log_var_boundary], **log_var_optimizer_args}
             )
 
         kw = {**optimizer_args}
