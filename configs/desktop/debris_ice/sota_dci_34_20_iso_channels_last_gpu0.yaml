@@ -1,13 +1,15 @@
 training_opts:
   dataset_name: "comprehensive_v3_landsat_dem_flowacc_velmag"
-  run_name: "sota_dci_prof_simple_dice_rewrite"
+  run_name: "sota_dci_34_20_iso_channels_last"
   mlflow_experiment_name: "sota_replication"
   seed: 8675309
-  epochs: 3
+  epochs: 10
   early_stopping: 0
   run_test_eval: false
   lr_monitor: false
   progress_bar: false
+  val_viz_n: 0
+  test_eval_n: 0
 
 loader_opts:
   batch_size: 12
@@ -26,8 +28,3 @@ model_opts:
   args:
     encoder_name: "resnet18"
     encoder_weights: null
-
-profiling_opts:
-  enabled: true
-  mode: "simple"
-  extended: true
