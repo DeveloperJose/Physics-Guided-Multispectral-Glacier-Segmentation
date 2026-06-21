@@ -1,0 +1,34 @@
+training_opts:
+  dataset_name: "lila_released_v1_full_physics"
+  run_name: "lila_dci_full_physics_bs8_seed42"
+  seed: 42
+  augmentation_seed: 1042
+  epochs: 120
+  early_stopping: 30
+
+loader_opts:
+  batch_size: 8
+
+loss_opts:
+  class_weights: [0, 1]
+
+model_opts:
+  framework: "smp"
+  name: "Unet"
+  channels_last: true
+  sigma_init: 0.5
+  min_log_var: -3.0
+  max_log_var: 2.0
+  args:
+    encoder_name: "resnet18"
+    encoder_weights: null
+
+optim_opts:
+  args:
+    lr: 0.0003
+    weight_decay: 5e-5
+    fused: true
+
+scheduler_opts:
+  args:
+    max_lr: 0.0005

@@ -16,6 +16,14 @@ IGNORE_LABEL = 255
 DEFAULT_VELOCITY_CLIP_M_PER_YEAR = 1000.0
 
 
+def _same_raster_grid(src: rasterio.DatasetReader, dst: rasterio.DatasetReader) -> bool:
+    if src.crs != dst.crs:
+        return False
+    if src.width != dst.width or src.height != dst.height:
+        return False
+    return np.allclose(tuple(src.transform), tuple(dst.transform), atol=1e-6)
+
+
 def plot_image_and_mask(rgb, mask, title, out_path):
     import matplotlib.pyplot as plt
     import matplotlib.colors as mcolors
@@ -262,27 +270,31 @@ def get_tiff_np(
 
     if add_velocity_to_output:
         if velocity_fname.exists():
-            from rasterio.warp import reproject, Resampling
-
             velocity = read_tiff(velocity_fname)
 
-            destination = np.zeros((4, tiff.height, tiff.width), dtype=np.float32)
+            if _same_raster_grid(velocity, tiff):
+                velocity_np = np.transpose(velocity.read(), (1, 2, 0)).astype(np.float32)
+            else:
+                from rasterio.warp import reproject, Resampling
 
-            for band_idx in range(4):
-                resampling_method = (
-                    Resampling.nearest if band_idx == 3 else Resampling.bilinear
-                )
-                reproject(
-                    source=rasterio.band(velocity, band_idx + 1),
-                    destination=destination[band_idx : band_idx + 1],
-                    src_transform=velocity.transform,
-                    src_crs=velocity.crs,
-                    dst_transform=tiff.transform,
-                    dst_crs=tiff.crs,
-                    resampling=resampling_method,
-                )
+                destination = np.zeros((4, tiff.height, tiff.width), dtype=np.float32)
 
-            velocity_np = np.transpose(destination, (1, 2, 0)).astype(np.float32)
+                for band_idx in range(4):
+                    resampling_method = (
+                        Resampling.nearest if band_idx == 3 else Resampling.bilinear
+                    )
+                    reproject(
+                        source=rasterio.band(velocity, band_idx + 1),
+                        destination=destination[band_idx : band_idx + 1],
+                        src_transform=velocity.transform,
+                        src_crs=velocity.crs,
+                        dst_transform=tiff.transform,
+                        dst_crs=tiff.crs,
+                        resampling=resampling_method,
+                    )
+
+                velocity_np = np.transpose(destination, (1, 2, 0)).astype(np.float32)
+
             velocity_np = np.nan_to_num(velocity_np)
 
             velocity_np[:, :, 3] = np.round(velocity_np[:, :, 3]).clip(0, 1)

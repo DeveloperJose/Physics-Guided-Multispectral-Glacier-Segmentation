@@ -56,7 +56,7 @@ import rasterio
 import s3fs
 import xarray as xr
 from pyproj import Transformer
-from rasterio.transform import from_bounds
+from affine import Affine
 from rasterio.warp import reproject, Resampling
 from shapely.geometry import box, shape
 from tqdm import tqdm
@@ -287,14 +287,18 @@ def extract_temporal_median(
     if len(x) == 0 or len(y) == 0:
         raise ValueError("Empty spatial dimensions after cropping")
 
-    # Create affine transform
-    transform = from_bounds(
-        west=float(x.min()),
-        south=float(y.min()),
-        east=float(x.max()),
-        north=float(y.max()),
-        width=len(x),
-        height=len(y),
+    # ITS_LIVE annual mosaics store x/y as pixel-center coordinates.
+    # Build affine from center spacing with half-pixel offsets, matching
+    # ITS_LIVE production geotransform logic.
+    dx = float(x[1] - x[0]) if len(x) > 1 else float(VELOCITY_RESOLUTION)
+    dy = float(y[1] - y[0]) if len(y) > 1 else -float(VELOCITY_RESOLUTION)
+    transform = Affine(
+        dx,
+        0.0,
+        float(x[0] - dx / 2.0),
+        0.0,
+        dy,
+        float(y[0] - dy / 2.0),
     )
 
     return v_median, vx_median, vy_median, transform

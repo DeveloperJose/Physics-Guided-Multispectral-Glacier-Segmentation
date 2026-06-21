@@ -1,0 +1,16 @@
+[
+  {
+    "cloud_cover": 4,
+    "date": "2007-12-14",
+    "image_id": "LE07_139041_20071214",
+    "image_name": "image131.tif",
+    "rebuild_rank": 937.3825292245562,
+    "scene_pool": "bibek",
+    "sensor_id": "ETM",
+    "spacecraft_id": "LANDSAT_7",
+    "system_time_start": 1197606377334,
+    "tile_index": 131,
+    "wrs_path": 139,
+    "wrs_row": 41
+  }
+]

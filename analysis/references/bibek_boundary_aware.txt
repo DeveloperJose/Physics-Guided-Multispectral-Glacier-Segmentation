@@ -1,0 +1,546 @@
+                                                       Boundary Aware U-Net for Glacier Segmentation
+                                                 Bibek Aryal∗1 , Katie E. Miles2 , Sergio A. Vargas Zesati1 , and Olac Fuentes1
+                                                                   1
+                                                                       The University of Texas at El Paso, Texas, USA
+                                                                        2
+                                                                          Aberystwyth University, Aberystwyth, UK
+
+                                         Abstract
+
+
+
+
+arXiv:2301.11454v1 [cs.CV] 26 Jan 2023
+                                         Large-scale study of glaciers improves our under-
+                                         standing of global glacier change and is impera-
+                                         tive for monitoring the ecological environment, pre-
+                                         venting disasters, and studying the effects of global
+                                         climate change. Glaciers in the Hindu Kush Hi-
+                                         malaya (HKH) are particularly interesting as the
+                                         HKH is one of the world’s most sensitive regions
+                                         for climate change. In this work, we: (1) propose a
+                                         modified version of the U-Net for large-scale, spa-
+                                         tially non-overlapping, clean glacial ice, and debris-
+                                         covered glacial ice segmentation; (2) introduce
+                                         a novel self-learning boundary-aware loss to im-
+                                         prove debris-covered glacial ice segmentation per-
+                                         formance; and (3) propose a feature-wise saliency
+                                         score to understand the contribution of each fea-
+                                         ture in the multispectral Landsat 7 imagery for
+                                         glacier mapping. Our results show that the debris-
+                                         covered glacial ice segmentation model trained us-
+                                         ing self-learning boundary-aware loss outperformed
+                                         the model trained using dice loss. Furthermore, we
+                                         conclude that red, shortwave infrared, and near-
+                                         infrared bands have the highest contribution to-
+                                         ward debris-covered glacial ice segmentation from
+                                         Landsat 7 images.                                      Figure 1: a) Spatially non-overlapping regions us-
+                                                                                                ing fishnet grid. b) A zoomed image of one of the
+                                                                                                cells showing clean ice and debris glacier labels.
+                                         1      Introduction
+                                         Glacier delineation using remote sensing imagery
+                                                                                                      glaciers in recent decades. The Himalaya is one of
+                                         has seen a growing use of deep learning in recent
+                                                                                                      the world’s most sensitive regions to global climate
+                                         years [5, 14, 15, 34, 36]. This can be attributed
+                                                                                                      change, with impacts manifesting at particularly
+                                         to factors such as the availability of large-scale re-
+                                                                                                      rapid rates [17, 19]. Unsurprisingly, much research
+                                         mote sensing data from multiple sources, the de-
+                                                                                                      has been focused on mapping glaciers in the Hindu
+                                         velopment of state-of-the-art deep learning archi-
+                                                                                                      Kush Himalayas (HKH) [5, 6, 36]. Several studies
+                                         tectures for image analysis, and the growing in-
+                                                                                                      have reported the performance of clean glacial ice
+                                         terest due to the impacts of climate change on
+                                                                                                      and debris-covered glacial ice mapping in the HKH;
+                                             ∗ Corresponding Author: baryal@miners.utep.edu           however, most research has been focused on specific
+
+
+                                                                                                  1
+                                         https://doi.org/10.7557/18.6789
+                                         © The author(s). Licensee Septentrio Academic Publishing, Tromsø, Norway. This is an open access article distributed
+                                         under the terms and conditions of the Creative Commons Attribution license
+                                         (http://creativecommons.org/licenses/by/4.0/).
+glacier basins within the region and not across the           loss [9] - to simultaneously learn multiple objec-
+region as a whole.                                            tives automatically during the training process for
+   Glaciers form when snow compresses under its               improved performance.
+own weight and hardens over long timescales [12].                While deep learning models have been shown to
+Near its formation, glacial ice has snow or ice sur-          perform well on various tasks involving computer
+face cover and is known as clean glacial ice. As              vision, the interpretability of these models is lim-
+glacial ice slowly moves down valleys under grav-             ited. Deep neural networks are often considered
+ity, avalanches can deposit debris (rocks and sed-            black boxes, since their decision rules can not be
+iment) on top of the glacier. Glacial ice having a            described easily. Unlike coefficients and decision
+significant covering of dirt/rocks/boulders is known          boundaries of simpler machine learning methods
+as debris-covered glacial ice. Clean glacial ice and          such as linear regression and decision trees, weights
+debris-covered glacial ice appear differently in re-          of neurons in deep neural networks can not be
+mote sensing imagery. The challenge lies in differ-           understood as knowledge directly. The develop-
+entiating clean glacial ice from temporary snow/ice           ment of transparent, understandable, and explain-
+cover and debris-covered glacial ice from moraines            able models is imperative for the wide-scale adop-
+and the surrounding valleys. The spectral unique-             tion of deep learning models. Over the years, many
+ness of clean glacial ice compared to surrounding             have proposed different approaches to describe deep
+terrain makes it relatively easy to identify and lo-          leaning models [22, 37, 39]. One of the most widely
+calize. However, the delineation of debris-covered            used methods to envision which pixels in the in-
+glacial ice poses significant challenges because of its       put image affect the outputs the most is by visu-
+non-unique spectral signature.                                alizing saliency maps [33]. A saliency map is ob-
+   The earliest approaches for debris-covered glacial         tained by calculating the gradient of the given out-
+ice segmentation involving deep learning used mul-            put class with respect to the input image by letting
+tilayer perceptrons to estimate the supraglacial de-          gradients backpropagate to the input. In the case
+bris loads of Himalayan glaciers using pre-defined            of multispectral or hyperspectral images, spectral
+glacier outlines [7, 8]. More recent methods for              saliency [20] is used to visualize salient pixels of an
+glacier segmentation use Convolutional Neural Net-            image. Image saliency maps, computed indepen-
+works (CNNs) due to their success in image-based              dently for all channels on a multispectral image,
+applications [5, 25, 36, 39]. Most recent approaches          can be used to visualize the contribution of each
+to learning-based image segmentation use variants             pixel in each channel toward the final output. We
+of the U-Net architecture [30]. Originally intro-             propose a method to quantify each channel’s con-
+duced for biomedical image segmentation, the U-               tributions towards the final label in the context of
+Net has seen successes in numerous applications               glacier segmentation using Landsat 7 imagery.
+involving satellite image segmentation [23, 29, 38].
+Moreover, different architectures based on the U-
+Net have also been used for glacier segmentation              2     Dataset and Methodology
+in recent years [5, 36]. However, unlike segmenta-
+tion for general images, the results when it comes            The HKH region covers an area of about 4.2 million
+to glacier segmentation are not very good, particu-           km2 from about 15◦ to 39◦ N latitude and about
+larly for debris-covered glacial ice.                         60◦ to 105◦ E longitude extending across eight
+   Here we present a variant of the U-Net and train           countries consisting of Afghanistan, Bangladesh,
+it using multispectral images from Landsat 7 as in-           Bhutan, China, India, Myanmar, Nepal, and Pak-
+puts. Researchers have shown that the performance             istan [4]. The geographic extent of the glaciers
+of deep learning models can be improved by learn-             within the HKH, however, ranges from about 27◦
+ing multiple objectives from a shared representa-             to 38◦ N and about 67◦ to 98◦ E (Figure 1).
+tion [11]. Early approaches to learn multiple tasks              We downloaded the Landsat 7 images used for
+use weighted sum of losses, where the loss weights            label creation using Google Earth Engine. Landsat
+are either constant or manually tuned [13, 21, 31].           7 contains the Enhanced Thematic Mapper Plus
+We propose a method to combine two different                  (ETM+) sensor which captures multiple spectral
+loss functions - masked dice loss [2] and boundary            bands as shown in Table 1. The thermal infrared
+
+
+                                                          2
+bands were upsampled from 60 meters to 30 meters           was then cropped into multiple sub-images of
+resulting in all bands having a spatial resolution         512 × 512 pixels and the sub-images with less
+of 30 meters. The glacier outlines (labels) [3]            than 10% of pixels as glacier labels were discarded
+were downloaded from International Centre for              to reduce class imbalance. These sub-images are
+Integrated Mountain Development (ICIMOD)                   then normalized and provided as input to the
+Regional Database System. (http://rds.icimod.              model. There are 333, 68, and 98 sub-images in
+org/Home/DataDetail?metadataId=31029) The                  the training, validation, and test sets respectively.
+glacier labels contain information on clean-ice and        Every pixel within each sub-image can have one of
+debris-covered glaciers in the HKH for regions             four different classes as can be seen in Figure 2.
+within Afghanistan, Bhutan, India, Nepal, and
+Pakistan. The ICIMOD glacier outline labels used
+in this research were derived using the object-
+based image classification methods separately for
+clean-ice and debris-covered glaciers and fine-tuned
+with manual intervention [4].
+
+
+      Table 1: Landsat 7 bands description
+    Name         Description
+    B1           Blue
+    B2           Green
+    B3           Red
+    B4           Near Infrared                             Figure 2: (a) Sample sub-image, (b) Corresponding
+    B5           Shortwave Infrared 1                      Clean Glacial Ice, Debris Glacial Ice, Background,
+    B6 VCID 1 Low-gain Thermal Infrared                    and Masked labels
+    B6 VCID 2 High-gain Thermal Infrared
+    B7           Shortwave Infrared 2                   The step-by-step processing we followed to pre-
+                                                      pare input features for the model is shown in Fig-
+   The Landsat 7 images that were used for ure 3. The distribution of pixels for train, valida-
+delineating glacier labels [4] overlap spatially. tion, and test set across different classes is shown
+To avoid spatial overlap between train and test in Table 2 and highlights that the distribution of
+regions, we created polygon features represent- pixels across different sets is similar and labels are
+ing a fishnet of rectangular cells for the entire heavily imbalanced across classes.
+geographical region. We then created a mosaic
+of all Landsat 7 images used for labeling into
+a single raster and clipped the raster mosaic to Table 2: Labels Distribution - Random Sampling
+country boundaries for glacier labels (Figure 1) to    split background clean          debris masked
+avoid false negative glacier labels in the dataset.    train   72.44%         21.77%   2.44% 3.35%
+Finally, we discarded the rasters within the poly-     val     68.69%         23.22%   3.24% 4.85%
+gon cells that do not contain any glacier labels       test    70.16%         22.97%   2.65% 4.21%
+and downloaded clipped regions within selected clean = clean glacial ice
+cells. The Google Earth Engine code to replicate debris = debris-covered glacial ice
+this process can be found in repository https:
+//code.earthengine.google.com/?accept_                  We used a modified version of the U-Net archi-
+repo=users/bibekaryal7/get_hkh_tiff.             The tecture [30] as shown in Figure 4. Each input sub-
+selected cells were then randomly split into train, image is 512 × 512 pixels in size. Zero padding was
+validation, and test sets with no geospatial overlap. added during each convolution operation to make
+1163 out of 1364 cells were filtered out to leave the output labels the same size as input sub-images.
+us with 141, 20, and 40 cells in the training, We replaced the Rectified Linear Unit (ReLU) in
+validation, and test sets respectively. Each cell the original U-Net architecture with Gaussian Er-
+
+
+                                                       3
+                                                                  We trained two separate models, one for seg-
+                                                               menting clean glacial ice and one for debris-covered
+                                                               glacial ice, and combined the outputs to produce
+                                                               the final segmentation map. Definitions of what
+                                                               constitutes debris-covered glacial ice vary widely,
+                                                               however, as a glacier does not have to be fully cov-
+                                                               ered by debris to be classified as debris-covered
+                                                               glacial ice [24]. Therefore, for the pixels where
+                                                               debris-covered glacial ice labels overlapped with
+                                                               clean glacial ice labels on the final segmentation
+                                                               map, the output label was set as debris-covered
+                                                               glacial ice. The code to replicate our process can be
+                                                               found in the GitHub repository (https://github.
+                                                               com/Aryal007/glacier_mapping.git).
+
+           Figure 3: Input preprocessing
+                                                               3     Experiments
+                                                               3.1    Self-learning         Boundary-aware
+ror Linear Units (GELU) [16]. We applied batch
+normalization after each convolution operation and                    Loss
+spatial dropout [35] of 0.1 after each down-sampling           The subject of this section of our work lies at the
+and up-sampling block to reduce overfitting. We                intersection of two branches of research, which are
+also randomly modified 15% of the training sam-                penalizing misalignment of label boundaries by us-
+ples by either rotating (90◦ , 180◦ , 270◦ ) or flipping       ing a boundary-aware loss and learning multi-task
+(horizontal/vertical) the input sub-images to the              weights during the training process. We propose a
+model. We trained the modified U-Net architec-                 combined loss (LCombined ) that is a weighted sum
+ture for 250 epochs using the Adam optimizer and               of masked dice loss (LM Dice ) and boundary loss
+evaluated the performance based on precision, re-              (LBoundary ), as described in Equation 1. We also
+call, and Intersection over Union (IoU).                       compare the performance of our methods using the
+                                                               modified U-Net to the standard U-Net trained on
+                                                               cross entropy loss (LCE ).
+
+
+                                                     LCombined = α × LM Dice + (1 − α) × LBoundary
+                                                                                                      (1)
+                                                        The value of hyperparameter α can be set manu-
+                                                     ally between 0 and 1. Having an α of 1 is equivalent
+                                                     to training the model exclusively using masked dice
+                                                     loss and an α of 0 is the same as training the model
+                                                     exclusively using boundary loss. However, tuning
+                                                     the value of α manually for the best results is an
+                                                     expensive process. In order to learn the weights
+                                                     for LBoundary and LM Dice through backpropaga-
+                                                     tion, we initially set α to 0.5 and let the model
+                                                     find the best value of α. However, we observe that
+                                                     without any constraints on the value of α, the net-
+Figure 4: Our modified U-Net architecture has 32 work updates α such that LCombined is minimized
+feature maps in the first convolution layer. We also without necessarily having to minimize LM Dice or
+introduce batch normalization and spatial dropout LBoundary . This results in poor performance. In-
+in the modified architecture.                        spired by [18] for weighing two different loss func-
+
+
+                                                           4
+Table 3: Performance comparisons between standard U-Net trained using cross entropy loss and modified
+U-Net trained using combined loss and self-learning boundary-aware loss
+                                             clean                         debris
+         Loss (L)    Lweight(s)
+                                Precision Recall       IoU     Precision Recall       IoU
+         LCE         −          89.39%       84.65% 70.16% 0.00%           0.00%      0.00%
+         LCombined 0            68.40%       0.25%     0.25%   3.00%       99.75% 3.00%
+         LCombined 0.1          79.82%       79.66% 66.31% 50.93%          49.30% 33.43%
+         LCombined 0.5          81.60%       80.77% 68.33% 51.16%          46.92% 32.41%
+         LCombined 0.9          81.60%       80.77% 68.33% 51.16%          46.92% 32.41%
+         LCombined 1            80.31%       80.65% 67.34% 46.00%          44.10% 29.05%
+         LSLBA       Dynamic 81.59%          80.55% 68.17% 51.97%          53.81% 35.94%
+       *clean = clean glacial ice; debris = debris-covered glacial ice
+
+
+tions, we propose Self-Learning Boundary-Aware best for debris-covered glacial ice segmentation and
+loss (LSLBA ) that is a combination of LM Dice and eliminates the need to fine-tune loss weights. We
+LBoundary .                                                   can also see that the model fails to converge when
+                                                              training solely on boundary loss (α = 0) and train-
+                                                              ing on glacier boundaries by incorporating bound-
+LSLBA = 2α1 2 × LM Dice + 2α1 2 × LBoundary + |ln (α1 × α2 )|
+            1                 2                               ary loss along with masked dice loss results in
+                                                       (2) an overall improvement in performance for debris-
+   In the case of LSLBA , α1 and α2 both are initially covered glacial ice regardless of the weighting fac-
+set to 1 and we let the model find the best value tor. Figure 5 shows the weights for masked dice loss
+for α1 and α2 through backpropagation. In Table 3 ( 1 2 ) and the weights for boundary loss ( 1 2 ) vs.
+                                                                2α1                                       2α2
+we show performance for different values of α in
+                                                              epoch during training for debris-covered glacial ice.
+the case of LCombined and performance of LSLBA .
+                                                              The optimal values for α1 and α2 are calculated to
+One advantage of using LSLBA over LCombined is
+                                                              be 0.9569 and 1.045 for clean glacial ice segmenta-
+that there is no extra hyperparameter that requires
+                                                              tion and 0.952 and 1.05 for debris-covered glacial
+fine-tuning. All experiments in Table 3 use eight
+                                                              ice segmentation for LSLBA .
+features from Landsat 7 imagery as inputs.
+
+                                                            3.2      Representation Analysis
+                                                            To understand the contribution of each feature in
+                                                            the multispectral image toward the final label, we
+                                                            computed a Saliency Score (SS) for each feature by
+                                                            summing all pixels in the Saliency Map (SM) for
+                                                            that feature.
+
+                                                                            c−1 r−1
+                                                                            P   P
+                                                            SS f eature =             SM f eature (i, j)∀ f eature ∈ Input
+                                                                            i=0 j=0
+                                                                                                                     (3)
+                                                            where:
+
+                                                            r, c = number of rows, columns in saliency map
+
+Figure 5: Masked Dice Loss weights and Boundary
+Loss weights vs. epoch for debris-covered glacial ice         Average feature saliency scores across all the im-
+                                                            ages in the training samples are shown in Fig-
+  From Table 3, we see that LSLBA performs the              ure 6. The channel-wise contributions towards
+
+
+                                                        5
+                                                           As a result, numerous approaches to automati-
+                                                           cally delineate glacier boundaries have been pro-
+                                                           posed [5, 6, 14, 15, 34, 36]. We frequently observe
+                                                           deep learning methods outperforming traditional
+                                                           machine learning methods for glacier segmentation
+                                                           in the literature [1, 5]. However, the results have
+                                                           not been very good, particularly in the case of
+                                                           debris-covered glacial ice.
+                                                              In this work, we modify U-Net and train it using
+                                                           a novel loss function that allows the modified U-
+                                                           Net to focus on glacier boundaries. From Table 3,
+                                                           we see that standard U-Net is not able to detect
+                                                           debris-covered glacial ice in input sub-images. We
+                                                           can also see from Table 2 that only 2.44% of pix-
+                                                           els in the training set correspond to debris-covered
+                                                           glacial ice. This shows that our proposed method
+                                                           is more robust than the original U-Net to imbal-
+                                                           anced labels, which are common in remote sensing
+                                                           datasets.
+                                                              From Figure 5, we can see how the weights
+                                                           change for LSLBA while training. A higher weight
+                                                           is assigned to masked dice loss at the beginning
+                                                           and the weights for boundary loss are gradually in-
+                                                           creased during training. The reason behind this
+                                                           could be that for an untrained model, it may be
+                                                           easier to learn glacier instances over trying to learn
+Figure 6: Average saliency scores for all sub-images       the boundaries. However once the network learns
+in training set.                                           to label instances, it is easier to learn the glacier
+                                                           boundaries. This also explains why the model fails
+debris-covered glacial ice segmentation in decreas-        to converge when training solely on LBoundary from
+ing order are: red, shortwave infrared 1, near in-         scratch as can be seen from the results in Table 3.
+frared, green, high-gain thermal infrared, short-             We presented methods to improve debris-covered
+wave infrared 2, low-gain thermal infrared, and            glacial ice segmentation from remote sensing im-
+blue. Similarly, for clean glacial ice segmentation,       agery using deep learning. While we were able to
+the channel-wise contributions in decreasing order         show significant improvements over existing meth-
+are: shortwave infrared 2, blue, shortwave infrared        ods, the IoU for debris-covered glacial ice still leaves
+1, high-gain thermal infrared, red, low-gain ther-         much to be desired. The existing body of litera-
+mal infrared, near infrared, and green. As shown           ture on the topic has shown that the performance
+in Figure 6, the segmentation models have different        for debris-covered glacial ice segmentation can be
+high contributing channels for clean glacial ice and       improved by incorporating thermal signatures [28]
+debris-covered glacial ice segmentation.                   and topographical information [10, 26, 27] from
+                                                           other satellites. Since debris-covered glacial ice is
+                                                           common in low-gradient areas due to how it forms
+4    Discussion                                            and has cooler surface temperatures compared to
+                                                           the surrounding non-glaciated regions, we suspect
+Glaciers have been melting at an unprecedented             that adding this information can further help im-
+rate in recent years due to global climate                 prove the performance of debris-covered glacial ice
+change [17, 19]. Glaciers are the largest fresh-           segmentation. We may also be able to see an im-
+water reservoir on the planet [32], so it is nec-          provement in performance by using images from
+essary to understand the changes they undergo.             the recently-launched Landsat 9 satellite, instead
+
+
+                                                       6
+of the Landsat 7 images used in this work. The
+Operational Land Imager 2 (OLI-2) and the Ther-
+mal Infrared Sensor 2 (TIRS-2) sensors on Land-
+sat 9 provide data that is radiometrically and ge-
+ometrically superior to instruments on the previ-
+ous generation Landsat satellites. With the higher
+radiometric resolution, Landsat 9 can differentiate
+16,384 shades of a given wavelength compared to
+only 256 shades in Landsat 7. Meanwhile, the
+TIRS-2 in Landsat 9 enables improved atmospheric
+correction and more accurate surface temperature
+measurements. Future work includes using the im-
+ages captured through these improved sensors and
+incorporating additional information such as a dig-
+ital elevation model for improving debris-covered
+glacial ice segmentation performance.
+
+
+5    Conclusion
+In this research study, we proposed a modified
+version of the U-Net architecture for large-scale
+debris-covered glacial ice and clean glacial ice seg-       Figure 7: (a) Sample subimage from test set (b)
+mentation in the HKH from Landsat 7 multispec-              Corresponding clean glacial ice and debris-covered
+tral imagery and concluded that debris-covered              glacial ice ground truth labels (c) True positive
+glacial ice (IoU: 35.94%) is significantly harder           (TP), False positive (FP), False negative (FN) for
+to delineate compared to clean glacial ice (IoU:            clean glacial ice (IoU 79.17%) (d) TP, TP, FN for
+68.17%)(Table 3). We also introduced two differ-            debris-covered glacial ice (IoU 59.19%)
+ent methods to combine commonly-used masked
+dice loss and boundary loss to incorporate label
+boundaries into the training process. We show               6    Acknowledgements
+that the performance of debris-covered glacial ice
+segmentation can be improved by encouraging the             We would like to thank Microsoft for providing us
+deep learning model to focus on label boundaries.           with the Microsoft Azure resources through their
+The performance can be improved further by cor-             AI for Earth grant program (Grant ID: AI4E-1792-
+rectly weighing loss terms. Furthermore, the rela-          M6P7-20121005). We also acknowledge ICIMOD
+tive weights can be learned automatically from the          for providing a rich dataset which this work has
+data during the training process using our proposed         been built on. This research was supported in part
+loss (LSLBA ). Figure 7 shows the performance of            by the Department of Computer Science at The
+the models trained using LSLBA on a sample image            University of Texas at El Paso.
+from the test set. We also introduced the concept of
+feature saliency scores to quantify the contribution
+of each feature (channel) in the input image toward         References
+the final label and concluded that the red, short-
+wave infrared, and near infrared bands contribute            [1] B. Aryal. Glacier Segmentation in Satel-
+the most towards the final label for debris-covered              lite Images for Hindu Kush Himalaya Region.
+glacial ice segmentation, while shortwave infrared               PhD thesis, 2020.
+2, blue, shortwave infrared 1 bands contributed the
+most towards the final label for clean glacial ice           [2] B. Aryal, S. M. Escarzaga, S. A. Vargas Zesati,
+segmentation.                                                    M. Velez-Reyes, O. Fuentes, and C. Tweedie.
+
+
+                                                        7
+     Semi-automated semantic segmentation of arc-        ASTER data.         In Proceedings of the 8th
+     tic shorelines using very high-resolution air-      International Symposium on High Mountain
+     borne imagery, spectral indices and weakly su-      Remote Sensing Cartography. Karl-Franzens-
+     pervised machine learning approaches. Remote        Universität Graz, 2005.
+     Sensing, 13(22):4572, 2021. doi: 10.3390/
+     rs13224572.                                    [11] R. Caruana. Multitask learning. Machine
+                                                         learning, 28(1):41–75, 1997. doi: 10.1023/A:
+ [3] S. Bajracharya, S. Maharjan, and F. Shrestha.       1007379606734.
+     Clean ice and debris covered glaciers of HKH
+     region. 2011. doi: 10.26066/RDS.31029.         [12] K. M. Cuffey and W. S. B. Paterson. The
+                                                         physics of glaciers. Academic Press, 2010.
+ [4] S. R. Bajracharya and B. R. Shrestha. The sta-      ISBN 9780080919126.
+     tus of glaciers in the Hindu Kush-Himalayan
+     region. 2011. doi: 10.53055/ICIMOD.551.        [13] D. Eigen and R. Fergus. Predicting depth, sur-
+                                                         face normals and semantic labels with a com-
+ [5] S. Baraka, B. Akera, B. Aryal, T. Sherpa,           mon multi-scale convolutional architecture. In
+     F. Shrestha, A. Ortiz, K. Sankaran, J. M.           Proceedings of the IEEE International Confer-
+     Lavista Ferres, M. A. Matin, and Y. Ben-            ence on Computer Vision, pages 2650–2658,
+     gio.    Machine learning for glacier moni-          2015.
+     toring in the Hindu Kush Himalaya. In
+     NeurIPS 2020 Workshop on Tackling Climate [14] J. Florath, S. Keller, R. Abarca-del Rio,
+     Change with Machine Learning, 2020. URL             S. Hinz, G. Staub, and M. Weinmann. Glacier
+     https://www.climatechange.ai/papers/                monitoring based on multi-spectral and multi-
+     neurips2020/57.                                     temporal satellite data: A case study for clas-
+                                                         sification with respect to different snow and ice
+ [6] R. Bhambri and T. Bolch. Glacier map-
+                                                         types. Remote Sensing, 14(4):845, 2022. doi:
+     ping: a review with special reference to the
+                                                         10.3390/rs14040845.
+     Indian Himalayas. Progress in Physical Ge-
+     ography, 33(5):672–704, 2009. doi: 10.1177/ [15] Q. He, Z. Zhang, G. Ma, and J. Wu. Glacier
+     0309133309348112.                                   identification from Landsat8 OLI imagery us-
+ [7] M. P. Bishop, J. F. Shroder Jr, and J. L.               ing deep U-NET. ISPRS Annals of Pho-
+     Ward. SPOT multispectral analysis for pro-              togrammetry, Remote Sensing & Spatial In-
+     ducing supraglacial debris-load estimates for           formation Sciences, 5(3), 2020. doi: 10.5194/
+     Batura glacier, Pakistan. Geocarto Inter-               isprs-annals-V-3-2020-381-2020.
+     national, 10(4):81–90, 1995. doi: 10.1080/          [16] D. Hendrycks and K. Gimpel.         Gaussian
+     10106049509354515.                                       error linear units (gelus). arXiv preprint
+ [8] M. P. Bishop, J. F. Shroder Jr, and B. L. Hick-          arXiv:1606.08415, 2016. doi: 10.48550/arXiv.
+     man. SPOT panchromatic imagery and neu-                  1606.08415.
+     ral networks for information extraction in a
+                                                     [17] W. W. Immerzeel, A. Lutz, M. Andrade,
+     complex mountain environment. Geocarto In-
+                                                          A. Bahl, H. Biemans, T. Bolch, S. Hyde,
+     ternational, 14(2):19–28, 1999. doi: 10.1080/
+                                                          S. Brumby, B. Davies, A. Elmore, et al. Im-
+     10106049908542100.
+                                                          portance and vulnerability of the world’s water
+ [9] A. Bokhovkin and E. Burnaev. Boundary loss           towers. Nature, 577(7790):364–369, 2020. doi:
+     for remote sensing imagery semantic segmen-          10.1038/s41586-019-1822-y.
+     tation. In International Symposium on Neural
+     Networks, pages 388–401. Springer, 2019. doi: [18] A. Kendall, Y. Gal, and R. Cipolla. Multi-task
+     10.1007/978-3-030-22808-8 38.                        learning using uncertainty to weigh losses for
+                                                          scene geometry and semantics. In Proceedings
+[10] T. Bolch and U. Kamp. Glacier mapping                of the IEEE Conference on Computer Vision
+     in high mountains using DEMs, Landsat and            and Pattern Recognition (CVPR), June 2018.
+
+
+                                                     8
+[19] P. D. Kraaijenbrink, M. Bierkens, A. Lutz, [26] N. Mölg, T. Bolch, P. Rastner, T. Strozzi, and
+     and W. Immerzeel. Impact of a global tem-       F. Paul. A consistent glacier inventory for
+     perature rise of 1.5 degrees Celsius on Asia’s  Karakoram and Pamir derived from Landsat
+     glaciers. Nature, 549(7671):257–260, 2017. doi: data: distribution of debris cover and map-
+     10.1038/nature23878.                            ping challenges. Earth System Science Data,
+                                                     10(4):1807–1827, 2018.
+[20] S. Le Moan, A. Mansouri, J. Y. Hardeberg,
+     and Y. Voisin. Saliency for spectral image [27] F. Paul, C. Huggel, and A. Kääb. Combining
+     analysis. IEEE Journal of Selected Topics       satellite multispectral image data and a digi-
+     in Applied Earth Observations and Remote        tal elevation model for mapping debris-covered
+     Sensing, 6(6):2472–2479, 2013. doi: 10.1109/    glaciers. Remote sensing of Environment, 89
+     JSTARS.2013.2257989.                            (4):510–518, 2004.
+[21] B. Leibe, A. Leonardis, and B. Schiele. Robust [28] R. Ranzi, G. Grossi, L. Iacovelli, and
+     object detection with interleaved categoriza-       S. Taschner. Use of multispectral aster images
+     tion and segmentation. International Journal        for mapping debris-covered glaciers within the
+     of Computer Vision, 77(1):259–289, 2008. doi:       glims project. In IGARSS 2004. 2004 IEEE
+     10.1007/s11263-007-0095-3.                          International Geoscience and Remote Sens-
+                                                         ing Symposium, volume 2, pages 1144–1147.
+[22] W. Luo, Y. Li, R. Urtasun, and R. Zemel.
+                                                         IEEE, 2004.
+     Understanding the effective receptive field in
+     deep convolutional neural networks. Advances [29] C. Robinson, A. Ortiz, K. Malkin, B. Elias,
+     in neural information processing systems,           A. Peng, D. Morris, B. Dilkina, and N. Jo-
+     29, 2016.      URL https://proceedings.             jic. Human-machine collaboration for fast
+     neurips.cc/paper/2016/file/                         land cover mapping. In Proceedings of the
+     c8067ad1937f728f51288b3eb986afaa-Paper.             AAAI Conference on Artificial Intelligence,
+     pdf.                                                volume 34, pages 2509–2517, 2020. doi: 10.
+                                                         1609/aaai.v34i03.5633.
+[23] J. McGlinchy, B. Johnson, B. Muller,
+     M. Joseph, and J. Diaz.        Application of [30] O. Ronneberger, P. Fischer, and T. Brox.
+     UNet fully convolutional neural network to          U-Net: convolutional networks for biomed-
+     impervious surface segmentation in urban en-        ical image segmentation. In International
+     vironment from high resolution satellite im-        Conference on Medical image computing and
+     agery. In IGARSS 2019-2019 IEEE Interna-            computer-assisted intervention, pages 234–
+     tional Geoscience and Remote Sensing Sym-           241. Springer, 2015. ISBN 978-3-319-24574-4.
+     posium, pages 3915–3918. IEEE, 2019. doi:
+     10.1109/IGARSS.2019.8900453.                   [31] P. Sermanet, D. Eigen, X. Zhang, M. Math-
+                                                         ieu, R. Fergus, and Y. LeCun. Overfeat: inte-
+[24] K. E. Miles, B. Hubbard, T. D. Irvine-              grated recognition, localization and detection
+     Fynn, E. S. Miles, D. J. Quincey, and A. V.         using convolutional networks. arXiv preprint
+     Rowan. Hydrology of debris-covered glaciers         arXiv:1312.6229, 2014. doi: 10.48550/arXiv.
+     in high mountain Asia. Earth-Science Re-            1312.6229.
+     views, 207:103212, 2020. ISSN 0012-8252.
+     doi: 10.1016/j.earscirev.2020.103212. URL [32] I. A. Shiklomanov et al. Global water re-
+     https://www.sciencedirect.com/science/              sources. Nature and resources, 26(3):34–43,
+     article/pii/S0012825220302580.                      1990.
+
+[25] Y. Mohajerani, M. Wood, I. Velicogna, and [33] K. Simonyan, A. Vedaldi, and A. Zisserman.
+     E. Rignot. Detection of glacier calving mar-   Deep inside convolutional networks: Visual-
+     gins with convolutional neural networks: A     ising image classification models and saliency
+     case study. Remote Sensing, 11(1):74, 2019.    maps. arXiv preprint arXiv:1312.6034, 2013.
+     doi: 10.3390/rs11010074.                       doi: 10.48550/arXiv.1312.6034.
+
+
+                                                  9
+[34] S. Tian, Y. Dong, R. Feng, D. Liang, and
+     L. Wang. Mapping mountain glaciers using
+     an improved U-Net model with cSE. Interna-
+     tional Journal of Digital Earth, 15(1):463–477,
+     2022. doi: 10.1080/17538947.2022.2036834.
+[35] J. Tompson, R. Goroshin, A. Jain, Y. LeCun,
+     and C. Bregler. Efficient object localization us-
+     ing convolutional networks. In Proceedings of
+     the IEEE conference on computer vision and
+     pattern recognition, pages 648–656, 2015.
+[36] Z. Xie, U. K. Haritashya, V. K. Asari, B. W.
+     Young, M. P. Bishop, and J. S. Kargel.
+     GlacierNet: a deep-learning approach for
+     debris-covered glacier mapping. IEEE Access,
+     8:83495–83510, 2020. doi: 10.1109/ACCESS.
+     2020.2991187.
+[37] J. Yosinski, J. Clune, A. M. Nguyen, T. J.
+     Fuchs, and H. Lipson. Understanding neural
+     networks through deep visualization. CoRR,
+     abs/1506.06579, 2015. URL http://arxiv.
+     org/abs/1506.06579.
+[38] P. Zhang, Y. Ke, Z. Zhang, M. Wang, P. Li,
+     and S. Zhang. Urban land use and land cover
+     classification using novel deep learning mod-
+     els based on high spatial resolution satellite
+     imagery. Sensors, 18(11), 2018. ISSN 1424-
+     8220. doi: 10.3390/s18113717. URL https:
+     //www.mdpi.com/1424-8220/18/11/3717.
+
+[39] M. Zheng, X. Miao, and K. Sankaran. Inter-
+     active visualization and representation anal-
+     ysis applied to glacier segmentation. ISPRS
+     International Journal of Geo-Information, 11
+     (8), 2022. ISSN 2220-9964. doi: 10.3390/
+     ijgi11080415. URL https://www.mdpi.com/
+     2220-9964/11/8/415.
+
+
+
+
+                                                     10
+
