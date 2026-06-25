@@ -64,6 +64,15 @@ uv run python scripts/predict.py --ci-run-name run_name --server desktop --gpu 0
 uv run python scripts/predict.py --ci-run-name ci_run_name --deb-run-name dci_run_name --server desktop --gpu 0 --split test
 ```
 
+## Data Location Policy
+- Store all raw/rebuilt HKH data under `/home/devj/local-arch/data/HKH_raw/`.
+- For GEE rebuild downloads, use these directories exactly:
+  - `/home/devj/local-arch/data/HKH_raw/HKH_rebuild_gapfill_mixed/`
+  - `/home/devj/local-arch/data/HKH_raw/HKH_rebuild_gapfill_le07/`
+  - `/home/devj/local-arch/data/HKH_raw/HKH_rebuild_median/`
+- Do not place rebuilt HKH TIFFs in `output/`, temp directories, or ad hoc folders.
+- When creating new scripts, manifests, or audit helpers for rebuild data, default to paths under `/home/devj/local-arch/data/HKH_raw/` unless the user says otherwise.
+
 ## Configuration System
 - 4-level merge: `configs/train.yaml` (global defaults) → `configs/servers.yaml` (server) → `configs/tasks/{task}.yaml` (task) → experiment file.
 - Experiment files live under `configs/{server}/{task}/`. Only override what differs from upstream levels.

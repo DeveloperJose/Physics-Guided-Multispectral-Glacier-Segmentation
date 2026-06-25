@@ -18,8 +18,8 @@ Core external references:
 ## 1. Big decisions
 
 Current working strategy has 2 dataset tracks:
-1. **Track A — Benchmark-faithful rebuild**: Replicate LILA released dataset's scene-by-ID approach from Python EE. Use the same 35 scene IDs (from `Aryal007/GEE_landsat_7_query_tiles/ids.js` analysis_image_ids_2). Reproduce scene-by-scene with gapfill or median compositing. Labels from LILA `clean.shp` + `debris.shp`.
-2. **Track B — Improved rebuild**: Same scene IDs but with better compositing (median instead of single-scene) and optional extra channels (terrain features from ch.3, velocity from ch.4).
+1. **Track A — ICIMOD/Bibek-faithful rebuild**: Rebuild from the 41 Landsat 7 IDs in `google_earth_scripts/ids.js`, which Bibek says correspond to the exact ICIMOD labeling images used for the shapefiles (or the updated thesis-aligned iteration of those same labeling images). Labels stay unchanged from ICIMOD/LILA `clean.shp` + `debris.shp`.
+2. **Track B — Improved dynamic rebuild**: Dynamic C02 scene search with auditable compositing and temporal controls, optimized for image quality / coverage rather than exact label-image provenance.
 
 ### Decision rationale
 
@@ -37,7 +37,7 @@ Two GEE codebases exist with different strategies:
 - This mosaic approach is what causes the qualityMosaic streaking artifacts we observed
 - Less reproducible: depends on GEE collection state at query time
 
-**Recommendation**: Track A should anchor to `Aryal007/GEE_landsat_7_query_tiles` scene-by-ID approach. It's more deterministic, matches released LILA artifacts, and provides a cleaner baseline for improvements.
+**Updated recommendation**: Track A should anchor to the 41-ID ICIMOD/Bibek image set, not the released LILA 35-scene packaging. Bibek clarified that the 41 Landsat IDs are the images ICIMOD used for labeling (or the updated thesis-aligned set preserving that alignment), and that no edits were made to the shapefiles. Released LILA remains useful as a public benchmark, but it is now understood to be an earlier attempt that does not use the exact labeling images.
 
 ### LILA dataset performance with current code
 
@@ -101,6 +101,7 @@ Conclusion:
 - future benchmark-faithful rasterization should prefer LILA `clean.shp` + `debris.shp`
 - not public `HKH_Glaciers.shp`
 - merged `HKH_CIDC_5basins_all.shp` remains useful for compatibility checks
+- Bibek explicitly confirmed no CI/DCI edits were made to the shapefiles in the later pipeline; the main difference between LILA and the later thesis dataset is image choice / image-label alignment, not relabeling
 
 ---
 
@@ -178,9 +179,9 @@ Python rebuild/export path:
 Conclusions:
 - old JS is useful historical evidence, not trustworthy final reproducible basis
 - exact C01 replay is not practical now
-- provenance in old JS / asset environment remains incomplete
+- provenance is now much clearer than before: Bibek says the 41 IDs correspond to the images ICIMOD used for labeling and that the labels themselves were not edited
 - keep new EE Python exporter with explicit manifests and per-tile metadata
-- **Original benchmark GEE scripts (`scripts/ee_code/landsat-7-2005-hkh`) are the actual source queries for the benchmark imagery.** They can serve as the historical anchor for benchmark-faithful rebuild.
+- **Original benchmark GEE scripts (`scripts/ee_code/landsat-7-2005-hkh`) plus `google_earth_scripts/ids.js` are the historical anchor for benchmark-faithful rebuild.**
 
 Earth Engine Python API status:
 - authenticated and working on this machine
@@ -248,9 +249,136 @@ Pattern: more qualityMosaic scenes → higher local heterogeneity (streaking). E
 
 Experiment: 3 modes × 5 problematic tiles (24, 31, 96, 131, 132) on GEE, visual + numerical audit to pick improved default.
 
+### Subsequent small-subset C02 experiments (6-tile and 24-tile)
+
+A series of controlled C02 exports were run on the exact Bibek fishnet tiles, first on 6 hard/reference tiles and then on a broader 24-tile exploratory subset. These experiments compared:
+- dynamic scene pool vs Bibek/ICIMOD-prior 41-ID scene pool
+- `best_scene`, `median`, and `medoid`
+- scene counts `4, 6, 8, 12, 16, 24`
+- seasonal windows (`Jul-Sep`, `Aug-Oct`)
+- broad (`2002-2008`) vs tighter (`2004-2006`) year windows
+
+Key 6-tile findings:
+- `best_scene` is too gappy for Landsat 7 SLC-off imagery and is not viable as the main product.
+- `median` and `medoid` have essentially the same coverage at the same `N`; the difference is image character / texture, not valid coverage.
+- `median4` and `median6` are generally too low on hard tiles.
+- `median8` is the first meaningful knee: enough for easy tiles and strong rescue on tile 67, but still weak on hard tiles like 96 and 131.
+- `median24` gives maximum coverage on the 6-tile subset, but temporal spread can become very large.
+
+Key 24-tile findings:
+- No tested global dynamic policy beats old Bibek imagery on average valid coverage across the 24-tile exploratory subset.
+- Aggregate old Bibek baseline across the 24 tiles: `valid_pct_mean ≈ 82.27`, `nir_cv_mean ≈ 0.156`.
+- Best broad-window dynamic candidate tested so far: `median12 Aug-Oct 2002-2008` with `valid_pct_mean ≈ 80.94`, `nir_cv_mean ≈ 0.156`, but `date_spread_mean ≈ 388 days`.
+- Tighter year window helped strongly: `median12 Aug-Oct 2004-2006` reduced mean temporal spread to `≈245 days` for only `≈1.5%` aggregate valid-coverage loss relative to `median12 Aug-Oct 2002-2008`.
+- `Jul-Sep` windows were worse than `Aug-Oct` on both coverage and/or temporal spread; they are not a priority direction now.
+- `medoid` does not rescue coverage relative to `median`, but consistently raises NIR CV / local texture. It may be more spectrally realistic, but it also may be more streaky or noisy. This must be judged visually, not by coverage alone.
+- Dynamic broad-window composites still show strong tile heterogeneity: some tiles improve substantially (e.g. 67, 54), while others remain clearly worse than old Bibek imagery (e.g. 96, 150, 173, 201 in the 24-tile subset).
+
+Operational improvement from these experiments:
+- `google_earth_scripts/export_hkh_rebuild.py` now supports `medoid` and exports temporal audit bands on new runs:
+  - `valid_obs_count`
+  - `date_spread_days`
+
+Current interpretation:
+- scene count alone is not the main remaining problem
+- temporal mixing / date spread is now the main uncertainty
+- next GEE work should focus on tighter year windows (`2004-2006`, `2004-2007`) and likely `median12/16` or `medoid12/16`, not on more unrestricted 2002-2008 sweeps
+
 ---
 
-## 7. Original benchmark repo and published baselines
+## 7. Report ID comparison: ICIMOD tables vs Bibek 41 IDs
+
+Extracted report Landsat image tables (`analysis/icimod_landsat_images.md`) via `scripts/extract_landsat_tables.py`. Comparison script at `scripts/compare_icimod_vs_bibek.py`.
+
+### Matching results (using DOY from image ID as ground truth)
+
+| Category | Count |
+|----------|:-----:|
+| Exact match (same date, same sensor) | 35/41 |
+| Bibek chose different LE07 date | 4 |
+| LT05→LE07 substitution (report used Landsat 5) | 2 |
+
+All 41 report path/rows = all 41 Bibek path/rows. No extra path/rows in the report that Bibek missed.
+
+### 6 mismatches — C02 availability check
+
+Ran `google_earth_scripts/check_c02_availability.py` to check if the report's label-provenance scenes exist in C02. Key finding: **use the report date where available; use nearest LE07 proxy where report date is missing or LT05.**
+
+| Path/Row | Bibek (wrong) | Report (correct) | C02 Available? | Recommended fix |
+|----------|---------------|------------------|:--------------:|-----------------|
+| 133-041 | LE07 2005-11-12 | LE07 2009-11-07 | ✓ (5% cloud) | Use report date |
+| 144-039 | LE07 2001-10-13 | LE07 2005-12-11 | ✓ (3% cloud) | Use report date |
+| 141-040 | LE07 2004-12-19 | LT05 2005-11-12 | LT05 ✓ (3%). Best LE07 proxy: 2005-11-04 (4%, 8d) | Use LE07 2005-11-04 or 2005-11-20 |
+| 141-041 | LE07 2004-12-03 | LT05 2005-11-12 | LT05 ✓ (4%). Best LE07 proxy: 2005-11-04 (3%, 8d) | Use LE07 2005-11-04 or 2005-11-20 |
+| 142-040 | LE07 2004-12-26 | LE07 2008-12-12 | ✗ Not in C02. Best: 2008-11-03 (1% cloud, 39d before) | Use C02 nearest |
+| 150-035 | LE07 2005-09-16 | LE07 2007-09-13 | ✗ Not in C02. Best: 2007-11-09 (4%, 57d) or 2007-07-20 (6%, 55d) | Use C02 nearest |
+
+### LT05 vs LE07 decision
+
+Bibek chose LE07 for all 41 IDs. For ML dataset consistency, same sensor is strongly preferred:
+- LT05 (Landsat 5 TM) and LE07 (Landsat 7 ETM+) have similar bands but different spectral response curves
+- Training on mixed sensors introduces unnecessary domain shift
+- C02 data shows LE07 proxies exist within ±8 days of the report's LT05 dates for 141-040/141-041
+- Decision: **Keep LE07 for all 41 IDs**, using nearest LE07 C02 scene where report used LT05
+
+### Uncovered path/rows (resolution)
+
+Cross-checked all 6 suspect path/rows against actual WRS-2 grid cells (USGS WRS2_descending.shp) using proper spatial difference (Bibek 41 union subtracted). Results:
+
+- **138-040**: 10 orphan CI labels (51,850 pixels). Has a Bibek ID, so tiles here get imagery. No pixel loss.
+- **139-040**: Labels found = overlap from adjacent Bibek cells (137-041, 139-041). No orphan labels.
+- **142-041**: Labels found = overlap from adjacent Bibek cells (141-041, 142-040). No orphan labels.
+- **148-038**: Labels found = overlap from adjacent Bibek cells (149-034 through 149-037). No orphan labels.
+- **152-036**: 13 orphan labels (12 CI + 1 DCI, 2,184 pixels). No Bibek ID.
+- **153-035**: 18 orphan labels (14 CI + 4 DCI, 2,673 pixels). No Bibek ID.
+
+Total truly orphan: 31 polygons, 4,857 pixels = 0.01% of the full dataset. No action needed — C02 dynamic search covers these during export.
+
+### ICIMOD data acquired from ICIMOD data portal (in Downloads/)
+
+The user downloaded the following from the ICIMOD data portal:
+
+| File | Size | Contents | Fields |
+|------|:----:|----------|--------|
+| `Clean Ice and Debris covered glaciers of HKH Region.zip` | 80 MB | **CI/DCI classification** — HKH_CIDC_5basins_all.shp, 30,096 polys, WGS84 | `Glaciers` (Clean Ice/Debris), Basin, GLIMS_ID, elevation, slope, area |
+| `HKH Glacier 1990.zip` | 135 MB | Full HKH glacier inventory 1990 | Mt_Range, Basin, GLIMS_ID, elevation, slope, aspect, area — Albers |
+| `HKH Glacier 2000.zip` | 134 MB | Full HKH glacier inventory 2000 | Same fields as 1990 — Albers |
+| `HKH Glacier 2010.zip` | 133 MB | Full HKH glacier inventory 2010 | Same — Albers |
+| `HKH Glacier 2020.zip` | 132 MB | Full HKH glacier inventory 2020 | Same — Albers |
+| `Status of Glaciers in Hindu Kush Himalayan (HKH) Region.zip` | 81 MB | Older inventory — HKH_Glaciers.shp, 38,259 polys, WGS84 | Numeric `Class` (GLIMS codes), Basin, GLIMS_ID, elevation — WGS84 |
+| `Glacier Area Change in Nepal 1980 - 2010.zip` | 23 MB | Nepal glacier changes — 14,659 polys, WGS84 | **Has `Images` field** with scene IDs per polygon! Also `Class` (GLIMS codes), `Year` |
+| `Glacier Area Change in Bhutan 1980 - 2010.zip` | 5 MB | Bhutan glacier changes — 3,372 polys, WGS84 | ID, Latitude, Longitude (different schema from Nepal change) |
+| `Glaciers of Nepal 1980/1990/2000/2010.zip` | 5-6 MB ea | Nepal-only glacier outlines (3,430-3,808 polys each) | GLIMS_ID, Basin |
+| `Glaciers of Bhutan 1980/1990/2000/2010.zip` | 1-2 MB ea | Bhutan-only glacier outlines | Basic geometry + metadata |
+| `Glacial lakes in the Koshi, Gandaki, and Karnali...zip` | 6.5 MB | Glacial lake inventory 2015 — GL_3basins_2015.shp | Lake attributes |
+| `Potentially dangerous glacial lakes...zip` | 4.5 MB | Dangerous glacial lakes — PDGLs.shp | Hazard classification |
+| `The Status of Glacial Lakes in the Hindu Kush Himalaya.zip` | 12 MB | Full HKH glacial lake inventory 2005 — GlacialLake_5basins_HKH.shp | Lake inventory |
+| `Debris cover glacier melt in Karakoram 2018-2019.zip` | 316 KB | CSV melt data (2 years) | glacier_melt_2018.csv + 2019.csv |
+| `Debris cover glacier melt in Karakoram 2021.zip` | 320 KB | Excel stake data | Karakoram_stakes_data.xlsx |
+| `icimodRR1-018.pdf` | 14 MB | ICIMOD report PDF | Report document |
+
+**Key finding:** The `Glacier Area Change in Nepal 1980-2010.shp` has a per-polygon `Images` field with actual scene IDs (e.g., `l72142040_04020001215`, `LE71440392001286SGS00`, `p142r40_5t19901110`). However, even this data does NOT contain scenes for any of our 6 uncovered path/rows (138-040, 139-040, 142-041, 148-038, 152-036, 153-035). The Images field is Nepal-only and covers path/rows 140-146 primarily.
+
+**Note on Image_ID vs Images field:** The HKH Glacier time series (1990-2020) XML lineage shows `Image_ID` was populated during production per polygon but was **deleted** (`DeleteField`) before publication. Only the Nepal-specific area-change dataset retained this field.
+
+### 7.3.1 Orphan label findings — WRS grid cross-check
+
+Using the USGS WRS-2 descending grid (WRS2_descending.zip), intersected the CI/DCI label shapefile against WRS cells and subtracted Bibek 41 coverage to find truly orphan labels — polygons NOT covered by any Bibek cell.
+
+| Path/Row | In Bibek 41? | Orphan CI | Orphan DCI | Orphan pixels @30m | % of full dataset |
+|----------|:-----------:|:---------:|:----------:|:----------------:|:-----------------:|
+| **138-040** | ✓ Yes (needs date fix) | 10 | 0 | 51,850 | 0.115% |
+| **152-036** | ✗ No | 12 | 1 | 2,184 | 0.005% |
+| **153-035** | ✗ No | 14 | 4 | 2,673 | 0.006% |
+| **139-040** | ✗ No | 0 | 0 | 0 | — |
+| **142-041** | ✗ No | 0 | 0 | 0 | — |
+| **148-038** | ✗ No | 0 | 0 | 0 | — |
+
+**Key takeaway**: 31 orphan polygons = 4,857 pixels not covered by any Bibek ID (152-036 + 153-035). This is 0.01% of the full 45M-pixel dataset. Practically invisible. With `dynamic` C02 scene pool during export, zero loss. No action needed.
+
+---
+
+## 8. Original benchmark repo and published baselines
 
 Original benchmark pipeline repo:
 - `https://github.com/krisrs1128/glacier_mapping/`
@@ -306,7 +434,7 @@ This confirms the stratified approach: Nepal labels were temporally filtered to 
 
 ---
 
-## 8. Published benchmark baselines and dissertation IoU progression
+## 9. Published benchmark baselines and dissertation IoU progression
 
 Full reference texts extracted to:
 - `analysis/references/bibek_thesis.txt` — Aryal 2022 thesis
@@ -411,7 +539,7 @@ Takeaway:
 
 ---
 
-## 9. LILA released dataset and benchmark baseline conversion
+## 10. LILA released dataset and benchmark baseline conversion
 
 Inspected LILA release contents under:
 - `/home/devj/local-arch/data/HKH_raw/LILA/glacier_data/`
@@ -428,7 +556,8 @@ Important scene-ID comparison:
 
 Conclusion:
 - `ids.js` is **not** identical to released LILA imagery provenance
-- released LILA artifacts outrank mismatching later JS when reconstructing benchmark packaging
+- released LILA is an earlier public benchmark package, but Bibek says it does **not** use the exact ICIMOD labeling images
+- the later 41-ID thesis dataset is now understood to be more label-faithful for DCI because those images align with the actual ICIMOD delineation imagery
 
 Created conversion script:
 - `scripts/convert_lila_to_processed.py`
@@ -457,7 +586,7 @@ Bug fixed during conversion:
 
 ---
 
-## 10. Training baseline setup status
+## 11. Training baseline setup status
 
 Created LILA baseline configs:
 - `configs/desktop/debris_ice/lila_dci_baseline_bs8_seed42.yaml`
@@ -477,7 +606,7 @@ User must execute training. Agent should only prepare/debug configs.
 
 ---
 
-## 11. Velocity audit conclusions
+## 12. Velocity audit conclusions
 
 Patched files:
 - `scripts/create_velocity_from_itslive_mosaic.py`
@@ -501,7 +630,7 @@ Saved related analyses:
 
 ---
 
-## 12. Other relevant local glacier data
+## 13. Other relevant local glacier data
 
 Older QGIS workspace:
 - `/home/devj/local-arch/data/glacier-qgis`
@@ -515,7 +644,7 @@ Bhutan CIDC evidence remains supporting context, not primary benchmark source.
 
 ---
 
-## 13. Operational constraints
+## 14. Operational constraints
 
 Project instructions:
 - use `uv` for python execution
@@ -531,18 +660,10 @@ Useful repo paths:
 
 ---
 
-## 14. Immediate next steps
 
-1. User runs LILA baselines with updated configs:
-   - `uv run python scripts/train.py --config configs/desktop/debris_ice/lila_dci_baseline_bs8_seed42.yaml --server desktop --gpu 0`
-   - `uv run python scripts/train.py --config configs/desktop/clean_ice/lila_ci_baseline_bs8_seed42.yaml --server desktop --gpu 0`
-   - `uv run python scripts/train.py --config configs/desktop/multiclass/lila_multiclass_baseline_bs8_seed42.yaml --server desktop --gpu 0`
-2. Define benchmark-faithful track more precisely around released LILA packaging vs Bibek-style repair.
-3. Design improved rebuild small-subset GEE experiments with more coherent compositing, likely top-k ordered scene selection rather than broad pixelwise mosaic.
-4. Keep using both quantitative audits and visual contact sheets before any full export.
 
 ---
 
-## 15. One-paragraph summary
+## 15. State
 
-Main provenance question now much clearer. Released LILA data is best public benchmark anchor for both labels and initial imagery baseline, while old JS is only partial historical evidence and does not exactly match released LILA scene provenance. LILA `clean.shp` + `debris.shp` match current HKH CIDC label universe, so they should anchor benchmark-faithful rasterization. Python EE rebuild path remains preferred, but current sweep mosaics still show visually important streaking despite decent audit metrics, so full 202-tile export should wait. Converted released LILA dataset now exists locally in repo-ready processed form, baseline training configs exist, and latest config fix switched them to stronger SMP Unet-style baselines aligned with recent successful runs.
+Investigation phase complete. All available ICIMOD data inventoried. Label provenance traced to the extent possible. WRS orphan cross-check done (0.01% uncovered, not actionable). Data pipeline and training status: ready for user direction.

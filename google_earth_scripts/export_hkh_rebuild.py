@@ -103,6 +103,8 @@ BIBEK_IDS = [
     "LE07_133041_20051112",
 ]
 
+AUDIT_BAND_NAMES = ["valid_obs_count", "date_spread_days"]
+
 
 @dataclass(frozen=True)
 class ExportPolicy:
@@ -120,6 +122,7 @@ class ExportPolicy:
     landsat_bands: tuple[str, ...] = tuple(LANDSAT_BANDS)
     landsat_export_bands: tuple[str, ...] = tuple(LANDSAT_EXPORT_BANDS)
     dem_export_bands: tuple[str, ...] = tuple(DEM_EXPORT_BANDS)
+    audit_bands: tuple[str, ...] = tuple(AUDIT_BAND_NAMES)
     cloud_mask: str = "mask QA_PIXEL fill, dilated cloud, cloud, cloud shadow; keep snow/ice"
     slc_policy: str = (
         "use all 2002-2008 Landsat 7 C02 T1 scenes; post-2003-05-31 SLC-off "
@@ -158,18 +161,18 @@ def parse_args() -> argparse.Namespace:
         default="0,1,2,3,4,54,101,135,142,201",
         help="Comma-separated _export_index tile IDs, or 'all'.",
     )
-    parser.add_argument("--drive-folder", default="HKH_rebuild_sample")
+    parser.add_argument("--drive-folder", default="HKH_rebuild")
     parser.add_argument(
         "--composite-mode",
-        choices=("quality_mosaic", "best_scene", "median"),
+        choices=("quality_mosaic", "best_scene", "median", "medoid"),
         default="quality_mosaic",
-        help="Compositing strategy. quality_mosaic=per-pixel winner, best_scene=single best scene, median=per-pixel median.",
+        help="Compositing strategy. quality_mosaic=per-pixel winner, best_scene=single best scene, median=per-pixel median, medoid=closest real observation to median spectral vector.",
     )
     parser.add_argument(
         "--scene-pool",
-        choices=("dynamic", "bibek_ids"),
+        choices=("dynamic", "bibek_ids", "bibek_anchored"),
         default="dynamic",
-        help="Scene pool strategy. dynamic=per-tile C02 query (default), bibek_ids=from Bibek's 41 handselected IDs matched to C02.",
+        help="Scene pool strategy. dynamic=per-tile C02 query (default), bibek_ids=from Bibek's 41 handselected IDs matched to C02, bibek_anchored=exact Bibek scenes with nearby same-path/row fill.",
     )
     parser.add_argument(
         "--products",
@@ -295,8 +298,12 @@ def landsat_collection_for_tile(geometry: ee.Geometry, policy: ExportPolicy) -> 
     )
 
 
-def bibek_id_collection(policy: ExportPolicy) -> ee.ImageCollection:
-    """Build ImageCollection from Bibek's 41 handselected IDs, matched to C02 by WRS path/row/date."""
+def bibek_id_collection(policy: ExportPolicy, tag_bibek: bool = False) -> ee.ImageCollection:
+    """Build ImageCollection from Bibek's 41 handselected IDs, matched to C02 by WRS path/row/date.
+
+    If tag_bibek=True, scenes are tagged with is_bibek_scene=1 and get a rank bonus
+    so they are preferred in qualityMosaic compositing.
+    """
     target = ee.Date(policy.target_date)
     all_images = []
     for scene_id in BIBEK_IDS:
@@ -312,43 +319,94 @@ def bibek_id_collection(policy: ExportPolicy) -> ee.ImageCollection:
             .filterDate(start, ee.Date(start).advance(1, "day"))
         )
         image = coll.first()
+        if tag_bibek and image:
+            image = image.set("is_bibek_scene", 1).set("bibek_source_id", scene_id)
         all_images.append(image)
     col = ee.ImageCollection(all_images)
-    # Apply QA_PIXEL mask per scene, then add rank by date-distance only.
     target = ee.Date(policy.target_date)
-    return (
+    result = (
         col.map(landsat_cloud_mask)
         .map(lambda image: add_rank(image, target))
         .sort("rebuild_rank")
     )
+    if policy.start_date and policy.end_date:
+        result = result.filterDate(policy.start_date, policy.end_date)
+    return result
 
 
-def landsat_mosaic(collection: ee.ImageCollection, geometry: ee.Geometry, mode: str = "quality_mosaic") -> ee.Image:
+def bibek_anchored_collection(policy: ExportPolicy) -> ee.ImageCollection:
+    """Build collection anchored to Bibek's 41 IDs, with auxiliary same-path/row fill scenes.
+
+    Exact Bibek scenes get a rank bonus so they are always preferred where valid.
+    Auxiliary scenes fill in only where Bibek pixels are masked (cloud, shadow, SLC-off).
+    """
+    # Build exact Bibek scenes tagged with is_bibek_scene=1
+    bibek = bibek_id_collection(policy, tag_bibek=True)
+    return bibek
+
+
+def landsat_mosaic(
+    collection: ee.ImageCollection,
+    geometry: ee.Geometry,
+    mode: str = "quality_mosaic",
+    target_date: str | None = None,
+) -> ee.Image:
     if mode == "quality_mosaic":
-        return (
-            collection.qualityMosaic("quality")
-            .select(LANDSAT_BANDS, LANDSAT_EXPORT_BANDS)
-            .clip(geometry)
-            .float()
-        )
+        main = collection.qualityMosaic("quality")
     elif mode == "best_scene":
-        # Single best scene (lowest rank). All non-gap pixels from same acquisition.
-        return (
-            collection.first()
-            .select(LANDSAT_BANDS, LANDSAT_EXPORT_BANDS)
-            .clip(geometry)
-            .float()
-        )
+        main = collection.first()
     elif mode == "median":
-        # Per-pixel median of all masked scenes. Robust, no per-pixel winner-take-all.
-        return (
-            collection.select(LANDSAT_BANDS, LANDSAT_EXPORT_BANDS)
-            .median()
-            .clip(geometry)
-            .float()
-        )
+        main = collection.median()
+    elif mode == "medoid":
+        # Medoid: compute median spectral vector, then pick the real observation
+        # closest (minimum Euclidean distance) to that vector.
+        median_ref = collection.select(LANDSAT_BANDS, LANDSAT_EXPORT_BANDS).median()
+
+        def add_medoid_quality(img):
+            bands = img.select(LANDSAT_BANDS, LANDSAT_EXPORT_BANDS)
+            diff = bands.subtract(median_ref).pow(2)
+            dist = diff.reduce(ee.Reducer.sum()).sqrt()
+            quality = dist.multiply(-1).rename("quality")
+            return img.addBands(quality, overwrite=True)
+
+        with_mq = collection.map(add_medoid_quality)
+        main = with_mq.qualityMosaic("quality")
     else:
         raise ValueError(f"Unknown composite mode: {mode}")
+
+    main = main.select(LANDSAT_BANDS, LANDSAT_EXPORT_BANDS)
+
+    # Temporal audit bands: valid observation count and date spread.
+    if target_date is not None:
+        target = ee.Date(target_date)
+
+        def add_audit(img):
+            doff = (
+                ee.Image.constant(img.date().difference(target, "day"))
+                .float()
+                .rename("audit_date_offset")
+            )
+            # has_data = 1 where B1 is unmasked, 0 where masked.
+            has_data = img.select("B1").mask().rename("audit_has_data")
+            return img.addBands([doff, has_data])
+
+        audit_col = collection.map(add_audit)
+
+        valid_count = audit_col.select("audit_has_data").sum().rename("valid_obs_count")
+
+        # Only include valid observations in min/max.
+        masked_dates = audit_col.map(
+            lambda img: img.select("audit_date_offset").updateMask(
+                img.select("audit_has_data")
+            )
+        )
+        min_dt = masked_dates.min().rename("min_date_offset")
+        max_dt = masked_dates.max().rename("max_date_offset")
+        date_spread = max_dt.subtract(min_dt).rename("date_spread_days")
+
+        main = main.addBands([valid_count, date_spread])
+
+    return main.clip(geometry).float()
 
 
 def dem_image(geometry: ee.Geometry) -> ee.Image:
@@ -441,6 +499,23 @@ def collection_for_tile(
         if bibek_master is None:
             raise ValueError("bibek_ids mode requires a pre-built bibek_master collection")
         return bibek_master.filterBounds(geometry), "bibek"
+    elif policy.scene_pool == "bibek_anchored":
+        if bibek_master is None:
+            raise ValueError("bibek_anchored mode requires a pre-built bibek_master collection")
+        bibek = bibek_master.filterBounds(geometry)
+        fill = landsat_collection_for_tile(geometry, policy)
+
+        def bibek_rank_bonus(img):
+            bonus = ee.Image.constant(
+                ee.Number(img.get("is_bibek_scene", 0)).multiply(10000)
+            ).toFloat().rename("rank_bonus")
+            old_q = img.select("quality")
+            new_q = old_q.add(bonus).rename("quality")
+            return img.addBands(new_q, overwrite=True)
+
+        bibek = bibek.map(bibek_rank_bonus)
+        merged = bibek.merge(fill).sort("rebuild_rank")
+        return merged, "bibek_anchored"
     else:
         return landsat_collection_for_tile(geometry, policy), "dynamic"
 
@@ -488,9 +563,9 @@ def main() -> None:
 
     # Pre-build bibek master collection once if needed.
     bibek_master: ee.ImageCollection | None = None
-    if scene_pool == "bibek_ids":
+    if scene_pool in ("bibek_ids", "bibek_anchored"):
         print("Building Bibek ID collection...")
-        bibek_master = bibek_id_collection(policy)
+        bibek_master = bibek_id_collection(policy, tag_bibek=(scene_pool == "bibek_anchored"))
         print(f"Bibek pool built: {len(BIBEK_IDS)} IDs")
 
     global_rows: list[dict[str, Any]] = []
@@ -541,11 +616,12 @@ def main() -> None:
 
         if args.start:
             if "landsat" in products:
-                landsat = landsat_mosaic(collection, geometry, composite_mode)
+                landsat = landsat_mosaic(collection, geometry, composite_mode, policy.target_date)
+                desc = f"{args.prefix}landsat_image{rec.tile_index}"
                 landsat_task = export_image(
                     landsat,
                     geometry,
-                    f"landsat_image{rec.tile_index}",
+                    desc,
                     landsat_folder,
                     policy.scale_m,
                     export_crs,
@@ -563,10 +639,11 @@ def main() -> None:
                 )
             if "dem" in products:
                 dem = dem_image(geometry)
+                desc = f"{args.prefix}dem_image{rec.tile_index}"
                 dem_task = export_image(
                     dem,
                     geometry,
-                    f"dem_image{rec.tile_index}",
+                    desc,
                     dem_folder,
                     policy.scale_m,
                     export_crs,

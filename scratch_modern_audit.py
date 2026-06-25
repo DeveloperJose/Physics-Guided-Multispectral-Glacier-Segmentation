@@ -19,10 +19,18 @@ OLD_RGB_PATH = Path("/tmp/modern_audit/old_rgb")  # pre-rendered if needed
 
 TILE_IDS = [24, 31, 67, 96, 131, 132]
 CANDIDATES = {
-    "dynamic_median24": CANDIDATES_BASE / "dynamic_median24_Landsat7",
-    "dynamic_best": CANDIDATES_BASE / "dynamic_best_Landsat7",
-    "bibek41_median": CANDIDATES_BASE / "bibek41_median_Landsat7",
-    "bibek41_best": CANDIDATES_BASE / "bibek41_best_Landsat7",
+    "dynamic_median24": CANDIDATES_BASE / "HKH_modern_audit_dynamic_median24_Landsat7",
+    "dynamic_median16": CANDIDATES_BASE / "HKH_modern_dynamic_median16_Landsat7",
+    "dynamic_median12": CANDIDATES_BASE / "HKH_modern_dynamic_median12_Landsat7",
+    "dynamic_median8": CANDIDATES_BASE / "HKH_modern_dynamic_median8_Landsat7",
+    "dynamic_median6": CANDIDATES_BASE / "HKH_modern_median_6_Landsat7",
+    "dynamic_median4": CANDIDATES_BASE / "HKH_modern_median_4_Landsat7",
+    "dynamic_medoid16": CANDIDATES_BASE / "HKH_modern_medoid_16_Landsat7",
+    "dynamic_medoid12": CANDIDATES_BASE / "HKH_modern_medoid_12_Landsat7",
+    "dynamic_medoid8": CANDIDATES_BASE / "HKH_modern_medoid_8_Landsat7",
+    "dynamic_best": CANDIDATES_BASE / "HKH_modern_audit_dynamic_best_Landsat7",
+    "bibek41_median": CANDIDATES_BASE / "HKH_modern_audit_bibek41_median_Landsat7",
+    "bibek41_best": CANDIDATES_BASE / "HKH_modern_audit_bibek41_best_Landsat7",
 }
 OUT = Path("/tmp/modern_audit")
 
@@ -50,13 +58,10 @@ def band(arr: np.ndarray, idx: int) -> np.ndarray:
 
 
 def valid_pct(arr: np.ndarray) -> float:
-    """Percent of pixels where all core Landsat bands (0-4,6) are finite and > 0."""
-    hwc = arr.shape[0] <= 24  # CHW or HWC
-    if hwc:
-        core = arr[[0, 1, 2, 3, 4, 6]]
-    else:
-        core = np.transpose(arr[:, :, [0, 1, 2, 3, 4, 6]], (2, 0, 1))
-    ok = np.isfinite(core).all(axis=0) & (core > 0).all(axis=0)
+    """Percent of pixels where B1 (index 0) is finite and > 0.
+    Modern exports may have 10 bands (8 Landsat + audit), old has 8."""
+    b1 = band(arr, 0)
+    ok = np.isfinite(b1) & (b1 > 0)
     return float(ok.mean() * 100)
 
 
@@ -70,26 +75,33 @@ def mask_outline(mask: np.ndarray) -> np.ndarray:
 
 
 def nir_cv(arr: np.ndarray, kernel: int = 5) -> float:
-    """Local coefficient of variation of NIR (band 3 or index 3) as streaking proxy."""
-    import warnings
-
+    """Local coefficient of variation of NIR (B4, index 3) over valid pixels."""
     from scipy.ndimage import uniform_filter
-    hwc = arr.shape[0] <= 24
-    nir = band(arr, 3)
-    nir = nir.astype(np.float32)
+
+    nir = band(arr, 3).astype(np.float32)
     valid = np.isfinite(nir) & (nir > 0)
     if valid.sum() < 100:
         return np.nan
-    nir_filled = np.where(valid, nir, np.nan)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        mean = uniform_filter(np.nan_to_num(nir_filled, nan=0), size=kernel)
-        sq = uniform_filter(np.nan_to_num(nir_filled, nan=0) ** 2, size=kernel)
-        count = uniform_filter(valid.astype(np.float32), size=kernel)
-    avg = np.where(count > 0, mean / count, 0)
-    var = np.where(count > 0, sq / count - avg ** 2, 0)
-    cv = np.where(avg > 1, np.sqrt(np.maximum(var, 0)) / avg, 0)
-    return float(np.nanmean(cv[valid]))
+
+    x = np.where(valid, nir, 0.0)
+    w = valid.astype(np.float32)
+
+    sum_x = uniform_filter(x, size=kernel, mode="nearest") * (kernel * kernel)
+    sum_x2 = uniform_filter(x * x, size=kernel, mode="nearest") * (kernel * kernel)
+    count = uniform_filter(w, size=kernel, mode="nearest") * (kernel * kernel)
+
+    mean = np.divide(sum_x, count, out=np.zeros_like(sum_x), where=count > 0)
+    mean_x2 = np.divide(sum_x2, count, out=np.zeros_like(sum_x2), where=count > 0)
+    var = np.maximum(mean_x2 - mean * mean, 0.0)
+    std = np.sqrt(var)
+    cv = np.divide(std, mean, out=np.zeros_like(std), where=mean > 0)
+
+    # Use centers with enough support.
+    support = count >= max(4, kernel * kernel * 0.5)
+    usable = valid & support & np.isfinite(cv)
+    if usable.sum() < 100:
+        return np.nan
+    return float(np.mean(cv[usable]))
 
 
 # ── tile geometry / CRS ────────────────────────────────────────────────────
@@ -126,12 +138,13 @@ def rasterize_labels(tile_idx: int, crs_str: str, bounds: tuple[float, float, fl
     from shapely.geometry import box
 
     try:
-        labels = gpd.read_file(str(LABEL_SHP))
-    except Exception:
-        print(f"  Warning: cannot load labels from {LABEL_SHP}")
+        labels = gpd.read_file(str(LABEL_SHP), on_invalid='ignore')
+    except Exception as e:
+        print(f"  Warning: cannot load labels from {LABEL_SHP}: {e}")
         return None
 
-    if labels.crs is None or labels.crs.to_string() != crs_str:
+    og_crs = labels.crs
+    if og_crs is None or og_crs.to_string() != crs_str:
         labels = labels.to_crs(crs_str)
 
     xmin, ymin, xmax, ymax = bounds
@@ -140,28 +153,15 @@ def rasterize_labels(tile_idx: int, crs_str: str, bounds: tuple[float, float, fl
     if clipped.empty:
         return np.zeros((int((ymax - ymin) / res), int((xmax - xmin) / res)), dtype=np.uint8)
 
-    # Assign class: "Clean_Ice" / "Debris" columns
-    class_map = {}
-    if "Clean_Ice" in clipped.columns:
-        class_map[1] = clipped[clipped["Clean_Ice"] > 0]
-    if "Debris" in clipped.columns:
-        class_map[2] = clipped[clipped["Debris"] > 0]
-    if "class" in clipped.columns:
-        # LILA-merged style: 1=clean, 2=debris
-        for _, r in clipped.iterrows():
-            c = r["class"]
-            if c in (1, 2):
-                class_map.setdefault(int(c), []).append(r)
-
+    # Determine class from Clean_Ice / Debris columns
     shapes = []
-    for cls_val in (1, 2):
-        subset = clipped[clipped.get("class") == cls_val]
-        if subset.empty:
+    for _, row in clipped.iterrows():
+        geom = row.geometry
+        if geom is None or geom.is_empty:
             continue
-        for _, row in subset.iterrows():
-            geom = row.geometry
-            if geom is not None and not geom.is_empty:
-                shapes.append((geom, int(cls_val)))
+        cls_val = 1 if row.get("Clean_Ice", 0) > 0 else (2 if row.get("Debris", 0) > 0 else 0)
+        if cls_val > 0:
+            shapes.append((geom, cls_val))
 
     if not shapes:
         return np.zeros((int((ymax - ymin) / res), int((xmax - xmin) / res)), dtype=np.uint8)
@@ -218,18 +218,31 @@ def render_tile(tile_idx: int) -> None:
     label_valid = labels is not None
 
     # Stats table
+    def audit_stats(arr):
+        s = {
+            "valid_pct": valid_pct(arr),
+            "nir_cv": nir_cv(arr),
+        }
+        if arr.shape[0] >= 9:
+            vc = band(arr, 8)
+            fv = np.isfinite(vc)
+            if fv.sum():
+                s["valid_obs_mean"] = float(vc[fv].mean())
+                s["valid_obs_max"] = float(vc[fv].max())
+        if arr.shape[0] >= 10:
+            ds = band(arr, 9)
+            fds = np.isfinite(ds) & (band(arr, 8) > 0)
+            if fds.sum():
+                s["date_spread_mean"] = float(ds[fds].mean())
+                s["date_spread_max"] = float(ds[fds].max())
+        return s
+
     stats = {}
     if old is not None:
-        stats["old"] = {
-            "valid_pct": valid_pct(old),
-            "nir_cv": nir_cv(old),
-        }
+        stats["old"] = audit_stats(old)
     for name, arr in candidates.items():
         if arr is not None:
-            stats[name] = {
-                "valid_pct": valid_pct(arr),
-                "nir_cv": nir_cv(arr),
-            }
+            stats[name] = audit_stats(arr)
 
     with (out_dir / "stats.json").open("w") as f:
         json.dump(stats, f, indent=2)
@@ -257,7 +270,15 @@ def render_tile(tile_idx: int) -> None:
             (overlay, "Labels cyan=CI magenta=DCI" if label_valid else "No labels"),
         ]
         s = stats.get(label, {})
+        aux = []
+        if "valid_obs_mean" in s:
+            aux.append(f"obs={s['valid_obs_mean']:.1f}")
+        if "date_spread_mean" in s:
+            aux.append(f"spread={s['date_spread_mean']:.0f}d")
+        aux_str = " | ".join(aux)
         info = f"{label}\nvalid={s.get('valid_pct', 0):.1f}% cv={s.get('nir_cv', 0):.4f}"
+        if aux_str:
+            info += f"\n{aux_str}"
 
         for c, (panel_arr, title) in enumerate(panels):
             ax = axes[r, c]

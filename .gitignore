@@ -10,6 +10,7 @@ archive/
 output_predictions/
 visualization/**/*.md
 old_code/
+**/export_manifests
 
 .ruff_cache/
 .python-version
