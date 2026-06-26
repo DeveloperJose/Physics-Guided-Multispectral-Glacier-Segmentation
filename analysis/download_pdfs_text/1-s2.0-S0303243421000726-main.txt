@@ -1,0 +1,881 @@
+                                       International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+                                                                    Contents lists available at ScienceDirect
+
+                                                  International Journal of Applied Earth
+                                                    Observations and Geoinformation
+                                                            journal homepage: www.elsevier.com/locate/jag
+
+
+
+
+Filling gaps in Landsat ETM+ SLC-off images with Sentinel-2 MSI images
+Qunming Wang a, Lanxing Wang a, Chao Wei a, Yanmin Jin a, Zhongbin Li b, Xiaohua Tong a, *,
+Peter M. Atkinson c, d, *
+a
+  College of Surveying and Geo-Informatics, Tongji University, 1239 Siping Road, Shanghai 200092, China
+b
+  Center for Global Change and Earth Observations, Michigan State University, East Lansing, MI, USA
+c
+  Faculty of Science and Technology, Lancaster University, Lancaster LA1 4YR, UK
+d
+  Geography and Environment, University of Southampton, Highfield, Southampton SO17 1BJ, UK
+
+
+
+
+A R T I C L E I N F O                                     A B S T R A C T
+
+Keywords:                                                 On May 31, 2003, the scan-line corrector (SLC) of Landsat 7 ETM+ failed permanently. The resulting ETM+ SLC-
+Landsat ETM+                                              off images contain 22% un-scanned gap pixels, thus, severely limiting their utility. In this paper, we propose a
+SLC-off                                                   new scheme to fill gaps in SLC-off images by identifying a new source of auxiliary or known image. Specifically,
+Sentinel-2
+                                                          Sentinel-2 MSI images are proposed as known images for gap filling, rather than the common strategy of using
+Gap filling
+                                                          Landsat series data. The Sentinel-2 MSI data have the same map projection and similar band wavelengths as the
+                                                          Landsat 7 ETM+ data, and the Sentinel-2A and − 2B MSI data together provide global coverage with a 5-day
+                                                          revisit period. The shorter revisit period of Sentinel-2 provides greater opportunities to acquire effective
+                                                          known images that are temporally close to the ETM+ SLC-off images for reliable gap filling. To render the
+                                                          Sentinel-2 MSI images suitable for gap filling, it is necessary to deal with their incompatible spatial resolutions
+                                                          relative to Landsat 7. Here, we used a downscaling-then-upscaling methodology involving Area-to-Point
+                                                          Regression Kriging (ATPRK) for the downscaling step. For the gap filling interpolation task we used a recently
+                                                          developed spatial-spectral radial basis function (SSRBF) method, which makes use of the available spectral as
+                                                          well as spatial information. Experiments were undertaken in which the SSRBF method was applied for gap filling
+                                                          using a range of different known images including Sentinel-2 MSI known images and Landsat 8 known images
+                                                          temporally close to and distant from the predicted image. The experimental results demonstrate that the Sentinel-
+                                                          2 MSI known images produced by downscaling-then-upscaling are a valuable source of information for gap
+                                                          filling, especially when the existing Landsat series images (e.g., the OLI images) are temporally distant to the
+                                                          SLC-off images.
+
+
+
+
+1. Introduction                                                                                 with a width of about 12 pixels and affect greatly the utility of Landsat 7
+                                                                                                ETM+ data, limiting their application (Shen et al., 2014, 2015).
+    Landsat images are one of the most widely used sources of data for                          Therefore, it is of great interest to develop methods to fill the gap pixels
+global monitoring, due to the long-term repeat coverage (Wulder et al.,                         in the SLC-off images.
+2012) and relatively fine spatial resolution (e.g., 30 m for the Landsat 5                          As claimed by the United States Geological Survey (USGS), the un-
+Thematic Mapper (TM), the Landsat 7 Enhanced Thematic Mapper Plus                               scanned gap pixels can be recovered using the scanned data in SLC-off
+(ETM+ ) and the Landsat 8 Operational Land Imager (OLI)). As a typical                          images and auxiliary known images (that is, temporally close images)
+mission of the Landsat series of satellites, Landsat 7 is still in operation                    (USGS, 2004). Based on this fundamental principle, several gap filling
+and has become one of the most important satellites for acquiring global                        methods have been developed, which can be categorized into spatial-
+coverage time-series data. On May 31, 2003, however, the scan-line                              based, temporal-based and hybrid methods. The spatial-based methods
+corrector (SLC) of the Landsat 7 ETM+ sensor failed permanently,                                use only spatially neighboring scanned pixels in SLC-off images for
+resulting in 22% un-scanned gap pixels in the ETM+ images, which are                            spatial interpolation (such as the plug-in of the ENVI software, called
+also called SLC-off images (USGS, 2004). The gap pixels appear as a line                        Gapfill). Cheng et al. (2014) proposed a multichannel nonlocal total
+
+
+ * Corresponding authors at: College of Surveying and Geo-Informatics, Tongji University, 1239 Siping Road, Shanghai 200092, China (X. Tong); Faculty of Science
+and Technology, Lancaster University, Lancaster LA1 4YR, UK (P.M. Atkinson).
+   E-mail addresses: xhtong@tongji.edu.cn (X. Tong), pma@lancaster.ac.uk (P.M. Atkinson).
+
+https://doi.org/10.1016/j.jag.2021.102365
+Received 30 November 2020; Received in revised form 11 May 2021; Accepted 12 May 2021
+Available online 21 May 2021
+1569-8432/© 2021 The Authors. Published by Elsevier B.V. This is an open access article under the CC BY license (http://creativecommons.org/licenses/by/4.0/).
+Q. Wang et al.                                                                    International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+variation gap filling method, which produced filled SLC-off images with           to a large time interval (e.g., several months or even nearly one year)
+satisfactory visual continuity. The spatial-based methods are generally           between the high quality known images and SLC-off image. Meanwhile,
+simple to implement, but can be inaccurate when predicting across wide            as stated earlier for temporal-based methods, images observed by non-
+gaps (e.g., 12 pixels wide at the edge of each SLC-off tile) and in het­          Landsat sensors can be used to estimate the gap pixels in the SLC-off
+erogeneous areas. The temporal-based methods use temporally close                 images. Generally, the non-Landsat sensors involved in current
+known images for gap filling, where the known image can be acquired               research vary from the ETM+ sensor greatly, both in wavelength and
+from both Landsat and non-Landsat sensors. The local linear histogram             spatial resolution. For example, the spatial resolution of MODIS data
+matching (LLHM) method released by the USGS is one of the earliest and            (500 m) is much coarser than the 30 m of Landsat ETM+ . Regarding the
+most widely used methods. Based on the idea of LLHM, various exten­               IRS data, only the red and near infrared bands overlap with those of the
+sions have been developed, including the adaptive window linear his­              ETM+ SLC-off data.
+togram matching method, the geographically weighted regression                        For data continuity and enhancement of the Landsat mission, the
+(GWR) method (Zhang et al., 2014), weighted linear regression (Zeng               European Space Agency (ESA) launched the Sentinel-2A and -2B satel­
+et al., 2013) and weighted multiple linear regression (Sadiq et al., 2017).       lites in 2015 and 2017, respectively. The twin satellites increase the
+Geostatistical solutions have also been developed for gap filling, such as        separate 10-day revisit cycle to 5 days. The Sentinel-2 tile has a wider
+kriging (Pringle et al., 2009) and co-kriging (Zhang et al., 2007), and the       swath of 260 km than those of the Landsat sensors and the Sentinel-2
+direct sampling-based multiple-point geostatistics method (Yin et al.,            images have a finer spatial resolution (Brombacher et al., 2020; Chau­
+2017). Based on a functional concurrent linear model (Zhang et al.,               han et al., 2020; Drusch et al., 2012; Hagolle et al., 2015; Segl et al.,
+2011), Zhang et al. (2015) extracted effective information from one SLC-          2015; Wangchuk and Bolch, 2020; Li et al., 2020; Skakun et al., 2021).
+on or several SLC-off images to predict missing pixels. The information           Specifically, the multispectral imager (MSI) onboard Sentinel-2 provides
+from similar pixels in temporal neighbors can be highly beneficial for            13 bands, including four bands at 10 m, six bands at 20 m and three
+gap filling, and several methods have been developed to identify effec­           bands at 60 m spatial resolution. The Sentinel-2 MSI and Landsat 7
+tive similar pixels. For example, tempo-spectral angle mapping was                ETM+ sensors are complementary in various aspects. First, some bands
+proposed to measure comprehensively the similarity both in the tem­               of Sentinel-2 MSI have the same wavelengths as Landsat 7 ETM+ (Zhu
+poral and spectral dimensions between pixels (Gao and Gu, 2017).                  et al., 2015). As shown in Table 1, for all six 30 m bands of ETM+, the
+Considering the inherent differences in reflectance between different             spectral ranges are almost the same as for MSI. Second, the Sentinel-2
+land covers, Luo et al. (2018, 2020) classified the images first, and then        products available online have the same map projection as Landsat
+constructed the relationship between the known and SLC-off images for             data, which is an important premise for further geometric registration
+the same category through local linear regression. On the other hand,             between them, although the misregistration may not be an issue for
+temporally neighboring images of non-Landsat sensors have also been               some locations and applications (Storey et al., 2016; Novelli et al.,
+considered for gap filling. Boloorani et al. (2008) and Chen et al. (2010)        2016). Finally, Sentinel-2 data can also provide periodical global
+considered EO-1/ALI and China-Brazil earth resources satellite (CBER)             coverage, and the data are freely available for users. Generally, due to
+images as auxiliary data to predict the missing data. Roy et al. (2008)           cloud/shadow contamination, the interval between the acquired dates
+used MODIS images to estimate the reflectance of ETM+ gap pixels. The             of the effective Landsat TM or OLI images and ETM+ SLC-off images
+MODIS sensor has a similar spectral range setting as the ETM+ sensor,             may reach half a year or even more than one year. In this case, the
+but its images have a much coarser spatial resolution than ETM+ im­               shorter revisit period of Sentinel-2 (5 days compared to 16 days of
+ages. Moreover, Reza and Ali (2008) used India resources satellite (IRS)          Landsat) provides obviously greater opportunities to acquire effective
+products to recover un-scanned pixels based on global linear histogram            Sentinel-2 MSI data that are temporally closer to ETM+ SLC-off images.
+match (GLHM). Both the spatial- and temporal-based methods are                    The great similarity between Sentinel-2 and Landsat data makes it
+shown to be effective in some cases, but their accuracies are still               highly possible to fill gaps in ETM+ SLC-off images with Sentinel-2 MSI
+compromised when dealing with landscapes with great heterogeneity.                images instead of Landsat images. In this paper, Sentinel-2 MSI images
+To this end, hybrid methods have been developed, which use also                   are proposed as the known images for gap filling.
+temporally close known images in addition to scanned pixels in the SLC-               Recently, Wang et al. (in press) developed a user-friendly spatial-
+off images. Chen et al. (2011) proposed the neighborhood similar pixel            spectral radial basis function (SSRBF)-based interpolation method
+interpolator (NSPI) method, which has become popular in recent years              which has great potential for SLC-off image gap filling. The radial basis
+(Romero-Sanchez et al., 2015). NSPI was extended with a geostatistical            function (RBF) interpolation method has been acknowledged widely as a
+version called the geostatistical neighborhood similar pixel interpolator         simple and accurate solution (Buhmann, 2003; Lee and Yoon, 2010;
+(GNSPI) (Zhu et al., 2012). Ng et al. (2017) proposed an adaptive                 Magoules et al., 2007), but has not been investigated for gap filling.
+weighted tensor completion (AWTC) method using ETM+ images as                     SSRBF adapts the RBF to the purpose of gap filling by considering
+auxiliary data. According to the contribution of spatial, spectral and            spectral information in addition to spatial information (i.e., in com­
+temporal information, the AWTC method assigns adaptive weights to                 parison to existing spatial-only RBF models). By exploiting fully the
+the three aspects, respectively. In recent years, deep learning has               spatial and spectral information in the data themselves, SSRBF can
+received increasing attention for SLC-off images gap filling (Yuan et al.,        produce more accurate gap filling results than several well-known
+2020; Zhang et al., 2018).                                                        methods, such as LLHM, GWR, NSPI and GNSPI, as validated
+    The use of known images from Landsat sensors (i.e., TM and OLI) is
+accepted widely and can lead to satisfactory results in most cases, but
+uncertainty still exists inevitably. Specifically, when using gap-free im­        Table 1
+ages acquired by Landsat TM or OLI, the time interval between the                 Band wavelengths for Landsat 7 ETM+ and Sentinel-2 MSI data.
+acquisition dates of the known images and SLC-off images may be too                           Landsat 7 ETM+                         Sentinel-2 MSI
+large to serve areas with rapid and large land cover changes. For
+                                                                                   Band       Wavelength        Spatial              Wavelength        Spatial
+example, with the decommissioning of the Landsat 5 satellite in 2011,                         (nm)              Resolution (m)       (nm)              Resolution (m)
+the acquisition time of Landsat 5 data is increasingly distant from the
+                                                                                   Blue       450–515           30                   458–523           10
+acquisition time of the latest SLC-off data. The Landsat 8 satellite was           Green      525–605           30                   543–578           10
+successfully launched in 2013 and its OLI images are a suitable choice             Red        630–690           30                   650–680           10
+for predicting gap pixels in SLC-off images acquired after 2013. In many           NIR        775–900           30                   785–900           10
+areas, however, the 16-day revisit cycle of the Landsat 8 satellite,               SWIR1      1550–1750         30                   1565–1655         20
+                                                                                   SWIR2      2090–2350         30                   2100–2280         20
+combined with the influence of cloud/shadow contamination, can lead
+
+                                                                              2
+Q. Wang et al.                                                                                  International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+rigorously in the case studies for three regions in Wang et al. (in press).                     ΔLb = [ΔL(xi , yi , b), i = 1, ..., N ]T is a vector composed of the temporal
+Based on this encouraging performance, SSRBF is employed to explore                             changes between the GLHM-derived known image and the SLC-off
+the potential for using Sentinel-2 MSI data for gap filling in this paper.                      image for the N similar pixels (known), in which ΔL(xi , yi , b) = L(xi , yi ,
+    The rest of this paper is organized as follows. Section 2 first in­                         b, tp ) − L (xi , yi , b, tk ), with (xi , yi ) being the location of the i-th similar
+                                                                                                           ′
+
+
+troduces briefly the employed SSRBF-based gap filling method and then                           pixel.
+the main process of using Sentinel-2 MSI data in gap filling. Experi­                                In Eqs. (4) and (5), the SSRBF φi and φij are defined by integrating
+mental results are provided in Section 3 to validate the feasibility of
+                                                                                                both spatial and spectral RBFs, which can characterize the relation be­
+using Sentinel-2 MSI images as known images for gap filling. Section 4
+                                                                                                tween pixels more reliably by considering the spatial and spectral in­
+further discusses the scheme and potential problems for possible future
+                                                                                                formation in the images simultaneously. Specifically, φi and φij are
+research. Section 5 concludes this paper.
+                                                                                                calculated as
+                                                                                                {
+2. Methods                                                                                         φij = φDij φRij
+                                                                                                                                                                                   (6)
+                                                                                                    φi = φDi φRi
+2.1. SSRBF
+                                                                                                where φDij and φDi are conventional spatial RBFs, with the former the
+   The SSRBF method developed in Wang et al. (in press) is applied for                          spatial RBF between similar pixels and the latter the spatial RBF between
+gap filling in this paper. The basic principle is introduced briefly in this                    the center pixel and its similar pixel. φRij and φRi are the spectral RBF
+section, but for more details the reader is referred to Wang et al. (in                         between similar pixels and spectral RBF between the center and its
+press). The SSRBF uses global linear histogram matching (GLHM) as a                             similar pixel, respectively, which are calculated as
+pre-processing step to create a new known image which is closer to the                          ⎧
+SLC-off image in feature space. Let Lk and Lp be bands with the same                            ⎪
+                                                                                                ⎪
+                                                                                                ⎪           RMSD
+                                                                                                ⎨ φ = e− δ ij
+wavelength of the known and SLC-off images, respectively. In GLHM, a
+                                                                                                                                                                       (7)
+                                                                                                    Rij
+
+new known image Lk is produced by a linear transformation of the                                ⎪
+                                ′                                                                           RMSDi
+                                                                                                ⎪
+                                                                                                ⎪         −
+                                                                                                ⎩ φRi = e δ
+available known image
+
+L’k = ALk + B                                                                        (1)        in which RMSDij is the RMSD between the i-th and j-th similar pixels,
+                                                                                                RMSDi is the RMSD between the center pixel and the i-th similar pixel,
+where A and B are two coefficients estimated based on a regression                              and δ is a parameter.
+model constructed using all effective pixels of Lk and Lp                                           It is worth noting that the parameters in SSRBF, including the size of
+Lp = ALk + B + γ                                                                     (2)        the moving window, the number of similar pixels N and the parameter δ
+                                                                                                for spectral RBF, were all set according to the schemes identified in
+in which γ is the residual image.                                                               Wang et al. (in press). Specifically, the window size was set empirically
+    With the new known image Lk , SSRBF interpolation is performed to
+                                             ′
+                                                                                                to 35 × 35, as used widely in classical methods (e.g., LLHM and NSPI).
+predict the values (usually reflectances in ETM+ images) of the gap                             As a common parameter in existing methods (e.g., NSPI and GNSPI), N
+pixels. For a missing pixel located at (x0 , y0 ) in band b of the image, the                   was set to 20, which can balance satisfactorily the accuracy of prediction
+prediction is the combination of the GLHM-derived prediction and the                            against computational cost. Moreover, based on Wang et al. (in press),
+temporal change                                                                                 the parameter δ of the spectral RBF was determined as twice the
+  (              )                                                                              maximum RMSD value in all windows (i.e., 0.1 in this paper).
+̂ x0 , y0 , b, tp = L′ (x0 , y0 , b, tk ) + Δ L(x
+L                                             ̂ 0 , y0 , b)               (3)
+                                                                                                2.2. Using Sentinel-2 MSI images for SLC-off images gap filling
+where tk and tp are the acquisition times of the known and SLC-off im­
+ages, respectively.                                                                                 To use the Sentinel-2 MSI images (note that cloud-free MSI images
+    The temporal change in reflectance for the gap pixel is estimated by                        are considered in this paper) for gap filling Landsat 7 ETM+ images, it is
+SSRBF-based interpolation. Based on the assumption that the gap pixel                           necessary to consider that the MSI images have finer spatial resolutions
+experiences similar temporal changes to its neighboring similar pixels                          than the Landsat 7 ETM+ images. Specifically, the six bands of Sentinel-
+(Cao et al., 2020; Chen et al., 2011; Hu et al., 2018; Zhu et al., 2012), the                   2 MSI images used for gap filling include four bands at 10 m (red, blue,
+temporal change for the center gap pixel is a weighted combination of φi                        green and NIR bands) and two bands at 20 m (SWIR1 and SWIR2 bands).
+(i.e., the SSRBF between the center pixel and its neighboring similar                           The spatial resolution of the ETM+ SLC-off images is 30 m. Thus, to
+pixels) for all its neighboring similar pixels                                                  render the Sentinel-2 images suitable for gap filling, it is first necessary
+                    ∑
+                    N                                                                           to match the spatial resolution of the Sentinel-2 MSI images with that of
+Δ̂
+ L(x0 , y0 , b) =         ωbi φi                                                     (4)        the SLC-off images. That is, it is necessary to upscale the 10 m and 20 m
+                    i=1                                                                         MSI bands to 30 m. There are many possible algorithms for upscaling,
+                                                                                                some of them more accurate than others. In this paper, we employ a
+where N is the number of similar pixels and ωbi (i = 1, 2, ..., N) are the
+                                                                                                downscaling-then-upscaling methodology for this task to make the most
+weights. Similar pixels are those that are spatially adjacent to and also
+                                                                                                efficient use of the available data. Specifically, the area-to-point
+spectrally similar (quantified using the root mean square deviation
+                                                                                                regression kriging (ATPRK) method is implemented first to downscale
+(RMSD) (Chen et al., 2011)) to the center gap pixel. Since the reflectance
+                                                                                                the two 20 m MSI bands to 10 m by fusing them with the four directly
+of the gap pixel is unknown, similar pixels are selected using the known
+                                                                                                observed 10 m bands (Wang et al., 2016). The outcome of this fusion
+image based on the assumption that no rapid land cover changes
+                                                                                                task is to produce six Sentinel-2 bands at 10 m spatial resolution. Then,
+occurred between tk and tp . The N weights are calculated by
+                                                                                                these six bands are upscaled from 10 m to 30 m by averaging each set of
+φωb = ΔLb                                                                            (5)        3 × 3 pixels in the 10 m fused data. The whole methodology is illustrated
+                           [                                ]                                   in Fig. 1.
+    In Eq. (5), φ =            φij , i = 1, ..., N, j = 1, ..., N is a matrix composed of
+the SSRBF between similar pixels (known), ωb = [ωbi , i = 1, ..., N]T is a
+vector composed of the N weights (which need to be estimated), and
+
+
+                                                                                            3
+Q. Wang et al.                                                                       International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+                                                                                     be evaluated visually and quantitatively by referring to the real L1, L2
+                                                                                     and L3 images.
+                                                                                         Figs. 2–6 show the images for Regions 1–5, respectively. As can be
+                                                                                     seen from Figs. 2 and 3, the differences between L1 (or L2) and the
+                                                                                     known images originate mainly due to seasonal changes. Region 3
+                                                                                     experienced abrupt land cover changes due to deforestation between L3
+                                                                                     and the known images. For Regions 4 and 5, the differences between the
+                                                                                     SLC-off images and known Sentinel-2 images reflect seasonal changes
+                                                                                     and land cover changes simultaneously. Using the five groups of datasets
+                                                                                     with different temporal changes, the performances of the proposed
+                                                                                     scheme of using Sentinel-2 MSI images for gap filling can be examined
+                                                                                     fully.
+                                                                                         It should be stressed that in this research we focused on developing a
+Fig. 1. Flowchart describing the upscaling of Sentinel-2 MSI images to 30 m.         strategy for using a new source of data (i.e., Sentinel-2 MSI images) to fill
+                                                                                     gaps in Landsat 7 ETM+ SLC-off images. To demonstrate the advantages
+                                                                                     of the proposed strategy, we compared its performance with the stra­
+3. Experiments
+                                                                                     tegies of using other sources of auxiliary data (the target Landsat 7
+                                                                                     ETM+ SLC-off image itself and Landsat 8 OLI data), based on the same
+3.1. Data and experimental design
+                                                                                     SSRBF method (note that for the comparative experiment using only the
+                                                                                     SLC-off image itself, the Gapfill plug-in method was used). That is, we
+    To test the proposed scheme of using the Sentinel-2 MSI images for
+                                                                                     did not compare SSRBF with other gap filling algorithms, since algo­
+gap filling, experiments with both simulated and real Landsat 7 ETM+
+                                                                                     rithm comparison was not the goal of this research and SSRBF has
+SLC-off data were tested. For the simulation experiments, two datasets
+                                                                                     already been demonstrated to be a competitive method for gap filling in
+covering 15 km × 15 km (500 × 500 Landsat pixels) heterogeneous
+                                                                                     a previous study (Wang et al., in press).
+areas and one dataset covering a 36 km × 36 km (1200 × 1200 Landsat
+pixels) forest area were used. The three areas are located in Verona, Italy
+(Region 1), Zhejiang Province, China (Region 2) and Mato Grosso, Brazil              3.2. Experiments on simulated SLC-off images (Regions 1 and 2)
+(Region 3). For the experiments on real SLC-off gap filling images, two
+datasets covering an area in Beijing, China (Region 4) and an area in                    The purpose of this section is to demonstrate the feasibility of
+Versailles, France (Region 5) were used. The spatial extent of both areas            considering Sentinel-2 MSI data as the known image for gap filling SLC-
+is 36 km × 36 km (1200 × 1200 Landsat pixels). For Regions 1–4, four,                off images from three perspectives.
+three, two and one Landsat 8 OLI images were used, respectively.
+Meanwhile, one Landsat 7 ETM+ SLC-off image was used in each of                         (1) Whether using Sentinel-2 MSI images is preferable than using
+Regions 4 and 5. In addition, one Sentinel-2 MSI image was used for each                    only SLC-off images (i.e., the Gapfill method without a known
+region, as shown in Table 2.                                                                image)?
+    In the simulation experiments, considering that Landsat 8 OLI bands                 (2) Whether using Sentinel-2 MSI images and Landsat 8 OLI images
+have the same wavelengths as the Landsat 7 ETM+ bands, the Landsat 8                        with almost the same acquisition dates leads to the same
+OLI images were used to simulate Landsat 7 SLC-off images with gaps                         accuracy?
+derived from a real Landsat 7 SLC-off image. Specifically, for Regions                  (3) Whether using Sentinel-2 MSI images acquired temporally closer
+1–3, SLC-off images were simulated using L1, L2 and L3, respectively.                       to the SLC-off image is preferable than using Landsat 8 OLI im­
+The Landsat 8 OLI and Sentinel-2 images acquired on other dates were                        ages acquired further from the SLC-off image?
+used as the known images for gap filling. Thus, the gap filling results can
+                                                                                         The SLC-off images for Regions 1 and 2 were simulated using L1 and
+                                                                                     L2. Figs. 7 and 8 show the gap filled results using different known images
+Table 2
+                                                                                     (L11, L12, L13 and Sen1 for Region 1 and L21, L22 and Sen2 for Region
+Images used in the experiments (Lx and Rx represent Landsat OLI images for gap       2) for Regions 1 and 2, respectively. Figs. 9–11 provide scatterplots of
+simulation and real Landsat 7 SLC-off data in Region x, respectively. Senx (or       the six bands and the normalized difference vegetation index (NDVI) of
+Lxy) represents the known Sentinel-2 MSI (or y-th Landsat OLI) image in Region       the results to show how close each prediction is to the actual data. Four
+x).                                                                                  quantitative evaluation indices were used, including the root-mean-
+  Region                                 Number              Acquisition date        square error (RMSE), correlation coefficient (CC), universal image
+                                                                                     quality index (UIQI) (Zhou and Bovik, 2002) and spectral angle mapper
+                                         L1                  2016.08.27
+  Verona, Italy (Region 1)               Sen1                2016.09.06
+                                                                                     (SAM) (Kim and Heo, 2002). For each prediction, the first three indices
+                                         L11                 2016.09.12              were calculated for each band as well as their averages for the six bands.
+                                         L12                 2016.10.30              The three quantitative evaluation results are plotted as bar charts to
+                                         L13                 2017.01.02              show comprehensively the differences between the gap filling results
+  Zhejiang, China (Region 2)             L2                  2016.04.22              produced using different known images, as displayed in Fig. 12. It is
+                                         L21                 2016.05.01              noted that, the SAM index was calculated for the spectrum of each pixel
+                                         Sen2                2016.05.04              and then averaged for all pixels. Thus, the SAM value for each prediction
+                                         L22                 2016.07.20
+                                                                                     was not shown in the same style as Fig. 12, but rather was analyzed in
+  Mato Grosso, Brazil (Region 3)         L3                  2017.08.28              the text instead.
+                                         L31                 2017.05.24
+                                         Sen3                2017.08.15
+                                                                                     3.2.1. Comparison of using Sentinel-2 MSI and SLC-off own effective data
+  Beijing, China (Region 4)              R4                  2020.04.05                  Figs. 7(b) and 8(b) show the filled images using the scanned pixels in
+                                         Sen4                2020.05.19
+                                                                                     the SLC-off images based on the Gapfill method. It is seen that the pre­
+                                         L41                 2020.11.07
+                                                                                     dictions display visually noticeable stripes and the boundaries of objects
+  Versailles, France                     R5                  2020.05.27              is ambiguous, which is substantially different from the reference. Taking
+  (Region 5)                             Sen5                2020.08.06
+                                                                                     the prediction for Region 1 (i.e., Fig. 7(b)) as an example, the boundary
+
+                                                                                 4
+Q. Wang et al.                                                                      International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+
+
+Fig. 2. Sentinel-2 MSI and Landsat 8 OLI data used in the experiments for Region 1 (NIR, red and green bands as RGB). (a) L1. (b) Sen1. (c) L11. (d) L12. (e) L13.
+
+
+
+
+   Fig. 3. Sentinel-2 MSI and Landsat 8 OLI data used in the experiments for Region 2 (NIR, red and green bands as RGB). (a) L2. (b) Sen2. (c) L21. (d) L22.
+
+
+
+
+                                                                                5
+Q. Wang et al.                                                                     International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+
+
+        Fig. 4. Sentinel-2 MSI and Landsat 8 OLI data used in the experiments for Region 3 (NIR, red and green bands as RGB). (a) L3. (b) Sen3. (c) L31.
+
+
+
+
+Fig. 5. Sentinel-2 MSI and real Landsat 7 ETM+ SLC-off data used in the experiments for Region 4 (NIR, red and green bands as RGB). (a) R4. (b) Sen4. (c) L41.
+
+
+
+
+    Fig. 6. Sentinel-2 MSI and real Landsat 7 ETM+ SLC-off data used in the experiments for Region 5 (NIR, red and green bands as RGB). (a) R5. (b) Sen5.
+
+
+of the yellow object at the upper right corner in the first subarea is             from the SLC-off image, using Sen1 as the known image can produce a
+completely blurred, and the shape of the green object in the second                prediction closer to the actual image. The scatterplots of predicted
+subarea is not predicted correctly. In Fig. 7(f), where Sen1 is used as the        against observed NDVI in Fig. 11 also demonstrate that the proposed
+known image, it can be seen that the corresponding features in both                strategy can provide more reliable predictions for practical applications.
+subareas are predicted reliably. The same conclusion can be drawn when                 Fig. 12 also shows that the accuracy of Gapfill is obviously lower
+checking the results for Region 2; that is, the prediction produced using          than that of using Sentinel-2 MSI image Sen1 or Sen2. More precisely,
+Sen2 as the known image is obviously more accurate than without any                for Region 1, when Sen1 is used, the mean RMSE (i.e., the average RMSE
+known image.                                                                       across all six bands) is decreased by 0.0214, and the mean CC and mean
+    The scatterplots reveal the differences between the predicted and              UIQI are increased by 0.2972 and 0.3101, respectively. Furthermore, the
+actual reflectances. Specifically, for each point, falling closer to the di­       SAMs of the predicted results based on Sen1 and Sen2 are 0.0627 and
+agonal means that the prediction is closer to the actual value. Comparing          0.0502, which are 0.0891 and 0.0738 smaller than the corresponding
+the Gapfill predictions with the Sen1 predictions in Figs. 9 and 10, it is         Gapfill predictions, respectively. The comparison shows that the
+obvious that, for all six bands, the points of the Gapfill predictions are         Sentinel-2 MSI images are an effective type of known image for SLC-off
+more dispersed, while the points of the Sen1 predictions fall closer to the        image gap filling, especially when other known images (i.e., Landsat
+diagonal. That is, compared with using only the effective information              images) are unavailable and only the SLC-off image can be used for gap
+
+
+                                                                               6
+Q. Wang et al.                                                                        International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+
+
+Fig. 7. Results of using different input known images for filling the gaps in the Verona dataset (Region 1) acquired on August 27, 2016. (a) Simulated SLC-off image
+based on (g); (b)-(f) are predictions made using (b) SLC-off image itself (i.e., Gapfill), (c) known Landsat 8 OLI image acquired on January 2, 2017 (L13), (d) known
+Landsat 8 OLI image acquired on October 30, 2016 (L12), (e) known Landsat 8 OLI image acquired on September 12, 2016 (L11) and (f) known Sentinel-2 MSI image
+acquired on September 6, 2016 (Sen1). (g) The actual image.
+
+
+filling.                                                                              comparable. Moreover, as can be seen from Figs. 9-11, the gap filling
+                                                                                      results show similar distributions in the scatter plots when using L11 (or
+3.2.2. Comparison of using Sentinel-2 MSI and Landsat 8 OLI images with               L21) and Sen1 (or Sen2) with almost the same acquisition dates.
+the same acquisition time                                                                 The accuracies in Fig. 12 indicate that when Sen1 and L11 are taken
+    In Region 1, the acquisition date of L11 is almost the same as that of            as the known images, the differences in RMSE, CC and UIQI are very
+Sen1 (only six days apart). Focusing on the results for Region 1, it can be           small. The same conclusion can also be drawn from the comparison of
+seen that Fig. 7(e) and Fig. 7(f) that are produced using Sen1 and L11 as             SAMs. For Region 2, where Sen2 and L21 are used as the known images,
+the known images are almost the same. In Region 2, the acquisition                    the RMSE, CC and UIQI of the results are also very close. More precisely,
+dates of L21 and Sen2 are similar (L21 is only three days away from                   the difference in mean RMSE is only 0.0003, and the differences in mean
+Sen2), and the corresponding results in Fig. 8(d) and (e) are also                    CC and UIQI are both less than 0.0030. Meanwhile, the difference in
+
+
+                                                                                  7
+Q. Wang et al.                                                                        International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+
+
+Fig. 8. Results of using different input known images for filling the gaps in the Zhejiang dataset (Region 2) acquired on April 22, 2016. (a) Simulated SLC-off image
+based on (f); (b)-(e) are predictions made using (b) SLC-off image itself, (c) known Landsat 8 OLI image acquired on July 20, 2016 (L22), (d) known Landsat 8 OLI
+image acquired on May 1, 2016 (L21), and (e) known Sentinel-2 MSI image acquired on May 4, 2016 (Sen2). (f) The actual image.
+
+
+SAM is about 0.0050. It is revealed that when the Sentinel-2 MSI and                  example, compared with treating Sen1 as the known image, the RMSE is
+Landsat OLI images with similar acquisition time are used as the known                0.0067 and 0.0089 smaller than using L12 and L13, while the CC is
+images, the performances in gap filling are generally the same, indi­                 0.0592 and 0.0837 larger, and the UIQI is 0.0648 and 0.0922 larger,
+cating that the Sentinel-2 MSI image is an effective alternative to the               respectively. Moreover, it can be seen that when the input known images
+Landsat OLI data for gap filling.                                                     are L11 (or Sen1), L12 and L13, both RMSEs and SAMs show increasing
+                                                                                      trends, while both CCs and UIQIs show decreasing trends, indicating
+3.2.3. Comparison of using Sentinel-2 MSI image closer to and Landsat 8               that the performance of gap filling deteriorates gradually as the tem­
+OLI image further from the SLC-off image                                              poral distance between the known and SLC-off images increases. For
+    Compared with Fig. 7(c) and (d), which are produced using known                   Region 2, the accuracy of using temporally further L22 is also lower than
+Landsat 8 OLI images, Fig. 7(f) is produced using a Sentinel-2 MSI image              that of using Sen2, where the mean RMSE is 0.0171 larger, and the mean
+acquired temporally closer to the SLC-off image. As a result, Fig. 7(f) is            CC and UIQI are 0.0789 and 0.0809 smaller. The SAM is 0.0895 when
+visually much more similar to the actual image in Fig. 7(g). More pre­                using L22 as the known image, which is 0.0393 larger than the filled
+cisely, in Fig. 7(c) and (d), the red object near the upper right corner of           result based on Sen2.
+the yellow object in the first subarea is wrongly predicted as yellow, and               To further compare the accuracies of using temporally close Sentinel-
+the boundary of the green object in the second subarea is also incorrectly            2 MSI and temporally far Landsat 8 OLI images, all valid Landsat 8 OLI
+predicted. A similar observation can also be made when examining the                  images for Regions 1 and 2 in four years (from 2016 to 2020) were
+results for Region 2. In Figs. 9–11, for all six bands and the NDVIs, the             considered in an experiment. That is, each OLI image in these four years
+scatterplots of the gap filling results produced by Sen1 and Sen2 are                 was used as known image, in turn, and the filling accuracy was recorded.
+distributed closer to the 1-to-1 diagonal line than those of L12 (and L13)            The CCs and RMSEs of the filled results for both regions are shown in
+and L22, respectively.                                                                Fig. 13, where the five vertical dotted lines represent the same day of
+    The accuracy indices in Fig. 12 show that using temporally close                  year with the SLC-off image in each year. From Fig. 13, two conclusions
+Sentinel-2 images leads to greater accuracy than temporally further                   can be drawn. First, the accuracy of gap filling shows a periodic change
+Landsat images. Taking the average accuracy of the six bands as an                    between years (due to periodic seasonal changes) and, more
+
+                                                                                  8
+Q. Wang et al.                                                                     International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+
+
+                                 Fig. 9. Scatterplots between the predicted and actual reflectances of six bands for Region 1.
+
+
+importantly, decreases year-by-year. The main reason for this phe­                 and L31 as the known images, respectively. Both visual checking and
+nomenon is that the longer the time interval, the greater the land cover           quantitative evaluation show that the use of temporally closer Sentinel-2
+change is expected to be, and correspondingly, the lower the reliability           image can yield more accurate gap filling results.
+of the known image. Second, in each case, the red dotted line, which                   To further illustrate the application value of the gap filled results, the
+represents the accuracy of using the Sentinel-2 MSI image closest to the           k-means clustering algorithm was used for unsupervised classification of
+SLC-off image, is obviously above the curve of Landsat OLI image-based             the results in Fig. 14. The classification results for the whole images are
+results. Therefore, it can be concluded that it is preferable to use a             shown in Fig. 15, with two subareas zoomed for clearer comparison. It
+temporally close Sentinel-2 MSI image when the existing known Landsat              can be seen from the two subareas in Fig. 15 that the classification result
+images (e.g., OLI images in the experiments) are temporally far away               based on the Sen3 prediction (Fig. 14(b)) is noticeably closer to the
+from the SLC-off image. In this way, the influence of distinct land cover          reference land cover map (Fig. 14(c)). Table 4 shows the accuracies of
+changes due to a large time span can be reduced to a great extent.                 the classification results in terms of the producers’ accuracy of each class
+                                                                                   and the overall accuracy (OA). From Table 4, it is seen that the Sen3
+                                                                                   prediction can provide more accurate classification for deforestation
+3.3. Application to monitoring deforestation (Region 3)                            monitoring. Moreover, the McNemar’s test on the classification results
+                                                                                   shows that there exists a significant difference (using the 95% degree of
+    To test the applicability of the proposed gap filling strategy to              confidence level) between the classified maps produced based on Sen3
+deforestation monitoring, L3 on August 28, 2017, L31 on May 24, 2017               and L31.
+and Sen3 on August 15, 2017 covering an area experiencing deforesta­
+tion in Mato Grosso, Brazil (Region 3) were used. The SLC-off image
+simulated using L3 was filled using L31 and Sen3 separately. Fig. 14               3.4. Validation of the proposed downscaling-then-upscaling strategy
+shows the gap filling results produced using different known images, in
+which the red objects represent forest. As can be seen from the two                    In this paper, based on the proposed downscaling-then-upscaling
+enlarged subareas in Fig. 14, the Sen3-based gap filling result restores           strategy, the original 20 m Sentinel-2 MSI data were first downscaled
+the red objects more accurately, that is, it predicts the forest cover more        to 10 m using the ATPRK-based fusion method and then upscaled to 30
+precisely. Table 3 shows the quantitative evaluation of the gap filling            m to produce the target known data at the spatial resolution of the SLC-
+results, in which the CCs and UIQIs of Sen3 prediction are larger and              off images. There are also several simple methods to upscale 20 m data
+RMSEs of Sen3 prediction are smaller than those of L31 prediction for all          to 30 m directly. In this section, to validate the proposed downscaling-
+six bands. Meanwhile, the SAMs are 0.0310 and 0.0434 when using Sen3               then-upscaling strategy, we compared it against two benchmark
+
+                                                                               9
+Q. Wang et al.                                                                   International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+
+
+                             Fig. 10. Scatterplots between the predicted and actual reflectances of the six bands for Region 2.
+
+
+
+
+                             Fig. 11. Scatterplots of NDVIs between the predicted and actual reflectances for Regions 1 and 2.
+
+
+strategies (denoted as Strategies 1 and 2).                                      20 m band, in turn.
+    In Strategy 1, we used the imresize function (based on bicubic                   The upscaled 30 m bands produced by the three strategies were
+interpolation) in the toolbox of MATLAB to upscale directly the simu­            compared quantitatively, as shown in Table 5. It can be seen that the
+lated 20 m bands to 30 m. In Strategy 2, to examine the downscaling              accuracy of Strategy 2 is greater than that of Strategy 1, which indicates
+step, the same imresize method was used to downscale the simulated 20            that the strategy involving downscaling is conducive to preserving the
+m bands to 10 m first, and then the 10 m predictions were upscaled to 30         original information and can provide more accurate upscaled data.
+m. The difference between Strategy 2 and the proposed strategy                   Furthermore, the accuracy of Strategy 3 is greater than that of Strategy
+(denoted as Strategy 3 for clarity) is that when downscaling the 30 m            2, suggesting that the ATPRK-based fusion method can produce more
+bands to 10 m, Strategy 3 used the ATPRK method (Wang et al., 2016) to           reliable 10 m downscaled data that are more conducive to the subse­
+fuse the 20 m bands with 10 m available bands. To compare the three              quent upscaling step. To show the difference between the results more
+strategies, we designed an experiment using four 10 m bands (blue,               clearly, we provided the error images (in absolute values) in Fig. 16. As
+green, red and NIR) of the Sentinel-2 MSI data in Region 2. In the               can be seen obviously, compared with Strategies 1 and 2, Strategy 3
+experiment, the original 10 m bands were upscaled to 30 m to produce             produces more accurate results. Therefore, it can be concluded that the
+the reference data for examination, and upscaled to 20 m to produce the          strategy proposed in this paper can produce more accurate upscaled
+simulated 20 m input data. The test was performed for each simulated             data, which is more conducive to the post-gap filling process.
+
+                                                                            10
+Q. Wang et al.                                                                    International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+
+
+                                Fig. 12. The accuracies (in terms of RMSE, CC, and UIQI) of gap filling for Regions 1 and 2.
+
+
+3.5. Experiments on real Landsat 7 SLC-off images (Regions 4 and 5)               is potential to seek different sources of auxiliary images for SLC-off
+                                                                                  images gap filling, such as images acquired by the new Landsat 9
+    In this section, two datasets from Beijing, China (Region 4) and              sensor that will be launched in the near future (Masek et al., 2020). On
+Versailles, France (Regions 5) were used to test the applicability of the         the other hand, although the Sentinel-2 MSI data are proposed for filling
+proposed gap filling scheme in dealing with real Landsat 7 ETM+ SLC-              the gaps in the SLC-off images in this paper, their application should not
+off images. Sen4 and Sen5 were used to fill the gaps in R4 and R5,                be limited to this and can be further extended. Specifically, given the
+respectively. Additionally, L41 was also used for gap filling of R4, and          great similarities between Sentinel-2 MSI and Landsat data as well as the
+the result was compared visually with that for Sen4. Figs. 17 and 18              encouraging performance for SLC-off images gap filling, the spatially
+show the gap filling results for the two regions. It can be seen from             complete Sentinel-2 MSI data can also be applied to other data recon­
+Fig. 17 that for Region 4, with its strong spatial heterogeneity, the             struction issues such as cloud removal of Landsat images (Chen et al.,
+proposed gap filling strategy produces a visually more continuous pre­            2016; Shen et al., 2014; Xu et al., 2016). This is part of our ongoing
+diction by using Sen4, while the subareas of the L41-based prediction             research.
+show obvious artifacts. For Region 5, with significant seasonal and land              For gap filling of SLC-off images after June 2015 (the launch time of
+cover changes (see Fig. 6(a) and (b)), Fig. 18 show that the details of           the Sentinel-2A satellite), one may argue that gap filling is not necessary
+different objects are restored satisfactorily with relative completeness.         because the Sentinel-2 images can be used instead of the Landsat images.
+Therefore, the gap filling strategy proposed in this paper has great po­          However, this argument is false for two reasons. First, the Landsat
+tential for use in practical applications.                                        archive is of great significance as the longest running terrestrial image
+                                                                                  time-series of its type and the high quality restoration of SLC-off images
+4. Discussion                                                                     can be invaluable for a wide range of applications that use the Landsat
+                                                                                  archive. Second, the restored images can be utilized in combination with
+4.1. The applicability of Sentinel-2 MSI images                                   the available Sentinel-2 images (Dong et al., 2020; Griffiths et al., 2020;
+                                                                                  Liu et al., 2020), especially where the dates of acquisition differ or where
+    The use of Sentinel-2 MSI data as the known image for Landsat                 cloud cover affects one of the time-series.
+ETM+ SLC-off images gap filling produced satisfactory results in the
+experiments. This demonstrates that the performance of gap filling is not
+                                                                                  4.2. Limitation of using Sentinel-2 MSI images
+subject to the source of known images, as long as they are similar to (e.
+g., the same spectral range settings and similar spatial resolution), and
+                                                                                     Although the great potential of using Sentinel-2 MSI data for filling
+more importantly, temporally close to the SLC-off images. Therefore, it
+                                                                                  gaps in SLC-off images was validated in this paper, two limitations
+
+                                                                             11
+Q. Wang et al.                                                                       International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+
+
+Fig. 13. CCs and RMSEs for gap filling L1 and L2-simulated SLC-off images using different known images acquired between August 1, 2016 and September 1, 2020
+for Region 1 and April 20, 2016 and May 5, 2020 for Region 2 (the five vertical dotted lines for Regions 1 and 2 mark the dates of each August 27 in 2016–2020 and
+each April 22 in 2016–2020, respectively).
+
+
+
+
+Fig. 14. Results of using different input known images for filling the gaps in the Mato Grosso dataset (Region 3) acquired on August 28, 2017. (a) Simulated SLC-off
+image based on (d); (b) and (c) are predictions made using (b) known Landsat 8 OLI image acquired on May 24, 2017 (L31) and (c) known Sentinel-2 MSI image
+acquired on August 15, 2017 (Sen3). (d) The actual image.
+
+
+relating to its applicability need to be borne in mind. First, the Sentinel-2        are suitable only for filling gaps in the six 30 m bands. Regarding other
+MSI bands have wavelengths that correspond to the six Landsat 7 ETM+                 bands of ETM+ (i.e., the thermal infrared band at a spatial resolution of
+bands at 30 m spatial resolution. Consequently, the Sentinel-2 MSI data              60 m), new sources of known images for gap filling need to be found and
+
+
+                                                                                12
+Q. Wang et al.                                                                               International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+Table 3
+Accuracies of the gap filling results produced using different known images (L31 and Sen3) in Mato Grosso, Brazil (Region 3) (values in bold represent the most
+accurate result in each case).
+                                        Blue                  Green               Red                    NIR                   SWIR1                  SWIR2                Mean
+
+  RMSE               Sen3               0.0021                0.0031              0.0057                 0.0119                0.0104                 0.0092               0.0071
+                     L31                0.0029                0.0039              0.0071                 0.0136                0.0158                 0.0139               0.0095
+
+  CC                 Sen3               0.9899                0.9883              0.9912                 0.9589                0.9953                 0.9953               0.9865
+                     L31                0.9800                0.9811              0.9863                 0.9459                0.9893                 0.9892               0.9786
+
+  UIQI               Sen3               0.9898                0.9882              0.9912                 0.9584                0.9953                 0.9953               0.9864
+                     L31                0.9766                0.9811              0.9862                 0.9445                0.9892                 0.9891               0.9783
+
+
+
+
+Fig. 15. Classification results base on the gap filled images in Fig. 13. (a) is the same as Fig. 13(a), (b)-(d) are classification results based on L31 in Fig. 13(b), Sen3 in
+Fig. 13(c) and reference in Fig. 13(d), respectively.
+
+
+
+Table 4                                                                                      Table 5
+Classification accuracies of the results in Fig. 14 (values in bold represent the            Accuracies of the upscaling results produced using three different strategies, and
+most accurate result in each case).                                                          using the dataset in Region 2 (Strategy 1: upscaling directly the 20 m bands to
+                       Forest                    Non-forest                OA
+                                                                                             30 m using bicubic interpolation; Strategy 2: downscaling the 20 m bands to 10
+                                                                                             m using bicubic interpolation, and then upscaling the 10 m predictions to 30 m;
+  Sen3                 0.9820                    0.9791                    0.9807            Strategy 3 (proposed in this paper): downscaling the 20 m bands to 10 m using
+  L31                  0.9692                    0.9745                    0.9717
+                                                                                             the ATPRK-based fusion method, and then upscaling the 10 m predictions to 30
+                                                                                             m) (values in bold represent the most accurate result in each case).
+exploited, since there is no thermal infrared band in the Sentinel-2 MSI                                                      Blue           Green            Red          NIR
+data.                                                                                                       Strategy 1        0.0025         0.0026           0.0033       0.0051
+    Second, the Sentinel-2A satellite was launched in June 2015, later                        RMSE          Strategy 2        0.0022         0.0023           0.0030       0.0046
+than the SLC failure (May 2003); hence, the acquired Sentinel-2 data are                                    Strategy 3        0.0009         0.0006           0.0009       0.0039
+more suitable for filling gaps in SLC-off images acquired after 2015. For                                   Strategy 1        0.9952         0.9944           0.9950       0.9940
+SLC-off images acquired before 2015 (i.e., between 2003 and 2015), the                        CC            Strategy 2        0.9962         0.9956           0.9961       0.9954
+feasible temporal distance to Sentinel-2 MSI data remains to be further                                     Strategy 3        0.9994         0.9997           0.9996       0.9964
+
+investigated. That is, for a SLC-off image with a large temporal distance                                   Strategy 1        0.9951         0.9943           0.9949       0.9939
+to a Sentinel-2 MSI image, whether the use of the Sentinel-2 MSI image                        UIQI          Strategy 2        0.9959         0.9953           0.9958       0.9949
+                                                                                                            Strategy 3        0.9994         0.9997           0.9996       0.9964
+can achieve acceptable results still needs to be examined. The answer
+will depend heavily on the intensity of land cover changes in the study
+area. It may also be worthwhile to consider quantifying the degree of                        how the accuracy varies with land cover changes. In addition, the
+land cover change between the Sentinel-2 MSI and SLC-off images, and                         Sentinel-2 MSI images may not be consistently the most appropriate
+check the corresponding restoration accuracy, in such a way as to know                       choice for gap filling, especially when they are temporally more distant
+
+
+                                                                                        13
+Q. Wang et al.                                                                        International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+
+
+                              Fig. 16. Error images (in absolute values) of the three upscaling strategies (Region 2 as an example).
+
+
+
+
+Fig. 17. Gap filling result of the real SLC-off image in Region 4 (36 km by 36 km; NIR, red and green bands as RGB), with zooms of two subareas (from left to right is
+the predicted image using S4 and L41 as well as the corresponding SLC-off image).
+
+
+from the SLC-off images than other choices of known images. For further               4.3. The point spread function effect
+evaluation, we used another Sentinel-2 MSI image acquired on 29
+January 2017 for Region 2 (the simulated SLC-off image (L2) is acquired                   When using Sentinel-2 MSI data to fill gaps in Landsat ETM+ SLC-off
+on 22 April 2016). The results are shown in Table 6. Obviously, as the                images, we have to face the problem of incompatible spatial resolution.
+acquisition dates of the known images go further from L2, their pre­                  In this paper, to address this problem we implemented a downscaling-
+diction accuracies show decreasing trends. That is, when the Sentinel-2               then-upscaling methodology. ATPRK was adopted for the downscaling
+MSI images were further from the SLC-off images than the Landsat 8 OLI                step because ATPRK is known to impart multiple benefits for this task
+image, the Sentinel-2 MSI images may not be a preferable choice.                      including perfect coherence with the original data (Wang et al., 2017).
+                                                                                      We then used the simple average-based algorithm to upscale the 10 m
+                                                                                      Sentinel-2 data to 30 m to match the spatial resolution of the Landsat
+                                                                                      ETM+ SLC-off images, that is, each block of 3 × 3 10 m pixels was
+
+
+                                                                                 14
+Q. Wang et al.                                                                       International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+
+
+Fig. 18. Gap filling result of the real SLC-off image in Region 5 (36 km by 36 km; NIR, red and green bands as RGB), with zooms of two subareas, showing the
+predicted image and the corresponding SLC-off image.
+
+
+
+Table 6
+Accuracies of the gap filling results produced using different known images in Zhejiang, China (Region 2).
+                                             Blue              Green             Red                  NIR                 SWIR1                SWIR2               Mean
+
+                   L21(2016.5.1)             0.0040            0.0051            0.0067               0.0155              0.0144               0.0174              0.0105
+  RMSE             L22(2016.7.20)            0.0065            0.0077            0.0105               0.0373              0.0216               0.0236              0.0179
+                   Sen(2017.1.29)            0.0072            0.0087            0.0120               0.0362              0.0232               0.0264              0.0190
+
+                   L21(2016.5.1)             0.9761            0.9616            0.9621               0.9594              0.9435               0.9418              0.9574
+  CC               L22(2016.7.20)            0.9388            0.9107            0.9064               0.7395              0.8691               0.8934              0.8763
+                   Sen(2017.1.29)            0.9215            0.8826            0.8722               0.7553              0.8450               0.8612              0.8563
+
+                   L21(2016.5.1)             0.9760            0.9612            0.9618               0.9590              0.9420               0.9406              0.9568
+  UIQI             L22(2016.7.20)            0.9388            0.9106            0.9061               0.7273              0.8669               0.8929              0.8738
+                   Sen(2017.1.29)            0.9204            0.8802            0.8685               0.7432              0.8382               0.8548              0.8509
+
+
+
+averaged to generate the corresponding 30 m pixel. We compared the                   4.4. Downscaling Landsat ETM+ images to 10 m
+degraded Sentinel-2 MSI images to Landsat OLI images acquired almost
+on the same day and found that they were almost identical visually.                      To fill gaps in the 30 m SLC-off data, we upscaled the 10 m Sentinel-2
+Meanwhile, as can be seen from the results in Section 3.2.2, the gap                 image to 30 m to match the spatial resolution of the SLC-off image in this
+filled results based on the use of the known Sentinel-2 MSI images and               paper. This scheme is reasonable for gap filling, but wastes the valuable
+the known Landsat OLI images acquired on almost the same day are very                10 m information in the Sentinel-2 image. To take full advantage of the
+close, which indicates the feasibility of the Sentinel-2 MSI image                   available information in the Sentinel-2 data, we may consider further
+upscaling scheme in the case studies in this paper. Nevertheless, the                downscaling the filled 30 m SLC-off image to 10 m by fusing it with the
+point spread function (PSF) effect exists ubiquitously in remote sensing             10 m Sentinel-2 image (Shao et al., 2019; Wang et al., 2017). Landsat
+images, caused mainly by the optics of the instrument, atmospheric ef­               images at 10 m spatial resolution can provide more detailed spatial in­
+fects and image resampling (Forster and Best, 1994; Huang et al., 2002;              formation which can open up new opportunities for applications at finer
+Wang et al., 2020a, 2020b). The PSF means that the signal for a given                spatial scale (such as extraction of urban trees, small residential build­
+pixel is a weighted combination of contributions from within the pixel               ings and impervious surfaces). In the process of multi-resolution data
+and also contributions from neighboring pixels. Moreover, the closer the             fusion, however, land cover changes (especially boundary changes)
+pixel to the center, the greater the weight. The spatial range of neigh­             between the Sentinel-2 MSI and SLC-off data will impact the down­
+boring pixels and the weight of each neighbor are determined by the                  scaling results greatly (Wang et al., 2020a, 2020b), making this fusion
+PSF, which needs to be estimated for each band on a case-by-case basis.              issue more challenging than the conventional pan-sharpening or spatio-
+Note that in scale transformation between images at different spatial                spectral fusion problem (Jiang et al., 2020; Vivone et al., 2015, 2019).
+resolutions, the PSF of interest is subtly different to the measurement              Wang et al. (2017) used the 15 m Landsat panchromatic band to deal
+PSF, which is actually the transfer function between the images (Wang                with land cover changes, which may provide important guidance for
+et al., 2020a, 2020b). In future research, especially for regions with               fusion of Sentinel-2 MSI and Landsat ETM+ images. In this case, the gap
+great heterogeneity, the PSF effect should be explored as this may help              in the 15 m ETM+ panchromatic band will also need to be filled in
+to restore more spatial detail and potentially increase the reliability of           advance. This provides an interesting avenue for future research.
+gap filling. The key issue would be the estimation of the PSF, which may
+be achieved by establishing the relation between the valid data of both              5. Conclusion
+Sentinel-2 MSI and SLC-off images. Due to land cover changes that have
+occurred between the two images, however, it would be interesting to                    This paper identified new known images for Landsat 7 ETM+ SLC-off
+consider eliminating the influence of changed pixels and estimating the              images gap filling. Specifically, Sentinel-2 MSI images were proposed for
+PSF based on unchanged pixels.                                                       SLC-off gap filling, providing a new choice for seeking known images. To
+                                                                                     make use of the Sentinel-2 MSI images, it was necessary to deal with the
+
+
+                                                                                15
+Q. Wang et al.                                                                                    International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+
+differences in spatial resolution between Sentinel-2 MSI and Landsat 7                            Chen, F., Tang, L., Qiu, Q., 2010. Exploitation of CBERS-02B as auxiliary data in
+                                                                                                       recovering the Landsat7 ETM+ SLC-off image. Proceedings of the 18 International
+images. Thus, to produce suitable Sentinel-2-based known images, we
+                                                                                                       Conference on Geoinformatics. Peking University, Beijing, China.
+proposed a downscaling-then-upscaling methodology involving ATPRK                                 Chen, J., Zhu, X., Vogelmann, J.E., Gao, F., Jin, S., 2011. A simple and effective method
+in the downscaling step. Moreover, for the gap filling interpolation task,                             for filling gaps in Landsat ETM+ SLC-off images. Remote Sens. Environ. 115 (4),
+we used a recently proposed SSRBF algorithm which exploits spectral as                                 1053–1064.
+                                                                                                  Cheng, Q., Shen, H., Zhang, L., Li, P., 2014. Inpainting for remotely sensed images with a
+well as spatial information in the known images. The strategy makes full                               multichannel nonlocal total variation model. IEEE Trans. Geosci. Remote Sens. 52
+use of the great similarities between the Sentinel-2 MSI and Landsat 7                                 (1), 175–187.
+data, including the same spectral range settings, geographic coordinate                           Dong, T., Liu, J., Qian, B., He, L., Liu, J., Wang, R., Jing, Q., Champagne, C., McNairn, H.,
+                                                                                                       Powers, J., Shi, Y., Chen, J.M., Shang, J., 2020. Estimating crop biomass using leaf
+system, global coverage and free availability. Importantly, the finer                                  area index derived from Landsat 8 and Sentinel-2 data. ISPRS J. Photogramm.
+temporal resolution of Sentinel-2 MSI data provides greater opportu­                                   Remote Sens. 168, 236–250.
+nities to acquire effective known images temporally closer to ETM+ SLC-                           Drusch, M., Bello, U.D., Carlier, S., Colin, O., Fernandez, V., Gascon, F., Hoersch, B.,
+                                                                                                       Isola, C., Laberinti, P., Martimort, P., Meygret, A., Spoto, F., Sy, O., Marchese, F.,
+off images.                                                                                            Bargellini, P., 2012. Sentinel-2: ESA’s optical high-resolution mission for GMES
+    The case studies show that Sentinel-2 MSI images, manipulated using                                operational services. Remote Sens. Environ. 120, 25–36.
+the changes of support methodology, are an effective choice of known                              Forster, B.C., Best, P., 1994. Estimation of SPOT P-mode point spread function and
+                                                                                                       derivation of a deconvolution filter. ISPRS J. Photogramm. Remote Sens. 49 (6),
+image for SLC-off image gap filling. First, using Sentinel-2 MSI known                                 32–42.
+images can produce more reliable results than without any auxiliary                               Gao, G., Gu, Y., 2017. Multitemporal Landsat missing data recovery based on tempo-
+data. Second, the gap filling results are generally the same when using                                spectral angle model. IEEE Trans. Geosci. Remote Sens. 55 (7), 3656–3668.
+                                                                                                  Griffiths, P., Nendel, C., Pickert, J., Hostert, P., 2020. Towards national-scale
+Sentinel-2 MSI and Landsat 8 OLI known images with almost the same
+                                                                                                       characterization of grassland use intensity from integrated Sentinel-2 and Landsat
+acquisition time. Third, Sentinel-2 MSI known images acquired tempo­                                   time series. Remote Sens. Environ. 238, 111124.
+rally closer to the SLC-off image are preferable than Landsat 8 OLI                               Hagolle, O., Sylvander, S., Huc, M., Claverie, M., Clesse, D., Dechoz, C., Lonjou, V.,
+known images acquired further from the SLC-off image.                                                  Poulain, V., 2015. SPOT-4(Take 5): simulation of Sentinel-2 time series on 45 large
+                                                                                                       sites. Remote Sens. 7 (9), 12242–12264.
+    The scheme of using Sentinel-2 MSI known images is also potentially                           Hu, T., Huang, X., Li, J., Zhang, L., 2018. A novel co-training approach for urban land
+applicable to other data reconstruction issues such as cloud removal in                                cover mapping with unclear Landsat time series imagery. Remote Sens. Environ.
+Landsat images.                                                                                        217, 144–157.
+                                                                                                  Huang, C., Townshend, R.G., Liang, S., Kalluri, S.N.V., DeFries, R.S., 2002. Impact of
+                                                                                                       sensor’s point spread function on land cover characterization: assessment and
+CRediT authorship contribution statement                                                               deconvolution. Remote Sens. Environ. 80, 203–212.
+                                                                                                  Jiang, M., Shen, H., Li, J., Yuan, Q., Zhang, L., 2020. A differential information residual
+                                                                                                       convolutional neural network for pansharpening. ISPRS J. Photogramm. Remote
+    Qunming Wang: Conceptualization, Methodology, Formal analysis,                                     Sens. 163, 257–271.
+Writing - original draft, Writing - review & editing, Funding acquisition.                        Kim, K.D., Heo, J.H., 2002. Comparative study of flood quantiles estimation by
+                                                                                                       nonparametric models. J. Hydrol. 260 (1), 176–193.
+Lanxing Wang: Data curation, Visualization, Formal analysis, Writing -                            Lee, Y.J., Yoon, J., 2010. Nonlinear image upsampling method based on radial basis
+original draft. Chao Wei: Visualization, Formal analysis, Writing - re­                                function interpolation. IEEE Trans. Image Process. 19 (10), 2682–2692.
+view & editing. Yanmin Jin: Visualization, Formal analysis, Writing -                             Liu, L., Xiao, X., Qin, Y., Wang, J., Xu, X., Hu, Y., Qiao, Z., 2020. Mapping cropping
+                                                                                                       intensity in China using time series Landsat and Sentinel-2 images and Google Earth
+review & editing. Zhongbin Li: Visualization, Formal analysis, Writing -
+                                                                                                       Engine. Remote Sens. Environ. 239, 111624.
+review & editing. Xiaohua Tong: Methodology, Formal analysis,                                     Li, W., Niu, Z., Shang, R., Qin, Y., Wang, L., Chen, H., 2020. High-resolution mapping of
+Writing - review & editing. Peter M. Atkinson: Methodology, Formal                                     forest canopy height using machine learning by coupling ICESat-2 LiDAR with
+                                                                                                       Sentinel-1, Sentinel-2 and Landsat-8 data. Int. J. Appl. Earth Obs. Geoinf. 92,
+analysis, Writing - review & editing.
+                                                                                                       102163.
+                                                                                                  Luo, Y., Guan, K., Peng, J., 2018. STAIR: A generic and fully-automated method to fuse
+                                                                                                       multiple sources of optical satellite data to generate a high-resolution, daily and
+                                                                                                       cloud-/gap-free surface reflectance product. Remote Sens. Environ. 214, 87–99.
+Declaration of Competing Interest
+                                                                                                  Luo, Y., Guan, K., Peng, J., Wang, S., Huang, Y., 2020. STAIR 2.0: A generic and
+                                                                                                       automatic algorithm to fuse MODIS, Landsat, and Sentinel-2 to generate 10 m, daily,
+    The authors declare that they have no known competing financial                                    and cloud-/gap-free surface reflectance product. Remote Sens. 12, 3209.
+                                                                                                  Magoules, F., Diago, L.A., Hagiwara, I., 2007. Efficient preconditioning for image
+interests or personal relationships that could have appeared to influence
+                                                                                                       reconstruction with radial basis functions. Adv. Eng. Softw. 38, 320–327.
+the work reported in this paper.                                                                  Masek, J.G., Wulder, M.A., Markham, B., McCorkel, J., Crawford, C.J., Storey, J.,
+                                                                                                       Jenstrom, D.T., 2020. Landsat 9: empowering open science and applications through
+                                                                                                       continuity. Remote Sens. Environ. 248, 111968.
+Acknowledgements                                                                                  Ng, M.K., Yuan, Q., Yan, L., Sun, J., 2017. An adaptive weighted tensor completion
+                                                                                                       method for the recovery of remote sensing images with missing data. IEEE Trans.
+   This work was supported by the National Natural Science Foundation                                  Geosci. Remote Sens. 55 (6), 3367–3381.
+                                                                                                  Novelli, A., Aguilar, M.A., Nemmaoui, A., Aguilar, F.J., Tarantino, E., 2016. Performance
+of China under Grant 41971297, Fundamental Research Funds for the                                      evaluation of object based greenhouse detection from Sentinel-2 MSI and Landsat 8
+Central Universities under Grant 02502150021, and Tongji University                                    OLI data: A case study from Almería (Spain). Int. J. Appl. Earth Obs. Geoinf. 52,
+under Grant 02502350047.                                                                               403–411.
+                                                                                                  Pringle, M.J., Schmidt, M., Muir, J.S., 2009. Geostatistical interpolation of SLC-off
+                                                                                                       Landsat ETM plus images. ISPRS J. Photogramm. Remote Sens. 64 (6), 654–664.
+References                                                                                        Reza, M.M., Ali, S.N., 2008. Using IRS products to recover Landsat7 ETM+ defective
+                                                                                                       images. American Journal of Applied Sciences 5 (6), 618–625.
+                                                                                                  Romero-Sanchez, M.E., Ponce-Hernandez, R., Franklin, S.E., Aguirre-Salado, C.A., 2015.
+Boloorani, A.D., Erasmi, S., Kappas, M., 2008. Multi-source image reconstruction:
+                                                                                                       Comparison of data gap-filling methods for Landsat ETM+ SLC-off imagery for
+    exploitation of EO-1/ALI in Landsat-7/ETM+ SLC-off gap filling. J. Opt. Microsyst
+                                                                                                       monitoring forest degradation in a semi-deciduous tropical forest in Mexico. Int. J.
+    6812, 681219.
+                                                                                                       Remote Sens. 36, 2786–2799.
+Brombacher, J., Reiche, J., Dijksma, R., Teuling, A.J., 2020. Near-daily discharge
+                                                                                                  Roy, D.P., Ju, J., Lewis, P., Schaaf, C., Gao, F., Hansen, M., Lindquist, E., 2008. Multi-
+    estimation in high latitudes from Sentinel-1 and 2: A case study for the Icelandic
+                                                                                                       temporal MODIS-Landsat data fusion for relative radiometric normalization, gap
+    Þjórsá river. Remote Sens. Environ. 241, 111684.
+                                                                                                       filling, and prediction of Landsat data. Remote Sens. Environ. 112 (6), 3112–3130.
+Buhmann, M.D., 2003. Radial basis functions: theory and implementations. Cambridge
+                                                                                                  Sadiq, A., Edwar, L., Sulong, G., 2017. Recovering the large gaps in Landsat 7 SLC-off
+    University Press, Cambridge, UK.
+                                                                                                       imagery using weighted multiple linear regression (WMLR). Arabian J. Geosci. 10,
+Cao, R., Chen, Y., Chen, J., Zhu, X., Shen, M., 2020. Thick cloud removal in Landsat
+                                                                                                       403.
+    images based on autoregression of Landsat time-series data 249, 112001.
+                                                                                                  Segl, K., Guanter, L., Gascon, F., Kuester, T., Rogass, C., Mielke, C., 2015. S2eteS: an end-
+Chauhan, S., Darvishzadeh, R., Lu, Y., Boschetti, M., Nelson, A., 2020. Understanding
+                                                                                                       to-end modeling tool for the simulation of Sentinel-2 image products. IEEE Trans.
+    wheat lodging using multi-temporal Sentinel-1 and Sentinel-2 data. Remote Sens.
+                                                                                                       Geosci. Remote Sens. 53 (10), 5560–5571.
+    Environ. 243, 111804.
+                                                                                                  Shao, Z., Cai, J., Fu, P., Hu, L., Liu, T., 2019. Deep learning-based fusion of Landsat-8 and
+Chen, B., Huang, B., Chen, L., Xu, B., 2016. Spatially and temporally weighted regression:
+                                                                                                       Sentinel-2 images for a harmonized surface reflectance product. Remote Sens.
+    a novel method to produce continuous cloud-free Landsat imagery. IEEE Trans.
+                                                                                                       Environ. 235, 111425.
+    Geosci. Remote Sens. 55 (1), 27–37.
+
+
+                                                                                             16
+Q. Wang et al.                                                                                        International Journal of Applied Earth Observations and Geoinformation 101 (2021) 102365
+
+Shen, H., Li, X., Cheng, Q., Zeng, C., Yang, G., Li, H., Zhang, L., 2015. Missing                     Wulder, M.A., Masek, J.G., Cohen, W.B., 2012. Opening the archive: how free data has
+    information reconstruction of remote sensing data: a technical review. IEEE Geosci.                   enabled the science and monitoring promise of Landsat. Remote Sens. Environ. 122,
+    Remote Sens. Mag. 3 (3), 61–85.                                                                       2–10.
+Shen, H., Li, X., Qian, Y., Zhang, L., Yuan, Q., 2014. An effective thin cloud removal                Xu, M., Jia, X., Pickering, M., Plaza, A. J., 2016. Cloud removal based on sparse
+    procedure for visible remote sensing images. ISPRS J. Photogramm. Remote Sens.                        representation via multitemporal dictionary learning 54(5), 2998− 3006.
+    96, 224–235.                                                                                      Yin, G., Mariethoz, G., McCabe, M.F., 2017. Gap-filling of Landsat 7 imagery using the
+Skakun, S., Vermote, E.F., Artigas, A., Rountree, W.H., Roger, J., 2021. An experimental                  direct sampling method. Remote Sens. 9 (1), 12–21.
+    sky-image-derived cloud validation dataset for Sentinel-2 and Landsat 8 satellites                Yuan, Q., Shen, H., Li, T., Li, Z., Li, S., Jiang, Y., Xu, H., Tan, W., Yang, Q., Wang, J.,
+    over NASA GSFC. Int. J. Appl. Earth Obs. Geoinf. 95, 102253.                                          Gao, J., Zhang, L., 2020. Deep learning in environmental remote sensing:
+Storey, J., Roy, D.P., Masek, J., Gascon, F., Dwyer, J., Choate, M., 2016. A note on the                  achievements and challenges. Remote Sens. Environ. 241, 111716.
+    temporary misregistration of Landsat-8 Operational Land Imager (OLI) and Sentinel-                Zeng, C., Shen, H., Zhang, L., 2013. Recovering missing pixels for Landsat ETM+ SLC-off
+    2 Multi Spectral Instrument (MSI) imagery. Remote Sens. Environ. 186, 121–122.                        imagery using multi-temporal regression analysis and a regularization method.
+USGS, 2004. Phase 2 gap-fill algorithm: SLC-off gap-filled products gap-fill algorithm                    Remote Sens. Environ. 131, 182–194.
+    methodology. Landsat.usgs.gov/documents/L7SLCGapFilledMethod.pdf (Available                       Zhang, C., Li, W., Civco, D., 2014. Application of geographically weighted regression to
+    online at (accessed 28 November 2010)).                                                               fill gaps in SLC-off Landsat ETM+ satellite imagery. Int. J. Remote Sens. 35 (22),
+Vivone, G., Addesso, P., Restaino, R., Mura, M.D., Chanussot, J., 2019. Pansharpening                     7650–7672.
+    based on deconvolution for multiband filter estimation. IEEE Trans. Geosci. Remote                Zhang, C., Li, W., Travis, D., 2007. Gaps-fill of SLC-off Landsat ETM plus satellite image
+    Sens. 57 (1), 540–553.                                                                                using a geostatistical approach. Int. J. Remote Sens. 28 (22), 5103–5122.
+Vivone, G., Alparone, L., Chanussot, J., Mura, M.D., Garzelli, A., Licciardi, G.A.,                   Zhang, J., Clayton, M.K., Townsend, P.A., 2011. Functional concurrent linear regression
+    Restaino, R., Wald, L., 2015. A critical comparison among pansharpening                               model for spatial images. Journal of Agricultural Biological and Environmental
+    algorithms. IEEE Trans. Geosci. Remote Sens. 53 (5), 2565–2586.                                       Statistics 16 (1), 105–130.
+Wangchuk, S., Bolch, T., 2020. Mapping of glacial lakes using Sentinel-1 and Sentinel-2               Zhang, J., Clayton, M.K., Townsend, P.A., 2015. Missing data and regression models for
+    data and a random forest classifier: Strengths and challenges. Science of Remote                      spatial images. IEEE Trans. Geosci. Remote Sens. 53 (3), 1574–1582.
+    Sens. 2, 100008.                                                                                  Zhang, Q., Yuan, Q., Zeng, C., Li, X., Wei, Y., 2018. Missing data reconstruction in remote
+Wang, Q., Blackburn, G.A., Onojeghuo, A.O., Dash, J., Zhou, L., Zhang, Y., Atkinson, P.                   sensing image with a unified spatial-temporal-spectral deep convolutional neural
+    M., 2017. Fusion of Landsat 8 OLI and Sentinel-2 MSI data. IEEE Trans. Geosci.                        network. IEEE Trans. Geosci. Remote Sens. 56 (8), 4274–4288.
+    Remote Sens. 55 (7), 3885–3899.                                                                   Zhou, W., Bovik, A.C., 2002. A universal image quality index. IEEE Signal Process Lett. 9
+Wang, Q., Shi, W., Li, Z., Atkinson, P.M., 2016. Fusion of Sentinel-2 images. Remote Sens.                (3), 81–84.
+    Environ. 187, 241–252.                                                                            Zhu, X., Liu, D., Chen, J., 2012. A new geostatistical approach for filling gaps in Landsat
+Wang, Q., Tang, Y., Atkinson, P.M., 2020a. The effect of the point spread function on                     ETM+ SLC-off images. Remote Sens. Environ. 124, 49–60.
+    downscaling continua. ISPRS J. Photogramm. Remote Sens. 168, 251–267.                             Zhu, Z., Wang, S., Woodcock, C.E., 2015. Improvement and expansion of the fmask
+Wang, Q., Tang, Y., Tong, X., Atkinson, P.M., 2020b. Virtual image pair-based spatio-                     algorithm: cloud, cloud shadow, and snow detection for Landsats 4–7, 8, and
+    temporal fusion. Remote Sens. Environ. 249, 112009.                                                   Sentinel 2 images. Remote Sens. Environ. 159, 269–277.
+Wang, Q., Wang, L., Li, Z., Tong, X., Atkinson, P. M., in press. Spatial-spectral radial basis
+    function-based interpolation for Landsat ETM+ SLC-off image gap filling. IEEE
+    Trans. Geosci. Remote Sens. http://dx.doi.10.1109/TGRS.2020.3038878.
+
+
+
+
+                                                                                                 17
+

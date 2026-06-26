@@ -1,0 +1,86 @@
+Filling Gaps in Landsat ETM Images
+
+On 31 May 2003 the Landsat 7 Enhanced Thematic Mapper (ETM) sensor had a failure of the Scan Line Corrector
+(SLC). Since that time all Landsat ETM images have had wedge-shaped gaps on both sides of each scene, resulting
+in approximately 22% data loss. These images are available for free download from the USGS GloVis website and
+are found in the L7 SLC-off collection.
+
+Scaramuzza, et al (2004) developed a technique which can be used to fill gaps in one scene with data from
+another Landsat scene. A linear transform is applied to the “filling” image to adjust it based on the standard
+deviation and mean values of each band, of each scene. More information about this technique can be found in
+the USGS article "SLC Gap-Filled Products, Phase One Methodology".
+
+This document describes how to apply this gap filling technique using an add-on module in the ENVI software.
+Guidelines are provided for the selection of images that may produce a quality gap-filled Landsat ETM image.
+Below you can see an example of this gap-filling technique as applied to a pair of Landsat ETM images from Path
+130 Row 45 acquired on 9 and 25 February 2011.
+
+
+
+
+       Figure 1a – 9 Feb 2011 image                              Figure 1b – Filled with 25 Feb 2011 image
+
+
+
+1. Image Selection
+Your first step is to find appropriate images that can be used to produce a quality result. Care must be taken
+when evaluating images for this technique. At a minimum, these images must be accurately co-registered.
+Images obtained from the USGS GloVis site in the “GeoTIFF plus Metadata” format have all been terrain corrected
+so this will not be an issue when using these images. If you obtain images from other sources you will need to
+co-register these images before proceeding.
+
+Optimal results will be obtained if both images are free of clouds and shadows, or snow and ice. Generally you
+should try to find images that have been acquired as close in time as possible. Landsat ETM repeats coverage of
+
+
+Copyright ©2011          The Yale Center for Earth Observation       http://www.yale.edu/ceo     1
+an area every 16 days. For some studies you may be able to use images approximately one year apart. This
+would eliminate any scene variation due to sun angle and distance.
+
+Pay attention to local landscape changes such as plant phenology and harvesting practices. For example, you
+should not combine images acquired before and after leaf-out in areas with deciduous forests. Also consider
+major events that may change the landscape, such as tsunamis or hurricanes. You should not use images from
+before and after a major change event to produce a meaningful gap-filled image.
+
+2. Preparation
+In some cases you may want to perform pre-processing functions such as atmospheric correction or conversion of
+digital numbers to top-of-atmosphere reflectance on these images. Because these are scene-specific operations
+they cannot be applied correctly to a blended multi-date image. Any pre-processing functions such as these must
+be done before using this image gap-fill routine.
+
+Finally, you need to evaluate which image will be the master scene to be filled, and which will be used to fill in the
+gaps. This is a subjective decision based on your review of the selected scenes. Take the time to view the scenes
+using different band combinations, perhaps even linking the two scenes.
+
+3. Image Gap Filling
+Use the ENVI software program to open the two Landsat ETM images you
+have selected above. Now from the ENVI main menu bar, select Basic
+Tools  Preprocessing  Data-Specific Utilities  Landsat TM 
+Landsat Gapfill. This will open the Select input file(s) and processing type
+dialog, Figure 2. You should only use the option Two band gap-fill (Local
+histogram matching), the other options do not perform as well. Next,
+click on the Choose button to navigate to a folder and enter an output
+filename.
+
+Click OK to open the Select input files dialog box, Figure 3. Make sure you
+                                                                                Figure 2
+select the appropriate image data type; 30m multispectral, 60m thermal,
+or 15m pan. Select your master image as the image to be gap filled then
+select the second image; you will use this to fill gaps in the first image.
+Click OK and wait for this to complete. This process could take up to 30
+minutes.
+
+4. Restore Data Type
+The gap-filling technique produces an output image with a 4-byte floating
+point data type. If you are working with TOA Reflectance values, then
+your work is complete. However if you are working with the original
+digital numbers, you should convert these data back to integers. This will      Figure 3
+reduce the file size by 75% and make all subsequent processing faster.
+
+From the ENVI main menu bar, select Basic Tools  Band Math and enter the expression: byte(round(b1))
+Click OK and select the button Match Variable to Input File to convert the entire dataset at once. Save this as a
+new file and delete the gap-filled image created in Section 3 above.
+
+
+Copyright ©2011           The Yale Center for Earth Observation     http://www.yale.edu/ceo       2
+

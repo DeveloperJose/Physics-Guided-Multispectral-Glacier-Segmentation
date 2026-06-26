@@ -27,14 +27,19 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import datetime
+from pathlib import Path
 
 import ee
 
 ee.Authenticate(auth_mode="localhost")
 ee.Initialize(project="hkh-glacier-mapping")
 
-COLLECTIONS = {"LE07": "LANDSAT/LE07/C02/T1", "LT05": "LANDSAT/LT05/C02/T1"}
+COLLECTIONS = {
+    "LE07": "LANDSAT/LE07/C02/T1_TOA",
+    "LT05": "LANDSAT/LT05/C02/T1_TOA",
+}
 # Export all spectral bands (thermal too). Preprocessing selects the final recipe.
 # LE07 C02 has dual thermal: B6_VCID_1 (low gain), B6_VCID_2 (high gain).
 # LT05 C02 has single thermal: B6.
@@ -43,6 +48,7 @@ SENSOR_BANDS: dict[str, list[str]] = {
     "LT05": ["B1", "B2", "B3", "B4", "B5", "B6", "B7"],
 }
 SLC_FAILURE = datetime(2003, 5, 31)
+FISHNET_PATH = Path("google_earth_scripts/hkh_fishnet.geojson")
 
 # ---------------------------------------------------------------------------
 # Scene definitions: (path, row, year, month, day, sensor)
@@ -128,27 +134,61 @@ def scenes_LE07_only():
 # ---------------------------------------------------------------------------
 # Gapfill (USGS SLC-off algorithm, Gorelick/Donchyts)
 # ---------------------------------------------------------------------------
-def gapfill(src: ee.Image) -> ee.Image:
+def gapfill(
+    src: ee.Image,
+    forced_fill_date: str | None = None,
+    min_neighbors: int = 64,
+    kernel_size: int = 5,
+    upscale: bool = True,
+    fallback_to_donor: bool = False,
+) -> ee.Image:
     """USGS SLC-off gapfill: regress a pre-SLC-failure fill scene onto src.
 
     The fill must be pre-SLC (before May 31, 2003) so it has no stripes.
     A post-SLC fill has stripes at the same positions as src and cannot fill them.
+
+    Fill donor ranking:
+      1. year distance to target (closest year first)
+      2. day-of-year distance to target (seasonal match)
+      3. cloud cover
+      4. most recent among ties
     """
     MIN_SCALE = 1 / 3
     MAX_SCALE = 3
-    MIN_NEIGHBORS = 64
-    KERNEL_SIZE = 5
 
-    fill = (
-        ee.ImageCollection("LANDSAT/LE07/C02/T1")
+    src_date = ee.Date(src.get("system:time_start"))
+    src_doy = ee.Number(src_date.getRelative("day", "year"))
+    src_year = ee.Number(src_date.get("year"))
+
+    def add_fill_rank(img: ee.Image) -> ee.Image:
+        img_date = ee.Date(img.get("system:time_start"))
+        img_doy = ee.Number(img_date.getRelative("day", "year"))
+        img_year = ee.Number(img_date.get("year"))
+        doy_diff = img_doy.subtract(src_doy).abs()
+        doy_wrap = ee.Number(365).subtract(doy_diff)
+        return img.set("_year_diff", src_year.subtract(img_year).abs()).set(
+            "_doy_diff", doy_diff.min(doy_wrap)
+        )
+
+    fill_pool = (
+        ee.ImageCollection(COLLECTIONS["LE07"])
         .filterDate("1999-04-15", "2003-05-31")
         .filter(ee.Filter.eq("WRS_ROW", src.get("WRS_ROW")))
         .filter(ee.Filter.eq("WRS_PATH", src.get("WRS_PATH")))
         .filter(ee.Filter.lt("CLOUD_COVER", 10))
-        .sort("CLOUD_COVER")  # secondary: lowest cloud among temporally close
-        .sort("DATE_ACQUIRED", False)  # primary: most recent (closest to target)
-        .first()
+        .map(add_fill_rank)
     )
+
+    if forced_fill_date is not None:
+        fill = fill_pool.filterDate(forced_fill_date, ee.Date(forced_fill_date).advance(1, "day")).first()
+    else:
+        fill = (
+            fill_pool.sort("DATE_ACQUIRED", False)
+            .sort("CLOUD_COVER")
+            .sort("_doy_diff")
+            .sort("_year_diff")
+            .first()
+        )
 
     common = src.mask().And(fill.mask())
     fc = fill.updateMask(common)
@@ -157,34 +197,43 @@ def gapfill(src: ee.Image) -> ee.Image:
     regress = fc.addBands(sc)
     regress = regress.select(ee.List(regress.bandNames()).sort())
 
-    kernel = ee.Kernel.square(KERNEL_SIZE * 30, "meters", False)
+    kernel = ee.Kernel.square(kernel_size * 30, "meters", False)
     ratio = 5
 
-    fit = (
-        regress.reduceResolution(ee.Reducer.median(), False, 500)
-        .reproject(regress.select(0).projection().scale(ratio, ratio))
-        .reduceNeighborhood(ee.Reducer.linearFit().forEach(src.bandNames()), kernel, None, False)
-        .unmask()
-        .reproject(regress.select(0).projection().scale(ratio, ratio))
-    )
+    if upscale:
+        fit = (
+            regress.reduceResolution(ee.Reducer.median(), False, 500)
+            .reproject(regress.select(0).projection().scale(ratio, ratio))
+            .reduceNeighborhood(ee.Reducer.linearFit().forEach(src.bandNames()), kernel, None, False)
+            .unmask()
+            .reproject(regress.select(0).projection().scale(ratio, ratio))
+        )
+    else:
+        fit = regress.reduceNeighborhood(
+            ee.Reducer.linearFit().forEach(src.bandNames()), kernel, None, False
+        )
 
     offset = fit.select(".*_offset")
     scale = fit.select(".*_scale")
 
     reducer = ee.Reducer.mean().combine(ee.Reducer.stdDev(), None, True)
 
-    src_stats = (
-        src.reduceResolution(ee.Reducer.median(), False, 500)
-        .reproject(src.select(0).projection().scale(ratio, ratio))
-        .reduceNeighborhood(reducer, kernel, None, False)
-        .reproject(src.select(0).projection().scale(ratio, ratio))
-    )
-    fill_stats = (
-        fill.reduceResolution(ee.Reducer.median(), False, 500)
-        .reproject(fill.select(0).projection().scale(ratio, ratio))
-        .reduceNeighborhood(reducer, kernel, None, False)
-        .reproject(fill.select(0).projection().scale(ratio, ratio))
-    )
+    if upscale:
+        src_stats = (
+            src.reduceResolution(ee.Reducer.median(), False, 500)
+            .reproject(src.select(0).projection().scale(ratio, ratio))
+            .reduceNeighborhood(reducer, kernel, None, False)
+            .reproject(src.select(0).projection().scale(ratio, ratio))
+        )
+        fill_stats = (
+            fill.reduceResolution(ee.Reducer.median(), False, 500)
+            .reproject(fill.select(0).projection().scale(ratio, ratio))
+            .reduceNeighborhood(reducer, kernel, None, False)
+            .reproject(fill.select(0).projection().scale(ratio, ratio))
+        )
+    else:
+        src_stats = src.reduceNeighborhood(reducer, kernel, None, False)
+        fill_stats = fill.reduceNeighborhood(reducer, kernel, None, False)
 
     scale2 = src_stats.select(".*stdDev").divide(fill_stats.select(".*stdDev"))
     offset2 = src_stats.select(".*mean").subtract(fill_stats.select(".*mean").multiply(scale2))
@@ -198,26 +247,68 @@ def gapfill(src: ee.Image) -> ee.Image:
     offset = offset.where(invalid2, src_stats.select(".*mean").subtract(fill_stats.select(".*mean")))
 
     count = common.reduceNeighborhood(ee.Reducer.count(), kernel, None, True, "boxcar")
-    scaled = fill.multiply(scale).add(offset).updateMask(count.gte(MIN_NEIGHBORS))
+    scaled = fill.multiply(scale).add(offset).updateMask(count.gte(min_neighbors))
 
-    return src.unmask(scaled, True)
+    out = src.unmask(scaled, True)
+    if fallback_to_donor:
+        residual = src.mask().reduce(ee.Reducer.min()).Not().And(
+            out.mask().reduce(ee.Reducer.min()).Not()
+        )
+        out = out.unmask(fill.updateMask(residual), True)
+    return out
 
 
 # ---------------------------------------------------------------------------
 # Export handler
 # ---------------------------------------------------------------------------
-def apply_common_mask(img: ee.Image) -> ee.Image:
-    """Keep only pixels valid in all selected bands.
+def load_fishnet_tile(tile_index: int) -> ee.Geometry:
+    with FISHNET_PATH.open() as f:
+        data = json.load(f)
+    for feat in data["features"]:
+        props = feat.get("properties", {})
+        if int(props.get("_export_index", -1)) == tile_index:
+            return ee.Geometry(feat["geometry"])
+    raise ValueError(f"Fishnet tile not found: {tile_index}")
+
+
+def apply_common_mask(img: ee.Image, mask_bands: list[str] | None = None) -> ee.Image:
+    """Keep only pixels valid in all mask bands.
 
     Prevents false-color edge artifacts where some bands have data at scene
-    boundaries and others are masked.
+    boundaries and others are masked. Use optical bands as mask source for LE07
+    exports so thermal-edge masks do not erase valid optical pixels.
     """
-    return img.updateMask(img.mask().reduce(ee.Reducer.min()))
+    mask_src = img.select(mask_bands) if mask_bands is not None else img
+    return img.updateMask(mask_src.mask().reduce(ee.Reducer.min()))
 
 
-def export(img: ee.Image, desc: str, folder: str):
+def common_mask_bands(sensor: str) -> list[str]:
+    if sensor == "LE07":
+        return ["B1", "B2", "B3", "B4", "B5", "B7"]
+    if sensor == "LT05":
+        return ["B1", "B2", "B3", "B4", "B5", "B7"]
+    return SENSOR_BANDS[sensor]
+
+
+def prepare_export_image(img: ee.Image, sensor: str) -> ee.Image:
+    """Preserve TOA dynamic range.
+
+    Raw DN exports used uint8 historically, but TOA reflectance is float-scale and
+    should not be cast to uint8 or it collapses to mostly 0/1 values.
+    """
+    if COLLECTIONS[sensor].endswith("_TOA"):
+        return img.toFloat()
+    return img.uint8()
+
+
+def export(img: ee.Image, desc: str, folder: str, region: ee.Geometry | None = None):
     task = ee.batch.Export.image.toDrive(
-        image=img, description=desc, folder=folder, scale=30, maxPixels=1e9
+        image=img,
+        description=desc,
+        folder=folder,
+        region=region,
+        scale=30,
+        maxPixels=1e9,
     )
     task.start()
     return task
@@ -226,7 +317,22 @@ def export(img: ee.Image, desc: str, folder: str):
 # ---------------------------------------------------------------------------
 # Dataset: gapfill (mixed or LE07-only)
 # ---------------------------------------------------------------------------
-def export_gapfill(scenes: list, folder: str, dataset: str, dry: bool, subset: set | None):
+def export_gapfill(
+    scenes: list,
+    folder: str,
+    dataset: str,
+    dry: bool,
+    subset: set | None,
+    tile_geom: ee.Geometry | None,
+    tile_suffix: str,
+    forced_fill_date: str | None,
+    gapfill_kernel_size: int,
+    gapfill_min_neighbors: int,
+    gapfill_upscale: bool,
+    gapfill_fallback_to_donor: bool,
+    disable_common_mask: bool,
+    disable_gapfill: bool,
+):
     for p, r, y, m, d, sensor in scenes:
         pr = f"{p:03d}-{r:03d}"
         if subset and pr not in subset:
@@ -234,26 +340,38 @@ def export_gapfill(scenes: list, folder: str, dataset: str, dry: bool, subset: s
 
         ename = export_desc(sensor, p, r, y, m, d)
         full_path = ee_image_id(sensor, p, r, y, m, d)
-        print(f"  {ename}  ({pr}, {sensor})")
+        print(f"  {ename}{tile_suffix}  ({pr}, {sensor})")
         if dry:
             continue
 
         img = ee.Image(full_path)
-        if needs_gapfill(y, m, d, sensor):
+        if needs_gapfill(y, m, d, sensor) and not disable_gapfill:
             # Check pre-SLC fill availability before attempting gapfill
             pr_filter = ee.Filter.eq("WRS_PATH", p).And(ee.Filter.eq("WRS_ROW", r))
             fill_pool = (
-                ee.ImageCollection("LANDSAT/LE07/C02/T1")
+                ee.ImageCollection(COLLECTIONS["LE07"])
                 .filter(pr_filter)
                 .filterDate("1999-04-15", "2003-05-31")
                 .filter(ee.Filter.lt("CLOUD_COVER", 10))
             )
             if fill_pool.size().getInfo() > 0:
-                img = gapfill(img)
+                img = gapfill(
+                    img,
+                    forced_fill_date=forced_fill_date,
+                    min_neighbors=gapfill_min_neighbors,
+                    kernel_size=gapfill_kernel_size,
+                    upscale=gapfill_upscale,
+                    fallback_to_donor=gapfill_fallback_to_donor,
+                )
             else:
                 print(f"    no pre-SLC fill — exporting with stripes")
-        img = apply_common_mask(img.select(SENSOR_BANDS[sensor])).uint8()
-        export(img, f"{dataset}_{ename}", folder)
+        img = img.select(SENSOR_BANDS[sensor])
+        if not disable_common_mask:
+            img = apply_common_mask(img, common_mask_bands(sensor))
+        if tile_geom is not None:
+            img = img.clip(tile_geom)
+        img = prepare_export_image(img, sensor)
+        export(img, f"{dataset}_{ename}{tile_suffix}", folder, region=tile_geom)
 
 
 # ---------------------------------------------------------------------------
@@ -266,8 +384,11 @@ def export_median(
     window_days: int,
     max_cloud: int,
     max_scenes: int,
+    month_window: int | None,
     dry: bool,
     subset: set | None,
+    tile_geom: ee.Geometry | None,
+    tile_suffix: str,
 ):
     for p, r, y, m, d, sensor in scenes:
         pr = f"{p:03d}-{r:03d}"
@@ -285,9 +406,15 @@ def export_median(
         start_str = start_dt.strftime("%Y-%m-%d")
         end_str = end_dt.strftime("%Y-%m-%d")
 
+        def month_distance(img: ee.Image) -> ee.Number:
+            img_month = ee.Number(ee.Date(img.get("system:time_start")).get("month"))
+            anchor_month = ee.Number(m)
+            diff = img_month.subtract(anchor_month).abs()
+            return diff.min(ee.Number(12).subtract(diff))
+
         # Collect scenes within window, annotate with temporal distance
         coll = (
-            ee.ImageCollection("LANDSAT/LE07/C02/T1")
+            ee.ImageCollection(COLLECTIONS["LE07"])
             .filter(ee.Filter.eq("WRS_PATH", p))
             .filter(ee.Filter.eq("WRS_ROW", r))
             .filterDate(start_str, end_str)
@@ -296,23 +423,34 @@ def export_median(
                 "_tdiff",
                 ee.Date(img.get("system:time_start"))
                 .difference(ee.Date(anchor_date), "day").abs()
-            ))
-            .sort("_tdiff")
+            ).set("_mdiff", month_distance(img)))
         )
+
+        if month_window is not None:
+            coll = coll.filter(ee.Filter.lte("_mdiff", month_window)).sort("_tdiff")
+        else:
+            coll = coll.sort("_tdiff")
 
         total = coll.size()
         use_n = ee.Number(max_scenes).min(total)
         limited = coll.limit(use_n)
 
         use_n_val = use_n.getInfo()
-        print(f"  {ename}  ({pr}, ±{window_days}d)  {use_n_val} closest scenes")
+        month_note = f", month±{month_window}" if month_window is not None else ""
+        print(f"  {ename}{tile_suffix}  ({pr}, ±{window_days}d{month_note})  {use_n_val} closest scenes")
         if dry:
             continue
 
         geom = limited.first().geometry()
-        composite = limited.median().clip(geom)
-        composite = apply_common_mask(composite.select(SENSOR_BANDS["LE07"])).uint8()
-        export(composite, f"{dataset}_{ename}", folder)
+        limited_masked = limited.map(
+            lambda img: apply_common_mask(img.select(SENSOR_BANDS["LE07"]), common_mask_bands("LE07"))
+        )
+        composite = limited_masked.median().clip(geom)
+        composite = apply_common_mask(composite, common_mask_bands("LE07"))
+        if tile_geom is not None:
+            composite = composite.clip(tile_geom)
+        composite = prepare_export_image(composite, "LE07")
+        export(composite, f"{dataset}_{ename}{tile_suffix}", folder, region=tile_geom)
 
 
 # ---------------------------------------------------------------------------
@@ -335,36 +473,72 @@ def main():
                         help="Max cloud cover % (median, default: 10)")
     parser.add_argument("--max-scenes", type=int, default=5,
                         help="Max closest scenes for median (default: 5)")
+    parser.add_argument("--month-window", type=int, default=None,
+                        help="Restrict median to scenes within ±N calendar months of anchor month")
+    parser.add_argument("--tile-index", type=int, default=None,
+                        help="Export only a specific fishnet tile index for faster debugging")
+    parser.add_argument("--name-suffix", type=str, default="",
+                        help="Extra suffix appended to export description, e.g. '_yrdoy'")
+    parser.add_argument("--forced-fill-date", type=str, default=None,
+                        help="Force gapfill donor date YYYY-MM-DD for LE07 gapfill debugging")
+    parser.add_argument("--gapfill-kernel-size", type=int, default=5,
+                        help="Gapfill kernel size in pixels (default: 5)")
+    parser.add_argument("--disable-gapfill", action="store_true",
+                        help="Export target scene without gapfilling for debugging")
+    parser.add_argument("--gapfill-min-neighbors", type=int, default=64,
+                        help="Gapfill minimum common neighbors (default: 64)")
+    parser.add_argument("--gapfill-upscale", dest="gapfill_upscale", action="store_true",
+                        help="Use reduced-resolution upscale path for gapfill (default)")
+    parser.add_argument("--no-gapfill-upscale", dest="gapfill_upscale", action="store_false",
+                        help="Use full-resolution local fit for gapfill")
+    parser.add_argument("--gapfill-fallback-to-donor", action="store_true",
+                        help="Fill residual holes with raw donor pixels after LLHM gapfill")
+    parser.add_argument("--disable-common-mask", action="store_true",
+                        help="Skip common-mask reduction for debug exports")
 
+    parser.set_defaults(gapfill_upscale=True)
     args = parser.parse_args()
 
     subset = parse_subset(args.subset)
     dry = args.dry_run
+    tile_geom = load_fishnet_tile(args.tile_index) if args.tile_index is not None else None
+    tile_suffix = f"_tile{args.tile_index}" if args.tile_index is not None else ""
+    tile_suffix += args.name_suffix
 
     if args.dataset == "gapfill_mixed":
         folder = "HKH_rebuild_gapfill_mixed"
         print(f"=== GAPFILL_MIXED → {folder} ===")
-        export_gapfill(REPORT_SCENES, folder, "gapfill_mixed", dry, subset)
+        export_gapfill(REPORT_SCENES, folder, "gapfill_mixed", dry, subset, tile_geom, tile_suffix, args.forced_fill_date, args.gapfill_kernel_size, args.gapfill_min_neighbors, args.gapfill_upscale, args.gapfill_fallback_to_donor, args.disable_common_mask, args.disable_gapfill)
 
     elif args.dataset == "gapfill_le07":
         folder = "HKH_rebuild_gapfill_le07"
         scenes = scenes_LE07_only()
         print(f"=== GAPFILL_LE07 → {folder} ===")
-        export_gapfill(scenes, folder, "gapfill_le07", dry, subset)
+        export_gapfill(scenes, folder, "gapfill_le07", dry, subset, tile_geom, tile_suffix, args.forced_fill_date, args.gapfill_kernel_size, args.gapfill_min_neighbors, args.gapfill_upscale, args.gapfill_fallback_to_donor, args.disable_common_mask, args.disable_gapfill)
 
     elif args.dataset == "median":
         folder = "HKH_rebuild_median"
         dataset_name = (
             f"median_w{args.window_days}_c{args.max_cloud}_n{args.max_scenes}"
         )
+        if args.month_window is not None:
+            dataset_name += f"_m{args.month_window}"
         scenes = scenes_LE07_only()
         print(f"=== {dataset_name.upper()} → {folder} ===")
-        print(f"Window: ±{args.window_days}d, cloud <{args.max_cloud}%, max {args.max_scenes} closest scenes")
+        month_msg = (
+            f", month window ±{args.month_window}" if args.month_window is not None else ""
+        )
+        print(
+            f"Window: ±{args.window_days}d, cloud <{args.max_cloud}%, max {args.max_scenes} closest scenes{month_msg}"
+        )
         export_median(scenes, folder, dataset_name,
                       window_days=args.window_days,
                       max_cloud=args.max_cloud,
                       max_scenes=args.max_scenes,
-                      dry=dry, subset=subset)
+                      month_window=args.month_window,
+                      dry=dry, subset=subset,
+                      tile_geom=tile_geom,
+                      tile_suffix=tile_suffix)
 
 
 if __name__ == "__main__":
