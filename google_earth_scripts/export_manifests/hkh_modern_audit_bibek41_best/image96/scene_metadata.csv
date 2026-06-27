@@ -1,2 +1,0 @@
-tile_index,image_name,scene_pool,image_id,date,cloud_cover,wrs_path,wrs_row,spacecraft_id,sensor_id,system_time_start,rebuild_rank
-96,image96.tif,bibek,LE07_140041_20071221,2007-12-21,6,140,41,LANDSAT_7,ETM,1198211549575,964.3874427417047

@@ -1,20 +1,7 @@
-temp**/
-*.aux
-visualization/Layers
-dissertation/
-original_code/
-Python-Physics-LSTM/
-netcdf4-glacier-code/
-archive/
-**output/
-output_predictions/
-visualization/**/*.md
-old_code/
-**/export_manifests
-
 .ruff_cache/
 .python-version
 .vscode
+output/
 
 # PyTorch Lightning default directories (all output should be in output/ instead)
 checkpoints/
@@ -25,9 +12,6 @@ lightning_logs/
 *.pdf
 *.tif
 *.nc
-!docs/
-!docs/figures/
-!docs/figures/*.png
 
 ############### https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore
 # Byte-compiled / optimized / DLL files

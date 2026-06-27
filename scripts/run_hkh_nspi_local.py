@@ -14,8 +14,9 @@ Implemented core logic:
 - temporal prediction: D(p) + weighted mean(T(q) - D(q))
 - blend predictions by original R1/R2 weights
 
-Input raw stacks are exported by scripts/export_hkh_nspi_debug.py:
-B1,B2,B3,B4,B5,B7,valid_optical.
+Input raw stacks are exported by scripts/export_hkh_nspi.py:
+B1,B2,B3,B4,B5,B7,QA_PIXEL,QA_RADSAT,data_present,clear_valid,slc_gap.
+Older 7-band debug stacks with valid_optical as band 7 are still supported.
 """
 
 from __future__ import annotations
@@ -225,9 +226,28 @@ def load_stack(path: Path) -> tuple[np.ndarray, np.ndarray, dict]:
         arr = src.read().astype(np.float32)
         profile = src.profile.copy()
     optical = arr[:6]
-    valid = arr[6] > 0.5
+    if arr.shape[0] >= 10:
+        valid = arr[9] > 0.5  # clear_valid
+    else:
+        valid = arr[6] > 0.5  # legacy valid_optical
     valid &= np.isfinite(optical).all(axis=0)
     return optical, valid, profile
+
+
+def load_stack_with_fill_mask(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    with rasterio.open(path) as src:
+        arr = src.read().astype(np.float32)
+        profile = src.profile.copy()
+    optical = arr[:6]
+    if arr.shape[0] >= 11:
+        valid = arr[9] > 0.5  # clear_valid for common-pixel search
+        fill_mask = arr[10] > 0.5  # target slc_gap only
+    else:
+        valid = arr[6] > 0.5
+        fill_mask = ~valid
+    valid &= np.isfinite(optical).all(axis=0)
+    fill_mask &= np.isfinite(optical).all(axis=0) | fill_mask
+    return optical, valid, fill_mask, profile
 
 
 def compute_similarity_threshold(donor: np.ndarray, donor_valid: np.ndarray, num_class: int) -> float:

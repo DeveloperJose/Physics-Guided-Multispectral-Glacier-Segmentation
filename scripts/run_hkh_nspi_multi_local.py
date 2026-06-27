@@ -38,6 +38,7 @@ from run_hkh_nspi_local import (
     _nspi_single,
     compute_similarity_threshold,
     load_stack,
+    load_stack_with_fill_mask,
     write_outputs,
 )
 
@@ -93,13 +94,14 @@ def main() -> None:
     if debug_dir is not None:
         debug_dir.mkdir(parents=True, exist_ok=True)
 
-    target, target_valid, profile = load_stack(args.target)
+    target, target_valid, target_fill_mask, profile = load_stack_with_fill_mask(args.target)
     filled = target.copy()
     quality = np.zeros(target.shape[1:], dtype=np.uint8)
-    remaining = ~target_valid
+    remaining = target_fill_mask.copy()
 
     donor_summaries: list[dict] = []
     print(f"target valid fraction: {target_valid.mean():.4f}")
+    print(f"target fill-mask fraction: {target_fill_mask.mean():.4f}")
 
     for donor_idx, donor_path in enumerate(args.donors, start=1):
         donor, donor_valid, _ = load_stack(donor_path)

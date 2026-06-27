@@ -126,13 +126,14 @@ glacier_mapping/
 ├── lightning/   # Module, datamodule, callbacks
 ├── model/       # UNet, losses, evaluation
 └── utils/       # Config, logging, MLflow, GPU, viz
+google_earth_engine/   # GEE export tasks, fishnet
+live_demo/              # Gradio app + demo data
 scripts/
 ├── train.py
 ├── predict.py
 ├── preprocess.py
 ├── upload_to_mlflow.py
 ├── test.py
-├── app_gradio.py
 └── create_velocity_from_itslive_mosaic.py
 output/
 ```
